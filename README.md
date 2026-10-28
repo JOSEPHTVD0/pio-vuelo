@@ -2,6 +2,12 @@
 
 Juego arcade de un pájaro que vuela entre tubos, con monedas, power-ups, tienda, misiones, récords y progresión. Funciona como aplicación web instalable (PWA) y también como APK Android mediante WebView.
 
+## 🎮 Jugar online
+
+**https://josephtvd0.github.io/pio-vuelo/**
+
+El juego se publica automáticamente con GitHub Pages desde la rama `main`.
+
 ## Características
 
 - Vuelo con física de aleteo y dificultad progresiva.
