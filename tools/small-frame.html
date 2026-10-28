@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Prueba de HUD en móvil</title>
+<style>
+  body { margin: 0; background: #101828; font-family: system-ui, sans-serif; color: #fff; }
+  .row { display: flex; gap: 18px; padding: 14px; align-items: flex-start; }
+  .case { background: #1d2939; border-radius: 10px; padding: 8px; }
+  .case h2 { margin: 0 0 6px; font-size: 13px; color: #cbd5e1; }
+  iframe { display: block; border: 1px solid #475467; background: #000; }
+</style>
+</head>
+<body>
+<div class="row">
+  <div class="case"><h2>320 × 480</h2><iframe id="f320" src="/index.html" width="320" height="480"></iframe></div>
+  <div class="case"><h2>360 × 640</h2><iframe id="f360" src="/index.html" width="360" height="640"></iframe></div>
+  <div class="case"><h2>768 × 1024</h2><iframe id="f768" src="/index.html" width="768" height="1024"></iframe></div>
+</div>
+</body>
+</html>

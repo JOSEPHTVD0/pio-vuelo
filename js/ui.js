@@ -1,0 +1,2111 @@
+/* Interfaz: pantallas, tienda, mapas, progreso, ajustes, modales, toasts */
+window.UI = (function () {
+  'use strict';
+
+  const $ = id => document.getElementById(id);
+
+  let currentGeneric = null;
+
+  function hideAllScreens() {
+    ['screen-loading', 'screen-home', 'screen-pause', 'screen-over', 'screen-cleared', 'screen-generic', 'screen-modepick'].forEach(id => {
+      $(id).classList.add('hidden');
+    });
+  }
+
+  // Animación del ave + nido en la pantalla de inicio
+  let homeRaF = null;
+  function startHomeAnim() {
+    const cv = document.getElementById('homeBird');
+    if (!cv || homeRaF) return;
+    const c = cv.getContext('2d');
+    const frame = ms => {
+      const home = document.getElementById('screen-home');
+      if (!home || home.classList.contains('hidden') || !document.getElementById('homeBird')) { homeRaF = null; return; }
+      drawNestScene(c, cv.width, cv.height, ms);
+      homeRaF = requestAnimationFrame(frame);
+    };
+    homeRaF = requestAnimationFrame(frame);
+  }
+
+  // Escena del hogar: fondo decorado, póster, suelo, alfombra, nido en crecimiento,
+  // huevos incubando y el ave posada. Nido y huevos usan tiempo real (Date.now).
+  let nestStatic = null; // capa estática (decoración + nido) pre-renderizada cada frame
+  function roundRectP(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+  function renderStaticLayer(w, h, bg, fl, po, rg, ni) {
+    const off = document.createElement('canvas');
+    off.width = w; off.height = h;
+    const c = off.getContext('2d');
+    // fondo (decoración)
+    const bgG = c.createLinearGradient(0, 0, 0, h);
+    bgG.addColorStop(0, bg.bg1); bgG.addColorStop(1, bg.bg2);
+    c.fillStyle = bgG;
+    c.fillRect(0, 0, w, h);
+    c.globalAlpha = 0.28;
+    c.font = '26px sans-serif';
+    c.textAlign = 'center';
+    c.fillText(bg.art, w * 0.87, 28);
+    c.globalAlpha = 1;
+    // póster enmarcado
+    if (po.art) {
+      c.fillStyle = 'rgba(255,255,255,.16)';
+      roundRectP(c, 13, 13, 48, 42, 9); c.fill();
+      c.strokeStyle = 'rgba(255,255,255,.4)';
+      c.lineWidth = 2;
+      roundRectP(c, 13, 13, 48, 42, 9); c.stroke();
+      c.font = '24px sans-serif';
+      c.fillText(po.art, 37, 44);
+    }
+    // suelo (decoración)
+    const fy = h - 48;
+    const fG = c.createLinearGradient(0, fy, 0, h);
+    fG.addColorStop(0, fl.bg1); fG.addColorStop(1, fl.bg2);
+    c.fillStyle = fG;
+    c.fillRect(0, fy, w, h - fy);
+    c.fillStyle = 'rgba(255,255,255,.4)';
+    c.fillRect(0, fy, w, 2.5);
+    // alfombra (decoración)
+    if (rg.art) {
+      c.save();
+      c.translate(w / 2, h - 14);
+      c.fillStyle = rg.bg1;
+      c.beginPath(); c.ellipse(0, 0, 64, 13, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.35)';
+      c.beginPath(); c.ellipse(0, -2, 54, 9, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = rg.bg2;
+      c.beginPath(); c.ellipse(0, -4, 42, 7, 0, 0, Math.PI * 2); c.fill();
+      c.font = '13px sans-serif';
+      c.textAlign = 'center';
+      c.fillText(rg.art, -32, 4);
+      c.fillText(rg.art, 32, 4);
+      c.restore();
+    }
+    // nido en crecimiento (la base crece con el nivel + va ganando objetos decorativos)
+    const nx = w / 2;
+    const ny = fy - 30;
+    c.save();
+    c.translate(nx, ny);
+    const base = 20 + Math.min(9, ni.level) * 4;
+    const ry = base * 0.42;
+    // sombra
+    c.fillStyle = 'rgba(0,0,0,.22)';
+    c.beginPath(); c.ellipse(0, 8, base + 6, 7, 0, 0, Math.PI * 2); c.fill();
+    // ramas exteriores
+    c.strokeStyle = '#7a4a22';
+    c.lineWidth = 4;
+    c.beginPath(); c.arc(0, 0, base, Math.PI * 1.05, Math.PI * 1.95); c.stroke();
+    c.strokeStyle = '#8d5a2a';
+    c.lineWidth = 3;
+    c.beginPath(); c.arc(0, 0, base - 2, Math.PI * 1.1, Math.PI * 1.9); c.stroke();
+    // interior
+    c.fillStyle = '#a06a30';
+    c.beginPath(); c.ellipse(0, 0, base - 4, ry, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#b57939';
+    c.beginPath(); c.ellipse(0, 0, base - 7, ry - 2, 0, 0, Math.PI * 2); c.fill();
+    // objetos decorativos: 1 por moneda ganada en vuelo (máx. NEST_MAX_OBJ)
+    c.font = '11px sans-serif';
+    c.textAlign = 'center';
+    const OBJ_ART = ['🌼', '🪨', '🪶', '🍒', '⭐', '🌿', '🫐', '🍀'];
+    for (let i = 0; i < ni.objCount; i++) {
+      const p2 = DAT.nestObjPos(i);
+      c.globalAlpha = 0.95;
+      c.fillText(OBJ_ART[p2.t], p2.x + (i % 3) * 3, p2.y + 4);
+    }
+    c.globalAlpha = 1;
+    c.restore();
+    return off;
+  }
+
+  function drawNestScene(c, w, h, ms) {
+    const s = SAVE.get();
+    const bg = DAT.getDecor(s.nest.decor.bg);
+    const fl = DAT.getDecor(s.nest.decor.floor);
+    const po = DAT.getDecor(s.nest.decor.poster);
+    const rg = DAT.getDecor(s.nest.decor.rug);
+    const ni = DAT.nestInfo(s.stats.coinsGot || 0);
+    // solo se re-pinta la capa estática cuando cambia decoración/nivel/objetos
+    const k = bg.id + '|' + fl.id + '|' + po.id + '|' + rg.id + '|' + ni.level + '|' + ni.objCount + '|' + w + 'x' + h;
+    if (!nestStatic || nestStatic.k !== k) {
+      nestStatic = { k: k, off: renderStaticLayer(w, h, bg, fl, po, rg, ni) };
+    }
+    c.clearRect(0, 0, w, h);
+    c.drawImage(nestStatic.off, 0, 0);
+    const nx = w / 2;
+    const ny = h - 48 - 30;
+    const base = 20 + Math.min(9, ni.level) * 4;
+
+    // huevos incubando junto al nido (tiempo real)
+    c.save();
+    c.translate(nx, ny);
+    SAVE.eggIncubating().forEach((e, i) => {
+      const ex = -base - 2 - i * 16;
+      const busy = Math.sin(ms / 300 + i) * 2;
+      c.font = '13px sans-serif';
+      c.textAlign = 'center';
+      c.fillText(e.done ? '🐣' : '🥚', ex, -6 - i * 4 + busy);
+      c.globalAlpha = e.done ? 1 : 0.55;
+      c.fillStyle = '#cdefff';
+      c.fillRect(ex - 7, 6 - i * 4 + busy, 14, 3);
+      c.fillStyle = '#ffd54f';
+      c.fillRect(ex - 7, 6 - i * 4 + busy, 14 * (e.pct / 100), 3);
+      c.globalAlpha = 1;
+    });
+    c.restore();
+
+    // estela del ave equipada (FX) detrás del ave
+    const skin = DAT.getSkin(s.skin);
+    const hat = s.hat ? DAT.getHat(s.hat) : null;
+    const fx = DAT.getFx(s.fx);
+    const bob = Math.sin(ms / 240) * 4;
+    if (fx && fx.color) {
+      c.globalAlpha = 0.2;
+      for (let i = 1; i <= 5; i++) {
+        c.fillStyle = fx.color;
+        c.beginPath();
+        c.arc(nx - 8 - i * 10, ny + bob * 0.4 + (i % 2 ? -4 : 5), 11 - i * 1.7, 0, Math.PI * 2);
+        c.fill();
+      }
+      c.globalAlpha = 1;
+    }
+    const flap = 0.62 + 0.38 * Math.sin(ms / 95);
+    ENTS.drawBird(c, nx, ny - 6 + bob, {
+      skin: skin, hat: hat, t: ms / 600,
+      wingPhase: flap, squash: 1, rot: Math.sin(ms / 420) * 0.05, r: 20,
+      stage: SAVE.skinStage(s.skin),
+      golden: !!skin.golden, ghost: false
+    });
+  }
+
+  function showLoading() {
+    hideAllScreens();
+    $('screen-loading').classList.remove('hidden');
+  }
+
+  function showHome() {
+    hideAllScreens();
+    $('screen-home').classList.remove('hidden');
+    refreshHome();
+    startHomeAnim();
+    $('screen-generic').classList.add('hidden');
+  }
+
+  function refreshHome() {
+    const s = SAVE.get();
+    $('homeCoins').textContent = s.coins;
+    $('homeBest').textContent = s.stats.best;
+    $('homeLevel').textContent = 'Nv. ' + s.level;
+    const cur = SAVE.xpFor(s.level);
+    $('homeXp').style.width = Math.min(100, Math.round(s.xp / cur * 100)) + '%';
+    const nmEl = document.getElementById('homeName');
+    if (nmEl) nmEl.textContent = SAVE.getProfile().name || 'Jugador';
+    const shEl = document.getElementById('homeShields');
+    if (shEl) {
+      const stock = SAVE.shieldCount();
+      shEl.textContent = '🛡️ ' + stock;
+      shEl.title = 'Escudos guardados: ' + stock +
+        '. Se acumulan entre compras, pero cada partida solo puede gastar 1 al bloquear un choque. Los 🛡️ que recoges en vuelo son aparte y solo duran esa partida.';
+    }
+    const stop = document.getElementById('homeSoundIco');
+    stop.textContent = s.set.sfx ? '🔊' : '🔇';
+    const btnReplay = document.getElementById('btnReplay');
+    if (btnReplay) {
+      const rp = s.replay;
+      if (rp) {
+        btnReplay.classList.remove('hidden');
+        btnReplay.textContent = '🎬 Replay · ' + rp.score + ' pts';
+      } else {
+        btnReplay.classList.add('hidden');
+      }
+    }
+    drawDaily();
+    drawDailyRun();
+    drawHomeTools();
+    drawNestStatus();
+    startEggTick();
+  }
+
+  // Resumen del nido + incubadora con tiempo real en la pantalla de inicio
+  let eggTick = null;
+  function startEggTick() {
+    if (eggTick) return;
+    eggTick = setInterval(() => {
+      if (!$('screen-home') || !$('homeNest')) return;
+      if ($('screen-home').classList.contains('hidden')) return;
+      const eggs = SAVE.eggIncubating();
+      const el = $('homeNest');
+      if (!el) return;
+      el.querySelectorAll('.eggpill').forEach((pill, i) => {
+        const e = eggs[i];
+        if (!e) return;
+        const bar = pill.querySelector('.eggbar.sm i');
+        if (bar) bar.style.width = e.pct + '%';
+        const time = pill.querySelector('.eggpill-time');
+        if (time) time.textContent = fmtLeft(e.leftMs);
+        if (e.done && !pill.classList.contains('ready')) {
+          pill.classList.add('ready');
+          const ico = pill.querySelector('.eggpill-ico');
+          if (ico) ico.textContent = '🐣';
+          if (time) {
+            time.remove();
+            const btn = document.createElement('button');
+            btn.className = 'eggpill-btn';
+            btn.setAttribute('data-hatch', String(i));
+            btn.textContent = 'Eclosionar';
+            btn.onclick = () => { SND.sfx.click(); hatchEggAction(i); };
+            pill.appendChild(btn);
+          }
+        }
+      });
+    }, 1000);
+  }
+  function drawNestStatus() {
+    const el = $('homeNest');
+    if (!el) return;
+    const s = SAVE.get();
+    const ni = DAT.nestInfo(s.stats.coinsGot || 0);
+    const html = [];
+    html.push('<div class="nest-line"><span class="nest-ico">🪺</span><span class="nest-lvl">' + ni.name + '</span><span class="nest-pct">' + ni.objCount + ' objetos</span></div>');
+    html.push('<div class="eggbar"><i style="width:' + ni.pct + '%"></i></div>');
+    if (ni.next) html.push('<div class="nest-sub">Nivel ' + (ni.level + 2) + ': ' + ni.next.name + ' con ' + ni.next.coins + ' monedas en vuelo</div>');
+    else html.push('<div class="nest-sub">¡Nido legendario! 🎉</div>');
+    const eggs = SAVE.eggIncubating();
+    if (eggs.length) {
+      eggs.forEach((e, i) => {
+        const d = DAT.getEgg(e.id);
+        html.push('<div class="eggpill' + (e.done ? ' ready' : '') + '">' +
+          '<span class="eggpill-ico">' + (e.done ? '🐣' : '🥚') + '</span>' +
+          '<span class="eggpill-name">' + (d ? d.name : 'Huevo') + '</span>' +
+          '<span class="eggbar sm"><i style="width:' + e.pct + '%"></i></span>' +
+          (e.done
+            ? '<button class="eggpill-btn" data-hatch="' + i + '">Eclosionar</button>'
+            : '<span class="eggpill-time">' + fmtLeft(e.leftMs) + '</span>') +
+          '</div>');
+      });
+    } else {
+      const slots = SAVE.eggSlotsFree();
+      html.push('<div class="nest-sub">Sin huevos incubando · ' + slots + ' hueco' + (slots === 1 ? '' : 's') + ' libre' + (slots === 1 ? '' : 's') + ' en la incubadora</div>');
+    }
+    el.innerHTML = html.join('');
+    el.querySelectorAll('[data-hatch]').forEach(b => {
+      b.onclick = () => {
+        SND.sfx.click();
+        hatchEggAction(parseInt(b.getAttribute('data-hatch'), 10));
+      };
+    });
+  }
+
+  function fmtLeft(ms) {
+    const m = Math.floor(ms / 60000);
+    if (m < 1) return '≤ 1 min';
+    if (m < 60) return m + ' min';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + ' h ' + (m % 60) + ' min';
+    return Math.floor(h / 24) + ' d ' + (h % 24) + ' h';
+  }
+
+  // Eclosiona el huevo ya listo: da un ave o una estela
+  function hatchEggAction(idx) {
+    const r = SAVE.hatchEgg(idx);
+    if (!r) return;
+    if (r.kind === 'coins') {
+      toast('Eclosionó en monedas (+' + r.amount + ' 🪙) — ¡ya lo tienes todo!', 'good');
+    } else if (r.kind === 'skin') {
+      toast('🐣 ¡Eclosionó ' + r.item.name + '! Pío la usa', 'good');
+    } else {
+      toast('🐣 ¡Eclosionó ' + r.item.name + '! Estela equipada', 'good');
+    }
+    SND.sfx.achieve();
+    refreshHome();
+    SAVE.checkAch().forEach(a => popAch(a));
+  }
+
+  /* Popup de elección de modo: JUGAR en la pantalla principal */
+  let modePickOpen = false;
+  function showModePick() {
+    modePickOpen = true;
+    refreshModePick();
+    hideAllScreens();
+    $('screen-modepick').classList.remove('hidden');
+  }
+  function closeModePick() {
+    modePickOpen = false;
+    $('screen-modepick').classList.add('hidden');
+    showHome();
+  }
+  function isModePickOpen() { return modePickOpen; }
+  function refreshModePick() {
+    const setTag = (id, txt) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = txt;
+    };
+    const s = SAVE.get();
+    setTag('mpFreeSub', s.stats.best ? '· Récord ' + s.stats.best + ' pts' : '');
+    setTag('mpDuelSub', (s.stats.duelWins || 0) ? '· 🏆 ' + s.stats.duelWins : '');
+    setTag('mpDailySub', SAVE.challengePlayedToday() ? '🌙 Ya jugaste hoy' : '');
+    setTag('mpZenSub', (s.stats.zenBest || 0) ? '· Mejor ' + s.stats.zenBest + ' m' : '');
+    setTag('mpBossSub', (s.stats.bossDefeated || 0) ? '· 👹 ' + s.stats.bossDefeated + ' derrotados' : '');
+    setTag('mpWindSub', (s.stats.windZones || 0) ? '· 💨 ' + s.stats.windZones + ' tramos' : '');
+    const m = G.getMode();
+    [['mpFree', 'free'], ['mpDuel', 'duel'], ['mpDaily', 'challenge'], ['mpZen', 'zen'], ['mpBoss', 'boss'], ['mpWind', 'wind']].forEach(pair => {
+      const el = document.getElementById(pair[0]);
+      if (el) el.classList.toggle('active', m === pair[1]);
+    });
+  }
+
+  function drawDailyRun() {
+    const el = document.getElementById('dailyRunPill');
+    if (!el) return;
+    if (SAVE.challengePlayedToday()) {
+      el.textContent = '🌱 Semilla ' + SAVE.seedToday() + ' · Récord: ' + SAVE.get().dailyC.best + ' pts';
+      el.classList.add('done');
+    } else {
+      el.textContent = '🌱 Semilla del día · +hasta 150 🪙';
+      el.classList.remove('done');
+    }
+  }
+
+  function drawHomeTools() {
+    const el = document.getElementById('homeTools');
+    if (!el) return;
+    const it = SAVE.get().items || {};
+    const parts = [];
+    DAT.TOOLS.forEach(t => { if ((it[t.key] || 0) > 0) parts.push(t.icon + ' x' + it[t.key]); });
+    if (parts.length) {
+      el.textContent = '🎒 ' + parts.join(' ');
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  }
+
+  function drawDaily() {
+    const el = $('dailyPill');
+    if (!el) return;
+    const info = SAVE.dailyInfo();
+    if (info.ready) {
+      const bonus = info.streak % 7 === 0 ? 50 : 0;
+      el.classList.remove('hidden');
+      el.textContent = '🎁 Recompensa diaria: +' + (20 + info.streak * 10 + bonus) + ' 🪙' + (bonus ? ' (+' + bonus + ' bono)' : '') + ' · 🔥 ' + info.streak + ' día' + (info.streak === 1 ? '' : 's');
+    } else {
+      el.classList.add('hidden');
+    }
+  }
+
+  /* ---------- HUD ---------- */
+  function setHudVisible(v) { $('hud').classList.toggle('hidden', !v); }
+  function showStartHint(v) { $('start-hint').classList.toggle('hidden', !v); }
+
+  /* Barra de herramientas manuales en vuelo (un botón por herramienta armada).
+   Solo se reconstruye cuando cambia la lista o su cantidad (no en cada frame). */
+  function refreshHudTools() {
+    const bar = document.getElementById('hudTools');
+    if (!bar) return;
+    const list = G && G.manualToolList ? G.manualToolList() : [];
+    if (G && G.isPlay() && list.length) {
+      const sig = list.map(t => t.key + ':' + SAVE.itemCount(t.key)).join('|');
+      bar.classList.remove('hidden');
+      if (bar._sig === sig) return;
+      bar._sig = sig;
+      bar.innerHTML = '';
+      list.forEach(t => {
+        const b = document.createElement('button');
+        b.className = 'hud-btn hud-tb';
+        b.setAttribute('aria-label', t.name);
+        b.innerHTML = t.icon + '<span class="t-cnt">' + SAVE.itemCount(t.key) + '</span>';
+        b.onclick = () => {
+          SND.sfx.click();
+          G.useBagTool(t.key);
+        };
+        bar.appendChild(b);
+      });
+    } else {
+      bar._sig = '';
+      bar.classList.add('hidden');
+    }
+  }
+
+  /* Cronómetros de habilidades: una ficha por efecto activo, sin duplicados.
+   Solo se reconstruye el DOM cuando cambia la lista; el texto/anchura solo
+   cuando cambia el valor mostrado (una décima de segundo). */
+  let effSig = '';
+  function updateEffectTimers(timers) {
+    const bar = document.getElementById('hudEffects');
+    if (!bar) return;
+    const list = Array.isArray(timers) ? timers : [];
+    if (!list.length) {
+      if (effSig !== '') { bar.innerHTML = ''; bar.classList.add('hidden'); effSig = ''; }
+      return;
+    }
+    bar.classList.remove('hidden');
+    // Se coloca justo debajo de la fila superior real (pausa, puntos, monedas,
+    // escudos y racha). Así nunca se solapa aunque aparezcan más datos o cambie
+    // el tamaño de pantalla, en lugar de depender de una altura fija.
+    const topRow = document.querySelector('#hud .hud-top');
+    if (topRow) {
+      const r = topRow.getBoundingClientRect();
+      if (r.height > 0) {
+        const top = Math.round(r.bottom + 6);
+        if (bar._top !== top) { bar.style.top = top + 'px'; bar._top = top; }
+      }
+    }
+    const sig = list.map(e => e.key).join('|');
+    if (sig !== effSig) {
+      bar.innerHTML = '';
+      list.forEach(e => {
+        const chip = document.createElement('div');
+        chip.className = 'eff-chip';
+        chip.dataset.key = e.key;
+        chip.innerHTML = '<span class="eff-ico">' + e.icon + '</span>' +
+          '<span class="eff-lbl">' + e.label + '</span>' +
+          '<span class="eff-time">0.0s</span>' +
+          '<span class="eff-bar"><i></i></span>';
+        bar.appendChild(chip);
+      });
+      effSig = sig;
+    }
+    const chips = bar.children;
+    for (let i = 0; i < chips.length; i++) {
+      const chip = chips[i];
+      const e = list[i];
+      if (!e) continue;
+      const left = Math.max(0, e.left);
+      const shown = left >= 10 ? Math.ceil(left) + 's' : left.toFixed(1) + 's';
+      if (chip._shown !== shown) {
+        const tm = chip.querySelector('.eff-time');
+        if (tm) tm.textContent = shown;
+        chip._shown = shown;
+      }
+      const pct = Math.round(Math.max(0, Math.min(1, e.pct)) * 100);
+      if (chip._pct !== pct) {
+        const fill = chip.querySelector('.eff-bar i');
+        if (fill) fill.style.width = pct + '%';
+        chip._pct = pct;
+      }
+      const state = left <= 2 ? 'expiring' : 'active';
+      if (chip._state !== state) {
+        chip.classList.toggle('expiring', state === 'expiring');
+        chip.classList.toggle('active', state === 'active');
+        chip._state = state;
+      }
+    }
+  }
+
+  /* ---------- Pausa ---------- */
+  function setPaused(p) {
+    $('screen-pause').classList.toggle('hidden', !p);
+    showStartHint(p ? false : !!(G.waitingFly && G.waitingFly()));
+    if (p) {
+      const ps = $('pauseStats');
+      if (ps) ps.textContent = '🪙 ' + G.getScore() + ' pts · ' + G.getDist() + ' m';
+    }
+  }
+
+  /* ---------- Game over ---------- */
+  function showGameOver(score, best, coinsGot, pipesPassed, dist, isRecord, ach, levelUps) {
+    $('overScore').textContent = score;
+    $('overBest').textContent = best;
+    $('overCoins').textContent = coinsGot;
+    $('overDist').textContent = dist + ' m';
+    const msgEl = document.getElementById('overMsg');
+    const titleEl = $('screen-over').querySelector('h2');
+    titleEl.textContent = 'GAME OVER';
+    if (score >= 50) msgEl.textContent = '¡Leyenda del cielo! 🌟';
+    else if (score >= 30) msgEl.textContent = '¡Vuelo dominado! 🏆';
+    else if (score >= 15) msgEl.textContent = '¡Buen vuelo! 👏';
+    else if (score >= 5) msgEl.textContent = '¡Buen comienzo! 🌱';
+    else msgEl.textContent = '¡Sigue practicando! 💪';
+    const medal = document.getElementById('overMedal');
+    if (isRecord) { medal.textContent = '👑'; SND.sfx.medal(); }
+    else if (score >= 50) medal.textContent = '🥇';
+    else if (score >= 30) medal.textContent = '🥈';
+    else if (score >= 15) medal.textContent = '🥉';
+    else medal.textContent = '';
+    const lu = document.getElementById('overLevelup');
+    lu.classList.toggle('hidden', !(levelUps > 0));
+    $('screen-over').classList.remove('hidden');
+    ach.forEach(a => popAch(a));
+  }
+
+  /* Pantalla de victoria genérica (Duelo) */
+  function showModeClear(o) { buildClear(o); }
+
+  function buildClear(o) {
+    $('clearTitle').textContent = o.title;
+    $('clearStars').textContent = o.stars;
+    const lvL = document.getElementById('clearLbl');
+    const tgL = document.getElementById('clearTgtLbl');
+    if (lvL) lvL.textContent = o.lvLbl;
+    if (tgL) tgL.textContent = o.tgtLbl;
+    $('clearLevel').textContent = o.lv;
+    $('clearTarget').textContent = o.tgt;
+    $('clearReward').textContent = '+' + o.reward + ' 🪙';
+    $('clearXp').textContent = '+' + o.xp + ' XP';
+    const lu = document.getElementById('clearLevelup');
+    lu.classList.toggle('hidden', !(o.lvUps > 0));
+    const next = $('btnNextLevel');
+    next.textContent = o.btn || '🔄 VOLVER A VOLAR';
+    SND.sfx.achieve();
+    hideAllScreens();
+    $('screen-cleared').classList.remove('hidden');
+    (o.ach || []).forEach(a => popAch(a));
+  }
+
+  /* ---------- Popup de logros: encima de todo, uno a uno ---------- */
+  const achQueue = [];
+  let achBusy = false;
+
+  function popAch(ach) {
+    achQueue.push(ach);
+    if (!achBusy) nextAch();
+  }
+
+  function nextAch() {
+    if (!achQueue.length) { achBusy = false; return; }
+    achBusy = true;
+    const a = achQueue.shift();
+    const el = $('achPopup');
+    const nm = el.querySelector('.ach-name');
+    const sb = el.querySelector('.ach-sub');
+    if (nm) nm.textContent = a.name;
+    if (sb) sb.textContent = '+' + a.reward + ' 🪙 por este logro';
+    SND.sfx.achieve();
+    el.classList.remove('hidden');
+    el.classList.remove('pop-in');
+    void el.offsetWidth;
+    el.classList.add('pop-in');
+    setTimeout(() => {
+      el.classList.add('hidden');
+      setTimeout(nextAch, 300);
+    }, 2800);
+  }
+
+  /* ---------- Toast ---------- */
+  const MAX_TOASTS = 3; // máx. visibles para no llenar la pantalla
+  function toast(msg, type) {
+    const wrap = $('toastWrap');
+    // quitar los más antiguos sobrantes de golpe (sin acumular cosas viejas)
+    while (wrap.childElementCount >= MAX_TOASTS) {
+      const old = wrap.firstElementChild;
+      if (old) old.remove();
+    }
+    const el = document.createElement('div');
+    el.className = 'toast ' + (type || '');
+    el.textContent = msg;
+    wrap.appendChild(el);
+    setTimeout(() => {
+      el.style.transition = 'opacity .4s, transform .4s';
+      el.style.opacity = '0'; el.style.transform = 'translateY(-14px)';
+      setTimeout(() => el.remove(), 400);
+    }, 2400);
+  }
+
+  /* ---------- Modal ---------- */
+  function confirm(title, text, actions) {
+    $('modalTitle').textContent = title;
+    $('modalText').textContent = text;
+    const box = $('modalActions');
+    box.innerHTML = '';
+    actions.forEach(a => {
+      const b = document.createElement('button');
+      b.className = 'btn ' + (a.style || '');
+      b.textContent = a.label;
+      b.onclick = () => { $('modal').classList.add('hidden'); if (a.cb) a.cb(); };
+      box.appendChild(b);
+    });
+    $('modal').classList.remove('hidden');
+  }
+
+  /* ---------- Navegación genérica ---------- */
+  function openGeneric(kind, tab) {
+    currentGeneric = kind;
+    $('screen-generic').classList.remove('hidden');
+    $('genBody').innerHTML = '';
+    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤' };
+    $('genTitle').textContent = titles[kind] || '';
+    $('genCoins').textContent = SAVE.get().coins;
+    switch (kind) {
+      case 'shop': renderShop(tab); break;
+      case 'maps': renderMaps(); break;
+      case 'progress': renderProgress(); break;
+      case 'settings': renderSettings(); break;
+      case 'missions': renderMissions(); break;
+      case 'pass': renderPass(); break;
+      case 'home': renderHome(tab); break;
+      case 'records': renderRecords(); break;
+      case 'profile': renderProfile(); break;
+      default: break;
+    }
+    $('genBody').scrollTop = 0;
+  }
+
+  function closeGeneric() {
+    const inGame = G.getState() === 'play';
+    currentGeneric = null;
+    hideAllScreens();
+    if (inGame) {
+      // Se entró a ajustes desde la pausa: el juego queda donde estaba, sin reiniciarse
+      if (G.isPaused()) $('screen-pause').classList.remove('hidden');
+    } else {
+      showHome();
+    }
+  }
+
+  /* ---------- TIENDA ---------- */
+  function nextWeekPreview() {
+    const wk = DAT.curWeek() + 1;
+    const acc = [];
+    DAT.SKINS.forEach(o => { if (o.week === wk) acc.push({ i: '🐤', n: o.name }); });
+    DAT.HATS.forEach(o => { if (o.week === wk) acc.push({ i: '👒', n: o.name }); });
+    DAT.EFFECTS.forEach(o => { if (o.week === wk) acc.push({ i: '✨', n: o.name }); });
+    DAT.TOOLS.forEach(o => { if (o.week === wk) acc.push({ i: o.icon, n: o.name }); });
+    DAT.MAPS.forEach(o => { if (o.week === wk) acc.push({ i: o.icon, n: o.name }); });
+    if (!acc.length) return null;
+    return '📅 Próxima semana (Semana ' + wk + '): ' + acc.map(x => x.i + ' ' + x.n).join(' · ');
+  }
+
+  function renderShop(initialCat) {
+    const body = $('genBody');
+    const tabs = document.createElement('div');
+    tabs.className = 'tabs shop-tabs';
+    const cats = [['skins', '🐤', 'Aves'], ['hats', '🎩', 'Sombreros'], ['fx', '💫', 'Estelas'], ['tools', '🎒', 'Herramientas'], ['box', '🥚', 'Cajas']];
+    let activeCat = (initialCat && cats.some(c => c[0] === initialCat)) ? initialCat : 'skins';
+    const tabEls = [];
+    cats.forEach(c => {
+      const b = document.createElement('button');
+      b.className = 'tab' + (c[0] === activeCat ? ' active' : '');
+      const ownedCount = c[0] === 'skins' ? SAVE.get().skinsOwned.length
+        : c[0] === 'hats' ? SAVE.get().hatsOwned.length
+        : c[0] === 'fx' ? SAVE.get().fxOwned.length
+        : c[0] === 'box' ? (SAVE.get().stats.boxesBought || 0)
+        : itemTotal();
+      b.innerHTML = '<span class="tab-ico">' + c[1] + '</span><span class="tab-t">' + c[2] + '</span><span class="tab-cnt">' + ownedCount + '</span>';
+      b.dataset.cat = c[0];
+      b.onclick = () => {
+        activeCat = c[0];
+        tabEls.forEach(x => x.classList.toggle('active', x === b));
+        drawShopPrev(activeCat, equippedFor(activeCat));
+        drawShopItems(activeCat);
+        $('genBody').scrollTop = 0;
+        SND.sfx.click();
+      };
+      tabEls.push(b);
+      tabs.appendChild(b);
+    });
+    body.appendChild(tabs);
+
+    // Mi equipo: acceso rápido a lo equipado (avisar ya / cambiarlo)
+    const s = SAVE.get();
+    const load = document.createElement('div');
+    load.className = 'shop-load';
+    const mkChip = (cat, ico, name) => {
+      const c = document.createElement('button');
+      c.className = 'sl-chip';
+      c.innerHTML = '<span class="sl-ico">' + ico + '</span><span class="sl-name"></span>';
+      c.dataset.cat = cat;
+      c.onclick = () => {
+        activeCat = cat;
+        tabEls.forEach(x => x.classList.toggle('active', x.dataset.cat === cat));
+        drawShopPrev(activeCat, equippedFor(activeCat));
+        drawShopItems(activeCat);
+        $('genBody').scrollTop = 0;
+        SND.sfx.click();
+      };
+      c.querySelector('.sl-name').textContent = name;
+      load.appendChild(c);
+      return c;
+    };
+    mkChip('skins', '🐤', DAT.getSkin(s.skin).name);
+    mkChip('hats', '🎩', s.hat ? DAT.getHat(s.hat).name : 'Sin sombrero');
+    mkChip('fx', '💫', DAT.getFx(s.fx).name);
+    body.appendChild(load);
+
+    const info = document.createElement('div');
+    info.className = 'panel-note week-note';
+    info.textContent = nextWeekPreview() || '📅 Hoy es la Semana ' + DAT.curWeek() + ' · cada semana se habilitan 2 ítems nuevos.';
+    body.appendChild(info);
+
+    const panel = document.createElement('div');
+    panel.className = 'shop-prev';
+    panel.innerHTML =
+      '<canvas id="shopPrevCv" width="150" height="112"></canvas>' +
+      '<div class="shop-prev-i"><div id="shopPrevName" class="shop-prev-name"></div>' +
+      '<div id="shopPrevSub" class="shop-prev-sub"></div></div>';
+    body.appendChild(panel);
+    drawShopPrev(activeCat, equippedFor(activeCat));
+
+    const grid = document.createElement('div');
+    grid.className = 'items';
+    grid.id = 'shopGrid';
+    body.appendChild(grid);
+    drawShopItems(activeCat);
+  }
+
+  // ítem equipado para previsualizar al cambiar de pestaña
+  function equippedFor(cat) {
+    const s = SAVE.get();
+    if (cat === 'skins') return DAT.getSkin(s.skin);
+    if (cat === 'hats') return s.hat ? DAT.getHat(s.hat) : null;
+    if (cat === 'fx') return DAT.getFx(s.fx);
+    return null;
+  }
+
+  // actualiza la barra "Mi equipo" tras equipar/comprar
+  function updateShopLoad() {
+    const s = SAVE.get();
+    document.querySelectorAll('.sl-chip').forEach(ch => {
+      const c = ch.dataset.cat;
+      const nm = c === 'skins' ? DAT.getSkin(s.skin).name
+        : c === 'hats' ? (s.hat ? DAT.getHat(s.hat).name : 'Sin sombrero')
+        : DAT.getFx(s.fx).name;
+      const e = ch.querySelector('.sl-name');
+      if (e) e.textContent = nm;
+    });
+  }
+
+  function drawShopPrev(cat, item) {
+    const s = SAVE.get();
+    const cv = $('shopPrevCv');
+    const c = cv.getContext('2d');
+    const w = cv.width, h = cv.height;
+    c.clearRect(0, 0, w, h);
+    if (cat === 'box') {
+      const def = DAT.boxDef();
+      ENTS.drawBird(c, w / 2, h / 2 + 2, { skin: DAT.getSkin(s.skin), hat: 'hat-huevo', t: 1.2, wingPhase: 1.1, squash: 1, rot: 0, r: 17 });
+      $('shopPrevName').textContent = '🥚 ' + def.name;
+      $('shopPrevSub').textContent = def.desc;
+      return;
+    }
+    const skin = cat === 'skins' ? (item || DAT.getSkin(s.skin)) : DAT.getSkin(s.skin);
+    const hatId = cat === 'hats' ? (item ? item.id : s.hat) : s.hat;
+    const hat = hatId ? DAT.getHat(hatId) : null;
+    const fx = cat === 'fx' ? (item || DAT.getFx(s.fx)) : DAT.getFx(s.fx);
+    if (fx && fx.color) {
+      c.globalAlpha = 0.16;
+      c.fillStyle = fx.color;
+      for (let i = 1; i <= 5; i++) {
+        c.beginPath();
+        c.arc(w / 2 - 7 - i * 10, h / 2 + (i % 2 === 0 ? -3 : 5), 15 - i * 2.4, 0, Math.PI * 2);
+        c.fill();
+      }
+      c.globalAlpha = 1;
+      if (fx.stars) {
+        c.globalAlpha = 0.95;
+        c.fillStyle = '#fff';
+        for (let i = 0; i < 4; i++) {
+          c.beginPath();
+          c.arc(w / 2 - 56 + i * 40, 10 + (i % 2) * 12, 1.7, 0, Math.PI * 2);
+          c.fill();
+        }
+        c.globalAlpha = 1;
+      }
+    }
+    ENTS.drawBird(c, w / 2, h / 2 + 2, { skin, hat: hatId, t: 1.2, wingPhase: 1.1, squash: 1, rot: 0, r: 17, stage: SAVE.skinStage(skin.id), golden: !!skin.golden });
+    const equals = cat === 'skins' ? s.skin : cat === 'hats' ? s.hat : s.fx;
+    const isEquipped = item ? equals === item.id : true;
+    let name;
+    if (cat === 'tools') name = item ? item.name : 'Bolsa de herramientas';
+    else if (item) name = item.name;
+    else if (cat === 'skins') name = skin.name;
+    else if (cat === 'hats') name = hat ? hat.name : 'Sin sombrero';
+    else name = fx.name;
+    $('shopPrevName').textContent = (item && isEquipped ? '✔ ' : '') + name;
+    let sub;
+    if (cat === 'tools') {
+      sub = item ? item.desc + ' · 🎒 x' + SAVE.itemCount(item.key)
+        : DAT.TOOLS.map(tn => tn.icon + ' x' + SAVE.itemCount(tn.key)).join('  ');
+    } else if (item) {
+      sub = cat === 'skins' ? (item.desc || '') : cat === 'fx' ? (fx.color ? 'Deja un rastro de color al volar.' : 'Vuela sin dejar estela.') : 'El toque perfecto para Pío.';
+      if (item.week && !DAT.isUnlocked(item) &&
+        !SAVE.owns(cat === 'skins' ? s.skinsOwned : cat === 'hats' ? s.hatsOwned : s.fxOwned, item.id)) {
+        sub += ' · 🔒 Se habilita en la ' + DAT.weekLabel(item);
+      } else if (!isEquipped) sub += ' · 👆 Toca la figura para probarla gratis';
+    } else {
+      sub = 'En uso: ' + skin.name + ' · ' + (hat ? hat.name : 'Sin sombrero') + ' · ' + fx.name;
+    }
+    if (cat === 'skins') {
+      const cur = item || skin;
+      const badges = statBadges(cur.id);
+      if (badges) sub += (sub ? ' · ' : '') + badges;
+      if (SAVE.owns(s.skinsOwned, cur.id)) sub += (sub ? ' · ' : '') + '⭐ Etapa ' + SAVE.skinStage(cur.id) + ' (XP ' + SAVE.skinXp(cur.id) + ')';
+      if (cur.golden) sub += (sub ? ' · ' : '') + '✨ Dorada';
+    }
+    $('shopPrevSub').textContent = sub;
+  }
+
+  // Insignias de atributos del ave (data.js SKIN_STATS)
+  function statBadges(id) {
+    const st = DAT.skinStats[id];
+    if (!st) return '';
+    const MET = { spd: '⚡ Vel', flap: '🪶 Aleteo', grav: '🪂 Caída', gap: '⭕ Huecos' };
+    const parts = [];
+    Object.keys(st).forEach(k => {
+      const v = st[k] || 1;
+      if (v !== 1) {
+        const pct = Math.round(Math.abs(v - 1) * 100);
+        parts.push(MET[k] + ' ' + (v > 1 ? '+' : '-') + pct + '%');
+      }
+    });
+    return parts.join(' · ');
+  }
+
+  function drawShopItems(cat) {
+    const grid = $('shopGrid');
+    grid.innerHTML = '';
+    if (cat === 'tools') { drawToolsItems(); return; }
+    if (cat === 'box') { drawBoxItems(); return; }
+    const s = SAVE.get();
+    const list = cat === 'skins' ? DAT.SKINS : cat === 'hats' ? DAT.HATS : DAT.EFFECTS;
+    const ownedList = cat === 'skins' ? s.skinsOwned : cat === 'hats' ? s.hatsOwned : s.fxOwned;
+    const equals = cat === 'skins' ? s.skin : cat === 'hats' ? s.hat : s.fx;
+
+    // Organización: colección (en uso primero) · disponibles para comprar · bloqueadas por semana
+    const owned = [], avail = [], lockedByWeek = {};
+    list.forEach(item => {
+      if (SAVE.owns(ownedList, item.id)) owned.push(item);
+      else if (item.week && !DAT.isUnlocked(item)) (lockedByWeek[item.week] = lockedByWeek[item.week] || []).push(item);
+      else avail.push(item);
+    });
+    owned.sort((a, b) => (a.id === equals ? -1 : b.id === equals ? 1 : 0));
+    avail.sort((a, b) => a.price - b.price);
+    const weekKeys = Object.keys(lockedByWeek).sort((a, b) => +a - +b);
+
+    function addHeader(text, cls) {
+      const h = document.createElement('div');
+      h.className = 'shop-sec' + (cls ? ' ' + cls : '');
+      h.textContent = text;
+      grid.appendChild(h);
+    }
+
+    function addItem(item) {
+      const isEquipped = equals === item.id;
+      const locked = lockedByWeek[item.week];
+      const div = document.createElement('div');
+      div.className = 'item' + (isEquipped ? ' equipped' : '') + (locked ? ' locked-week' : '') + ((!SAVE.owns(ownedList, item.id) && s.coins < item.price) ? ' cant-afford' : '');
+      const art = document.createElement('div');
+      art.className = 'i-art';
+      const cv = document.createElement('canvas');
+      cv.width = 104; cv.height = 68;
+      const c = cv.getContext('2d');
+      const skin = cat === 'skins' ? item : DAT.getSkin(s.skin);
+      const hat = cat === 'hats' ? item.id : (cat === 'skins' && s.hat ? s.hat : null);
+      ENTS.drawBird(c, 52, 40, { skin, hat: hat, t: 1, wingPhase: 0.5, squash: 1, rot: 0, r: 19, stage: cat === 'skins' ? SAVE.skinStage(item.id) : 0, golden: !!skin.golden });
+      art.appendChild(cv);
+      art.onclick = (ev) => {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        drawShopPrev(cat, item);
+        SND.sfx.click();
+      };
+      div.appendChild(art);
+      const nm = document.createElement('div');
+      nm.className = 'i-name'; nm.textContent = item.name + (cat === 'skins' && SAVE.owns(ownedList, item.id) && !item.golden && SAVE.skinStage(item.id) >= 2 ? ' ⭐' + SAVE.skinStage(item.id) : '');
+      div.appendChild(nm);
+      const pr = document.createElement('div');
+      pr.className = 'i-price';
+      if (locked) {
+        pr.innerHTML = '🔒 Semana ' + item.week;
+        pr.style.color = '#8aa0cc';
+        div.appendChild(pr);
+        div.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); toast('Se habilitará en la Semana ' + item.week, 'info'); };
+      } else if (!SAVE.owns(ownedList, item.id)) {
+        pr.innerHTML = '<div class="coin-ico"></div> ' + item.price + ' · Comprar';
+        if (s.coins < item.price) pr.style.color = '#ff8a80';
+        div.appendChild(pr);
+        div.onclick = () => buyItem(cat, item, ownedList);
+      } else if (isEquipped) {
+        pr.innerHTML = '✔ En uso';
+        pr.style.color = '#69f0ae';
+        div.appendChild(pr);
+      } else {
+        pr.innerHTML = '👆 Usar';
+        pr.style.color = '#cdefff';
+        div.appendChild(pr);
+        div.onclick = () => {
+          SAVE.equip(cat === 'hats' ? 'hat' : cat === 'fx' ? 'fx' : 'skin', item.id);
+          SND.sfx.click();
+          drawShopItems(cat);
+          drawShopPrev(cat, item);
+          updateShopLoad();
+          refreshHome();
+          toast('✓ ' + item.name + ' equipado', 'good');
+        };
+      }
+      grid.appendChild(div);
+    }
+
+    function drawGroup(group, header, cls) {
+      if (!group || !group.length) return;
+      addHeader((header || '') + ' · ' + group.length, cls);
+      group.forEach(addItem);
+    }
+
+    if (owned.length) drawGroup(owned, '⭐ Colección', 'shop-sec-own');
+    drawGroup(avail, '🛒 Comprar');
+    weekKeys.forEach(w => drawGroup(lockedByWeek[w], '🔒 Semana ' + w, 'shop-sec-lock'));
+
+    // Variantes doradas conseguidas (año de oro)
+    if (cat === 'skins') {
+      const golds = (s.skinsOwned || []).filter(e => /-gold$/.test(e.id));
+      if (golds.length) {
+        addHeader('✨ Doradas · ' + golds.length, 'shop-sec-gold');
+        golds.forEach(e => {
+          const g = DAT.getSkin(e.id);
+          if (!g) return;
+          const isEq = s.skin === g.id;
+          const dv = document.createElement('div');
+          dv.className = 'item gold-item' + (isEq ? ' equipped' : '');
+          const art2 = document.createElement('div');
+          art2.className = 'i-art';
+          const cv2 = document.createElement('canvas');
+          cv2.width = 104; cv2.height = 68;
+          const c2 = cv2.getContext('2d');
+          const goldStage = SAVE.skinStage(g.id);
+          ENTS.drawBird(c2, 52, 40, { skin: g, hat: s.hat || null, t: 1, wingPhase: 0.5, squash: 1, rot: 0, r: 19, stage: goldStage, golden: true });
+          art2.appendChild(cv2);
+          art2.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); drawShopPrev('skins', g); SND.sfx.click(); };
+          dv.appendChild(art2);
+          const nm2 = document.createElement('div');
+          nm2.className = 'i-name'; nm2.textContent = g.name + (goldStage >= 2 ? ' ⭐' + goldStage : '');
+          dv.appendChild(nm2);
+          const pr2 = document.createElement('div');
+          pr2.className = 'i-price';
+          if (isEq) { pr2.innerHTML = '✔ En uso'; pr2.style.color = '#69f0ae'; }
+          else {
+            pr2.innerHTML = '👆 Usar'; pr2.style.color = '#ffe066';
+            dv.onclick = () => {
+              SAVE.equip('skin', g.id);
+              SND.sfx.click();
+              drawShopItems(cat); drawShopPrev('skins', g); updateShopLoad(); refreshHome();
+              toast('✓ ' + g.name + ' equipada', 'good');
+            };
+          }
+          dv.appendChild(pr2);
+          grid.appendChild(dv);
+        });
+      }
+    }
+  }
+
+  function drawBoxItems() {
+    const grid = $('shopGrid');
+    grid.innerHTML = '';
+    const def = DAT.boxDef();
+    const s = SAVE.get();
+    const nGold = (s.skinsOwned || []).filter(e => /-gold$/.test(e.id)).length;
+    const pool = DAT.SKINS.length + DAT.HATS.length + DAT.EFFECTS.length;
+    const owned = s.skinsOwned.length + s.hatsOwned.length + s.fxOwned.length;
+    const falta = Math.max(0, pool - owned);
+    const dv = document.createElement('div');
+    dv.className = 'item item-tool gold-item shop-box';
+    const art = document.createElement('div');
+    art.className = 'i-art i-art-tool box-ico';
+    art.textContent = '🥚';
+    dv.appendChild(art);
+    const nm = document.createElement('div');
+    nm.className = 'i-name'; nm.textContent = def.name;
+    dv.appendChild(nm);
+    const ds = document.createElement('div');
+    ds.className = 'i-desc'; ds.textContent = def.desc;
+    dv.appendChild(ds);
+    const stats = document.createElement('div');
+    stats.className = 'shop-box-stats';
+    stats.innerHTML =
+      '<span class="bs b1">🎁 Abiertas <b>' + (s.stats.boxesBought || 0) + '</b></span>' +
+      '<span class="bs b2">✨ Doradas <b>' + nGold + '</b></span>' +
+      '<span class="bs b3">💤 Faltan <b>' + falta + '</b></span>';
+    dv.appendChild(stats);
+    const bb = document.createElement('button');
+    bb.className = 'btn btn-small btn-buy box-buy';
+    bb.innerHTML = '<div class="coin-ico"></div> ' + def.price + ' · 🎁 Abrir';
+    bb.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); buyBox(); };
+    dv.appendChild(bb);
+    grid.appendChild(dv);
+  }
+
+  function buyBox() {
+    const def = DAT.boxDef();
+    const s = SAVE.get();
+    if (s.coins < def.price) { SND.sfx.deny(); toast('No te alcanzan las monedas para la ' + def.name + ' (' + def.price + ' 🪙)', 'info'); return; }
+    const r = SAVE.openBox();
+    if (!r || !r.ok) { toast('Algo salió mal abriendo la caja', ''); return; }
+    SND.sfx.buy();
+    FX.confetti(400, 150);
+    if (r.kind === 'gold') {
+      SAVE.equip('skin', r.item.id);
+      toast('🏆 ¡' + r.item.name + '! Variante dorada ✨ (equipada)', 'good');
+      updateShopLoad();
+      refreshHome();
+    } else if (r.kind === 'coins') {
+      toast('🎁 Consolación: +' + r.amount + ' 🪙 (ya lo tienes todo)', 'good');
+    } else {
+      const pfx = r.kind === 'skin' ? '🐤 ' : r.kind === 'hat' ? '🎩 ' : '💫 ';
+      toast('🥚 ¡Conseguiste ' + pfx + r.item.name + '!', 'good');
+    }
+    drawShopItems('box');
+    drawShopPrev('box', null);
+    refreshHome();
+    SAVE.checkAch().forEach(a => popAch(a));
+  }
+
+  function itemTotal() {
+    const it = SAVE.get().items || {};
+    let n = 0;
+    DAT.TOOLS.forEach(t => { n += (it[t.key] || 0); });
+    return n;
+  }
+
+  function drawToolsItems() {
+    const grid = $('shopGrid');
+    grid.innerHTML = ''; // la grilla se rellena de cero (compra/mejora re-invocan esto)
+    const s = SAVE.get();
+    DAT.TOOLS.forEach(tool => {
+      const div = document.createElement('div');
+      div.className = 'item item-tool';
+      const art = document.createElement('div');
+      art.className = 'i-art i-art-tool';
+      art.textContent = tool.icon;
+      art.onclick = (ev) => {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        drawShopPrev('tools', tool);
+        SND.sfx.click();
+      };
+      div.appendChild(art);
+      const nm = document.createElement('div');
+      nm.className = 'i-name'; nm.textContent = tool.name + levelStars(tool.key);
+      div.appendChild(nm);
+      const ds = document.createElement('div');
+      ds.className = 'i-desc'; ds.textContent = tool.desc + upgradeHint(tool.key);
+      div.appendChild(ds);
+
+      if (tool.week && !DAT.isUnlocked(tool)) {
+        const lk = document.createElement('div');
+        lk.className = 'i-price';
+        lk.innerHTML = '🔒 Semana ' + tool.week;
+        lk.style.color = '#8aa0cc';
+        div.appendChild(lk);
+        grid.appendChild(div);
+        return;
+      }
+
+      const buyBtn = document.createElement('button');
+      buyBtn.className = 'btn btn-small btn-buy';
+      const pos = SAVE.itemCount(tool.key);
+      buyBtn.innerHTML = '<div class="coin-ico"></div> ' + tool.price + ' · +1 🎒x' + pos;
+      buyBtn.onclick = (ev) => { if (ev.stopPropagation) ev.stopPropagation(); buyToolItem(tool); };
+      div.appendChild(buyBtn);
+
+      const modeRow = document.createElement('div');
+      modeRow.className = 'tool-row';
+      const autoB = document.createElement('button');
+      const manB = document.createElement('button');
+      autoB.className = 'chip' + (SAVE.toolModeVal(tool.key) === 'auto' ? ' on' : '');
+      manB.className = 'chip' + (SAVE.toolModeVal(tool.key) === 'manual' ? ' on' : '');
+      autoB.textContent = '🅰 Auto (al inicio)';
+      manB.textContent = '👆 Manual (en vuelo)';
+      autoB.onclick = (ev) => { if (ev.stopPropagation) ev.stopPropagation(); SAVE.setToolMode(tool.key, 'auto'); drawToolsItems(); refreshHome(); SND.sfx.click(); toast(tool.name + ': se activa sola al empezar', 'info'); };
+      manB.onclick = (ev) => { if (ev.stopPropagation) ev.stopPropagation(); SAVE.setToolMode(tool.key, 'manual'); drawToolsItems(); refreshHome(); SND.sfx.click(); toast(tool.name + ': la activas tú con el botón 🛠', 'info'); };
+      modeRow.appendChild(autoB);
+      modeRow.appendChild(manB);
+      div.appendChild(modeRow);
+
+      const upRow = document.createElement('div');
+      upRow.className = 'tool-row';
+      const lv = SAVE.toolLevel(tool.key);
+      const upBtn = document.createElement('button');
+      if (lv >= 5) {
+        upBtn.className = 'chip chip-max';
+        upBtn.textContent = '⭐ Nivel MAX';
+      } else {
+        upBtn.className = 'chip chip-up';
+        upBtn.innerHTML = '⬆ Mejorar · Nv ' + lv + ' → ' + (lv + 1) + ' <div class="coin-ico"></div> ' + SAVE.toolUpPrice(tool.key);
+      }
+      upBtn.onclick = (ev) => {
+        if (ev.stopPropagation) ev.stopPropagation();
+        const res = SAVE.upToolLevel(tool.key);
+        if (!res.ok) {
+          if (res.msg === 'max') { toast(tool.name + ' ya está al máximo ⭐', 'info'); }
+          else { SND.sfx.deny(); toast('No tienes suficientes monedas 💤', ''); }
+          return;
+        }
+        SND.sfx.buy();
+        FX.confetti(400, 150);
+        drawToolsItems(); refreshHome();
+        const gc = $('genCoins');
+        if (gc) gc.textContent = SAVE.get().coins;
+        toast('⬆ ' + tool.name + ' mejorada a nivel ' + res.level, 'good');
+        SAVE.checkAch().forEach(a => popAch(a));
+      };
+      upRow.appendChild(upBtn);
+      div.appendChild(upRow);
+
+      grid.appendChild(div);
+    });
+  }
+
+  function levelStars(key) {
+    const lv = SAVE.toolLevel(key);
+    return lv > 0 ? ' ' + '⭐'.repeat(lv) : '';
+  }
+  function upgradeHint(key) {
+    const lv = SAVE.toolLevel(key);
+    if (lv <= 0) return '';
+    const lvTxt = {
+      magnet: ' · Más duración y atracción',
+      slow: ' · Más duración',
+      coins: ' · Más duración y +monedas',
+      luck: ' · +más monedas',
+      boost: ' · +más puntos',
+      start: ' · +más puntos',
+      score: ' · +más puntos',
+      sprint: ' · Caída aún más ligera',
+      treasure: ' · +más monedas',
+      clock: ' · Más duración',
+      turbo: ' · Más duración y velocidad',
+      combo: ' · Más duración y +puntos',
+      shield: ' · (siempre igual)',
+      ghost: ' · Más duración',
+      frenzy: ' · Más duración',
+      eco: ' · +más monedas',
+      hype: ' · (siempre igual)',
+      bomb: ' · Más duración',
+      aura: ' · Más duración',
+      twin: ' · +más puntos',
+      oasis: ' · (siempre igual)',
+      doble: ' · (siempre igual)',
+      runa: ' · +más XP',
+      titan: ' · (siempre igual)',
+      fenix: ' · (sin cambios)',
+      bateria: ' · +más puntos',
+      cris: ' · +más monedas'
+    }[key] || '';
+    return lvTxt;
+  }
+
+  function buyToolItem(tool) {
+    const s = SAVE.get();
+    if (s.coins < tool.price) {
+      SND.sfx.deny();
+      toast('No tienes suficientes monedas 💤', '');
+      return;
+    }
+    const res = SAVE.buyTool(tool.id);
+    if (res.ok) {
+      SND.sfx.buy();
+      FX.confetti(400, 150);
+      drawToolsItems();
+      drawShopPrev('tools', tool);
+      refreshHome();
+      const gc = $('genCoins');
+      if (gc) gc.textContent = SAVE.get().coins;
+      toast('🛠 +1 ' + tool.name + ' (🎒 x' + res.owned + ')', 'good');
+      SAVE.checkAch().forEach(a => popAch(a));
+    }
+  }
+
+  function buyItem(cat, item, ownedList) {
+    const s = SAVE.get();
+    const vt = cat === 'hats' ? 'hat' : cat === 'fx' ? 'fx' : 'skin';
+    if (s.coins < item.price) {
+      SND.sfx.deny();
+      toast('No tienes suficientes monedas 💤', '');
+      return;
+    }
+    const res = SAVE.buy(vt, item.id);
+    if (res.ok) {
+      SAVE.equip(vt, item.id);
+      SND.sfx.buy();
+      FX.confetti(400, 150);
+      drawShopItems(cat);
+      updateShopLoad();
+      refreshHome();
+      $('genCoins').textContent = SAVE.get().coins;
+      toast('¡Compraste ' + item.name + '!', 'good');
+      SAVE.checkAch().forEach(a => popAch(a));
+    }
+  }
+
+  /* ---------- MAPAS ---------- */
+  function renderMaps() {
+    const body = $('genBody');
+    body.innerHTML = ''; // re-entradas (comprar/usar) reconstruyen desde cero
+    const info = document.createElement('div');
+    info.className = 'panel-note week-note';
+    info.textContent = nextWeekPreview() || '📅 Hoy es la Semana ' + DAT.curWeek() + ' · en su semana, los mapas se desbloquean solos aquí.';
+    body.appendChild(info);
+    const grid = document.createElement('div');
+    grid.className = 'items';
+    const s = SAVE.get();
+    DAT.MAPS.forEach(m => {
+      const div = document.createElement('div');
+      div.className = 'item';
+      const prev = document.createElement('div');
+      prev.className = 'map-preview';
+      prev.style.background = 'linear-gradient(180deg,' + m.sky[0] + ',' + m.sky[1] + ')';
+      const nm = document.createElement('div');
+      nm.className = 'm-name';
+      nm.textContent = m.icon + ' ' + m.name + (s.map === m.id ? '  ✔' : '');
+      prev.appendChild(nm);
+      div.appendChild(prev);
+      const owned = SAVE.owns(s.mapsOwned, m.id);
+      const locked = !owned && m.week && !DAT.isUnlocked(m);
+      if (locked) {
+        const lock = document.createElement('div');
+        lock.className = 'map-lock';
+        lock.innerHTML = '<div class="lock-ico">📅</div><div class="ml-t">Semana ' + m.week + '</div>';
+        prev.appendChild(lock);
+        div.onclick = () => { SND.sfx.click(); toast('Se habilitará en la Semana ' + m.week, 'info'); };
+      } else if (owned && s.map === m.id) {
+        const pr = document.createElement('div');
+        pr.className = 'i-price'; pr.innerHTML = 'En uso';
+        pr.style.color = '#69f0ae';
+        div.appendChild(pr);
+      } else if (owned) {
+        const pr = document.createElement('div');
+        pr.className = 'i-price'; pr.innerHTML = 'Toque para usar';
+        pr.style.color = '#cdefff';
+        div.appendChild(pr);
+        div.onclick = () => {
+          SAVE.equip('map', m.id);
+          BG.init(m.id); BG.reset();
+          SND.sfx.click();
+          renderMaps();
+          toast('Mapa: ' + m.name, 'info');
+        };
+      } else {
+        const canBuy = s.stats.best >= m.minScore;
+        if (!canBuy) {
+          const lock = document.createElement('div');
+          lock.className = 'map-lock';
+          lock.innerHTML = '<div class="lock-ico">🔒</div><div class="ml-t">Alcanza ' + m.minScore + ' pts</div>';
+          prev.appendChild(lock);
+          div.onclick = () => { SND.sfx.deny(); toast('Desbloquea ' + m.name + ' con ' + m.minScore + ' pts', ''); };
+        } else {
+          const pr = document.createElement('div');
+          pr.className = 'i-price';
+          pr.innerHTML = '<div class="coin-ico"></div> ' + m.price;
+          div.appendChild(pr);
+          div.onclick = () => {
+            if (s.coins < m.price) { SND.sfx.deny(); toast('Necesitas más monedas para ' + m.name, ''); return; }
+            const res = SAVE.buy('map', m.id);
+            if (res.ok) {
+              SAVE.equip('map', m.id);
+              BG.init(m.id); BG.reset();
+              SND.sfx.buy();
+              renderMaps();
+              $('genCoins').textContent = SAVE.get().coins;
+              toast('¡Mapa desbloqueado: ' + m.name + '!', 'good');
+            }
+          };
+        }
+      }
+      grid.appendChild(div);
+    });
+    body.appendChild(grid);
+  }
+
+  /* ---------- PROGRESO ---------- */
+  function renderProgress() {
+    const body = $('genBody');
+    body.innerHTML = ''; // re-entradas (reclamar caja) no duplican
+    const s = SAVE.get();
+    const html = [];
+    const top3 = s.best3 || [];
+    html.push('<div class="prog-card prog-lv"><h3>NIVEL DE JUGADOR</h3><div class="big">' + s.level + '</div>' +
+      '<div class="player-level" style="width:100%;margin-top:10px"><span>' + rankName(s.level) + '</span>' +
+      '<div class="xpbar"><div id="pxp" style="height:100%;width:' + Math.min(100, s.xp / SAVE.xpFor(s.level) * 100) + '%;background:linear-gradient(90deg,#69f0ae,#00c853);border-radius:6px"></div></div></div></div>');
+    html.push('<div class="prog-card"><h3>🏆 MEJORES VUELOS</h3>' +
+      (top3.length
+        ? top3.map((e, i) => '<div class="stat-row"><span>' + (i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉') + ' ' + (i + 1) + '.º</span><span><b>' + e.s + ' pts</b></span></div>').join('')
+        : '<div class="stat-row"><span>Sin vuelos aún…</span><span>💭</span></div>') +
+      '</div>');
+    html.push(seedCard(s));
+    html.push(replayCard(s));
+    html.push('<div class="prog-card"><h3>ESTADÍSTICAS</h3>' +
+      statRow('Partidas jugadas', s.stats.flights) +
+      statRow('Récord de puntos', s.stats.best) +
+      statRow('Obstáculos superados', s.stats.pipes) +
+      statRow('Distancia volada', s.stats.dist + ' m') +
+      statRow('Power-ups recogidos', s.stats.powersGot || 0) +
+      statRow('Monedas de oro 🪙', s.stats.megaGot || 0) +
+      statRow('Doble monedas 💰', s.stats.xcGot || 0) +
+      statRow('Enemigos esquivados', s.stats.enemiesGot || 0) +
+      statRow('Murciélagos 🦇', s.stats.batsGot || 0) +
+      statRow('Diamantes 💎', s.stats.gemsGot || 0) +
+      statRow('Monedas de cadena 🍒', s.stats.chainGot || 0) +
+      statRow('Choques absorbidos 🛡️', s.stats.shieldAbsorbed || 0) +
+      statRow('Obstáculos fantasma 👻', s.stats.ghostPassed || 0) +
+      statRow('Tubos gigantes pasados 🏗️', s.stats.giantPassed || 0) +
+      statRow('Zonas de viento 🌬️', s.stats.windZones || 0) +
+      statRow('Duelos ganados 🆚', s.stats.duelWins || 0) +
+      statRow('Vuelos de fin de semana ⚡', s.stats.weekendRuns || 0) +
+      statRow('Mejor semilla 🌱', (s.dailyC && s.dailyC.best) || 0) +
+      statRow('Semillas jugadas', s.stats.seedDays || 0) +
+      statRow('Vuelo más largo sin chocar 🛩️', s.stats.maxDistNoHit ? s.stats.maxDistNoHit + ' m' : '—') +
+      statRow('Vuelos sin monedas 🚫', s.stats.zeroCoinRuns || 0) +
+      statRow('Replays grabados 🎬', s.stats.replaysWatched || 0) +
+      statRow('Herramientas usadas 🎒', s.stats.toolsUsed || 0) +
+      statRow('Herramientas compradas', s.stats.toolsBought || 0) +
+      statRow('Recompensas diarias', s.stats.dailyClaimed || 0) +
+      statRow('Monedas recolectadas', s.stats.coinsGot) +
+      statRow('Monedas gastadas', s.stats.spent || 0) +
+      statRow('Tiempo de vuelo', fmtTime(s.stats.timePlayed)) +
+      '</div>');
+    body.innerHTML = html.join('');
+    renderSeason(body);
+    const achTitle = document.createElement('h3');
+    achTitle.style.cssText = 'color:#ffe066;font-size:15px;margin:6px 0 10px;letter-spacing:1px';
+    achTitle.textContent = '🏅 LOGROS (' + s.achieved.length + '/' + DAT.ACH.length + ')';
+    body.appendChild(achTitle);
+    DAT.ACH.forEach(a => {
+      const got = s.achieved.indexOf(a.id) !== -1;
+      const d = document.createElement('div');
+      d.className = 'achv' + (got ? ' unlocked' : '');
+      d.innerHTML = '<div class="a-ico">' + (got ? '🏅' : '🎯') + '</div>' +
+        '<div class="a-t"><div class="a-name">' + a.name + '</div><div class="a-desc">' + a.desc + '</div>' +
+        '<div class="a-reward">+' + a.reward + ' monedas</div></div>' +
+        '<div>' + (got ? '✔' : '🔒') + '</div>';
+      body.appendChild(d);
+    });
+  }
+
+  function statRow(k, v) { return '<div class="stat-row"><span>' + k + '</span><span><b>' + v + '</b></span></div>'; }
+
+  /* Tarjeta líder de la Semilla diaria (récords locales por día) */
+  function seedCard(s) {
+    const h = SAVE.dailyHistory();
+    let rows = '<div class="stat-row"><span>No has jugado ninguna semilla aún</span><span>🌱</span></div>';
+    if (h.length) {
+      rows = h.map(e =>
+        '<div class="stat-row"><span>🌱 ' + e.key + '</span><span><b>' + e.best + ' pts</b></span></div>').join('') +
+        '<div style="font-size:11px;color:#8aa0cc;margin-top:4px">Últimos 7 días</div>';
+    }
+    return '<div class="prog-card"><h3>🌱 LÍDER DE SEMILLA</h3>' +
+      '<div style="font-size:12px;color:#dbe7ff;margin-bottom:8px">Todos juegan la misma partida cada día. Tu mejor marca queda registrada aquí.</div>' +
+      rows + '</div>';
+  }
+
+  /* Tarjeta del mejor vuelo guardado (Replay) */
+  function replayCard(s) {
+    const rp = s.replay;
+    if (!rp) return '';
+    return '<div class="prog-card"><h3>🎬 TU MEJOR VUELO</h3>' +
+      '<div class="stat-row"><span>Puntos</span><span><b>' + rp.score + ' pts</b></span></div>' +
+      '<div class="stat-row"><span>Fecha</span><span><b>' + rp.date + '</b></span></div>' +
+      '<div class="stat-row"><span>Toques grabados</span><span><b>' + (rp.taps ? rp.taps.length : 0) + '</b></span></div>' +
+      '<div style="font-size:12px;color:#8aa0cc;margin-top:6px">Pulsa «Replay» en el menú para volver a verlo y exportarlo como video.</div></div>';
+  }
+
+  /* Texto de recompensa (el Pase también regala cosméticos: sombrero/estela/mapa/ave) */
+  function rewardText(t) {
+    if (t.reward.item) {
+      const tk = DAT.TOOLS.find(x => x.key === t.reward.item);
+      return '🎒 ' + t.reward.n + ' × ' + (tk ? tk.name : t.reward.item);
+    }
+    if (t.reward.hat) { const h = DAT.getHat(t.reward.hat); return '👒 ' + h.name; }
+    if (t.reward.fx) { const f = DAT.getFx(t.reward.fx); return '✨ ' + f.name; }
+    if (t.reward.map) { const m = DAT.getMap(t.reward.map); return '🗺 ' + m.name; }
+    if (t.reward.skin) { const sk = DAT.getSkin(t.reward.skin); return '🐤 ' + sk.name; }
+    return (t.reward.coins || 0) + ' 🪙';
+  }
+
+  /* ---------- TEMPORADA 2026 🗓 ---------- */
+  function renderSeason(body) {
+    const sx = SAVE.totalXp();
+    const srl = SAVE.seasonReached();
+    const card = document.createElement('div');
+    card.className = 'prog-card';
+    card.innerHTML =
+      '<h3>🗓 TEMPORADA 2026</h3>' +
+      '<div style="font-size:13px;color:#dbe7ff">Cada vuelo suma XP (×1,5 los fines de semana ⚡). Reclama tu caja de temporada.</div>' +
+      '<div style="font-size:22px;font-weight:900;color:#7ee0ff;margin:6px 0">' + sx + ' XP</div>' +
+      '<div style="font-size:12px;color:#bcd0ff">Nivel de temporada: ' + srl + ' / ' + DAT.SEASON_TIERS.length + '</div>';
+    body.appendChild(card);
+    DAT.SEASON_TIERS.forEach((t, idx) => {
+      const claimed = SAVE.get().seasonClaimed.indexOf(idx) !== -1;
+      const can = !claimed && srl > idx;
+      const c2 = document.createElement('div');
+      c2.className = 'prog-card';
+      const rw = rewardText(t);
+      const st = claimed ? '<span style="color:#7dffa0">✓ Reclamada</span>' : (can ? '<span style="color:#ffd54f">Disponible</span>' : '<span style="color:#8aa0cc">Bloqueada</span>');
+      c2.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<b>🗓 ' + t.xp + ' XP</b>' + st + '</div>' +
+        '<div style="font-size:13px;color:#dbe7ff">Recompensa: <b style="color:#7ee0ff">' + rw + '</b></div>';
+      const btn = document.createElement('button');
+      btn.className = 'btn ' + (claimed ? 'btn-ghost' : '');
+      btn.disabled = claimed || !can;
+      btn.textContent = claimed ? 'Reclamada' : (can ? 'Reclamar' : 'Necesitas ' + t.xp + ' XP');
+      btn.onclick = () => {
+        const r = SAVE.claimSeasonTier(idx);
+        if (r) { toast('🎁 ¡Caja de Temporada 2026!', 'good'); SND.sfx.level(); renderProgress(); }
+        SAVE.checkAch().forEach(a => popAch(a));
+      };
+      c2.appendChild(btn);
+      body.appendChild(c2);
+    });
+  }
+
+  function rankName(lv) {
+    if (lv >= 20) return '🌌 Leyenda del Cielo';
+    if (lv >= 12) return '👑 As del Vuelo';
+    if (lv >= 8) return '⚡ Veloz';
+    if (lv >= 5) return '🪽 Explorador';
+    if (lv >= 3) return '🐣 Aprendiz';
+    return '🐤 Novato';
+  }
+  function fmtTime(sec) {
+    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return m + 'm ' + s + 's';
+  }
+
+  /* ---------- AJUSTES ---------- */
+  /* ---------- Récords locales ---------- */
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+  function fmtDate(ts) {
+    if (!ts) return '—';
+    try {
+      const d = new Date(ts);
+      if (isNaN(d.getTime())) return '—';
+      return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch (e) { return '—'; }
+  }
+  const MODE_LABEL = {
+    free: 'Vuelo libre', zen: 'Zen 🧘', boss: 'Boss 👹', wind: 'Viento 💨',
+    challenge: 'Semilla 🌱', duel: 'Duelo 🆚', replay: 'Replay 🎬'
+  };
+
+  function renderRecords() {
+    const body = $('genBody');
+    body.innerHTML = '';
+    const lb = SAVE.leaderboard();
+    const prof = SAVE.getProfile();
+    const players = lb.players || [];
+    const runs = lb.runs || [];
+
+    const head = document.createElement('div');
+    head.className = 'lb-banner';
+    head.innerHTML = '<div class="lb-banner-ico">🏆</div><div class="lb-banner-txt">' +
+      '<div class="lb-banner-title">RÉCORDS LOCALES</div>' +
+      '<div class="lb-banner-sub">Se guardan <b>solo en este dispositivo</b>. Tu nombre: <b>' + esc(prof.name) + '</b></div>' +
+      '</div>';
+    body.appendChild(head);
+
+    if (lb.error) {
+      const err = document.createElement('div');
+      err.className = 'lb-empty lb-error';
+      err.innerHTML = '<div class="lb-empty-ico">⚠️</div><div>No se pudo leer la tabla de récords.<br><span class="lb-empty-sub">Los datos locales no se han modificado. Vuelve a abrir esta pantalla o revisa el espacio de almacenamiento.</span></div>';
+      body.appendChild(err);
+      return;
+    }
+
+    const hasData = runs.length > 0 || players.some(p => (p.games || 0) > 0 || (p.best || 0) > 0);
+    if (!hasData) {
+      const empty = document.createElement('div');
+      empty.className = 'lb-empty';
+      empty.innerHTML = '<div class="lb-empty-ico">🪁</div><div>Aún no hay récords.<br><span class="lb-empty-sub">Termina tu primer vuelo y aparecerá aquí automáticamente.</span></div>';
+      body.appendChild(empty);
+    } else {
+      const title = document.createElement('h3');
+      title.className = 'lb-title';
+      title.textContent = '🏅 CLASIFICACIÓN';
+      body.appendChild(title);
+
+      const list = document.createElement('div');
+      list.className = 'lb-list';
+      players.forEach((p, i) => {
+        const rank = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+        const row = document.createElement('div');
+        row.className = 'lb-row' + (i < 3 ? ' lb-top lb-top' + (i + 1) : '') + (p.me ? ' lb-me' : '');
+        row.innerHTML =
+          '<div class="lb-rank">' + rank + '</div>' +
+          '<div class="lb-who">' +
+            '<div class="lb-name">' + esc(p.name) + (p.me ? ' <span class="lb-you">TÚ</span>' : '') + '</div>' +
+            '<div class="lb-meta">' + (p.games || 0) + ' vuelo' + ((p.games || 0) === 1 ? '' : 's') +
+              ' · récord ' + fmtDate(p.bestDate) + '</div>' +
+          '</div>' +
+          '<div class="lb-nums">' +
+            '<div class="lb-best">' + (p.best || 0) + '<small>pts</small></div>' +
+            '<div class="lb-last">último ' + (p.last || 0) + '</div>' +
+          '</div>';
+        list.appendChild(row);
+      });
+      body.appendChild(list);
+
+      if (runs.length) {
+        const h2 = document.createElement('h3');
+        h2.className = 'lb-title';
+        h2.textContent = '✈️ MEJORES VUELOS';
+        body.appendChild(h2);
+        const rl = document.createElement('div');
+        rl.className = 'lb-runs';
+        runs.forEach((r, i) => {
+          const row = document.createElement('div');
+          row.className = 'lb-run' + (i === 0 ? ' lb-top1' : '');
+          row.innerHTML =
+            '<div class="lb-rank sm">' + (i + 1) + '</div>' +
+            '<div class="lb-run-mid"><b>' + (r.score || 0) + ' pts</b>' +
+              '<span>' + esc(MODE_LABEL[r.mode] || r.mode || 'Vuelo libre') + ' · ' + (r.pipes || 0) + ' tubos · ' + (r.dist || 0) + ' m</span></div>' +
+            '<div class="lb-run-date">' + fmtDate(r.date) + '</div>';
+          rl.appendChild(row);
+        });
+        body.appendChild(rl);
+      }
+    }
+
+    const note = document.createElement('div');
+    note.className = 'panel-note lb-note';
+    note.innerHTML = 'ℹ️ Sin servidor ni cuentas: el ranking es de este navegador. Si borras los datos del sitio o usas otro dispositivo, la tabla no se comparte.';
+    body.appendChild(note);
+  }
+
+  /* ---------- Perfil / identidad local ---------- */
+  function renderProfile() {
+    const body = $('genBody');
+    body.innerHTML = '';
+    const s = SAVE.get();
+    const prof = SAVE.getProfile();
+
+    const card = document.createElement('div');
+    card.className = 'profile-card';
+    card.innerHTML =
+      '<div class="profile-avatar">🐤</div>' +
+      '<div class="profile-id">' +
+        '<div class="profile-name">' + esc(prof.name) + '</div>' +
+        '<div class="profile-sub">ID ' + esc(String(prof.id).slice(-8)) + ' · desde ' + fmtDate(prof.created) + '</div>' +
+      '</div>';
+    body.appendChild(card);
+
+    const stats = document.createElement('div');
+    stats.className = 'profile-stats';
+    stats.innerHTML =
+      '<div class="profile-stat"><b>' + (s.stats.best || 0) + '</b><span>🏆 Récord</span></div>' +
+      '<div class="profile-stat"><b>' + (s.stats.flights || 0) + '</b><span>✈️ Vuelos</span></div>' +
+      '<div class="profile-stat"><b>' + SAVE.shieldCount() + '</b><span>🛡️ Guardados</span></div>' +
+      '<div class="profile-stat"><b>' + s.coins + '</b><span>🪙 Monedas</span></div>';
+    body.appendChild(stats);
+
+    const panel = document.createElement('div');
+    panel.className = 'profile-panel';
+    const h = document.createElement('h3');
+    h.textContent = '✏️ TU NOMBRE';
+    panel.appendChild(h);
+    const hint = document.createElement('div');
+    hint.className = 'profile-hint';
+    hint.textContent = 'De 2 a 16 caracteres. Letras, números, espacio, punto, guion y guion bajo.';
+    panel.appendChild(hint);
+
+    const input = document.createElement('input');
+    input.className = 'profile-input';
+    input.type = 'text';
+    input.maxLength = 16;
+    input.value = prof.name;
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('aria-label', 'Nombre de jugador');
+    panel.appendChild(input);
+
+    const msg = document.createElement('div');
+    msg.className = 'profile-msg';
+    panel.appendChild(msg);
+
+    const actions = document.createElement('div');
+    actions.className = 'profile-actions';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-primary';
+    saveBtn.textContent = '💾 Guardar nombre';
+    const rndBtn = document.createElement('button');
+    rndBtn.className = 'btn btn-ghost';
+    rndBtn.textContent = '🎲 Nombre aleatorio';
+    actions.appendChild(saveBtn);
+    actions.appendChild(rndBtn);
+    panel.appendChild(actions);
+
+    const commit = (candidate) => {
+      const r = SAVE.rename(candidate);
+      if (!r.ok) {
+        msg.textContent = '⚠️ ' + r.msg;
+        msg.className = 'profile-msg bad';
+        SND.sfx.deny();
+        return;
+      }
+      input.value = r.name;
+      refreshHome();
+      if (r.unchanged) {
+        msg.textContent = 'ℹ️ Ese ya es tu nombre.';
+        msg.className = 'profile-msg';
+        SND.sfx.click();
+      } else {
+        msg.textContent = '✅ Nombre guardado. Tus récords se mantienen.';
+        msg.className = 'profile-msg good';
+        SND.sfx.level();
+        toast('✏️ Ahora eres ' + r.name, 'good');
+        renderProfile();
+      }
+      if (r.saved === false) toast('⚠️ No se pudo guardar en este dispositivo', 'warning');
+    };
+
+    saveBtn.onclick = () => { SND.sfx.click(); commit(input.value); };
+    input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { SND.sfx.click(); commit(input.value); } });
+    rndBtn.onclick = () => {
+      input.value = SAVE.randomName();
+      msg.textContent = '🎲 Nombre propuesto. Pulsa «Guardar nombre» para usarlo.';
+      msg.className = 'profile-msg';
+      SND.sfx.click();
+    };
+    body.appendChild(panel);
+
+    const sh = document.createElement('div');
+    sh.className = 'profile-panel';
+    sh.innerHTML = '<h3>🛡️ INVENTARIO DE ESCUDOS</h3>' +
+      '<div class="profile-shield-line"><span class="profile-shield-ico">🛡️</span><b>' + SAVE.shieldCount() + '</b><span>guardado' + (SAVE.shieldCount() === 1 ? '' : 's') + '</span></div>' +
+      '<div class="profile-hint">Los escudos comprados se acumulan aquí y no tienen tope, pero cada partida solo puede gastar <b>1</b> al bloquear un choque (tubo, enemigo o suelo). Si no lo usas, sigue guardado para otro vuelo. Los 🛡️ que recoges durante la partida son aparte: se acumulan solo en ese vuelo, se gastan antes que los guardados y desaparecen al terminar.</div>';
+    body.appendChild(sh);
+
+    const note = document.createElement('div');
+    note.className = 'panel-note';
+    note.innerHTML = '🔒 Perfil local sin cuentas ni contraseñas. El nombre y el récord viven en este navegador; si borras los datos del sitio, se pierden. No se envía nada a ningún servidor.';
+    body.appendChild(note);
+  }
+
+  function renderSettings() {
+    const body = $('genBody');
+    const s = SAVE.get();
+    body.innerHTML = '';
+    const groupTitle = (t) => {
+      const g = document.createElement('div');
+      g.className = 'set-group';
+      g.innerHTML = '<div class="set-group-title">' + t + '</div>';
+      return g;
+    };
+
+    const gSound = groupTitle('🎧 Sonido');
+    gSound.appendChild(switchRow('🔊 Sonido', 'sfx', s.set.sfx, v => {
+      SND.setSfx(v);
+      if (v) SND.sfx.click();
+      else toast('Sonido desactivado', 'info');
+    }));
+    gSound.appendChild(switchRow('🎵 Música', 'music', s.set.music, v => {
+      if (v) { SND.setMusic(true); SND.sfx.level(); }
+      else { SND.setMusic(false); toast('Música desactivada', 'info'); }
+    }));
+    gSound.appendChild(sliderRow('🔊 Volumen efectos', 'volS', s.set.volS, v => {
+      SND.setSfxVol(v);
+      if (v > 0.05) SND.sfx.click();
+    }));
+    gSound.appendChild(sliderRow('🎵 Volumen música', 'volM', s.set.volM, v => {
+      SND.setMusicVol(v);
+    }));
+    body.appendChild(gSound);
+
+    const gCom = groupTitle('🛋 Comodidad');
+    gCom.appendChild(switchRow('📳 Vibración', 'vib', s.set.vib, v => {
+      if (v && navigator.vibrate) { try { navigator.vibrate(60); } catch (e) { } }
+      else toast('Vibración desactivada', 'info');
+    }));
+    gCom.appendChild(switchRow('💥 Sacudida de pantalla', 'shake', s.set.shake !== false, v => {
+      if (!v) FX.shake(0);
+      toast(v ? 'Sacudida activada' : 'Sacudida desactivada', 'info');
+    }));
+    gCom.appendChild(switchRow('♿ Reducir movimiento', 'reduced', s.set.reduced === true, v => {
+      FX.setReduced(v);
+      toast(v ? 'Movimiento reducido (accesibilidad)' : 'Movimiento completo', 'info');
+    }));
+    body.appendChild(gCom);
+
+    const gCtrl = groupTitle('🐤 Control');
+    gCtrl.appendChild(switchRow('👆 Flap al soltar', 'lift', s.set.lift === true, v => {
+      toast(v ? 'Flap también al soltar el dedo' : 'Flap solo al tocar', 'info');
+    }));
+    gCtrl.appendChild(switchRow('🌙 Gravedad lunar', 'moon', s.set.moon === true, v => {
+      toast(v ? 'Caes más suave: ¡modo luna! 🌙' : 'Gravedad normal', 'info');
+    }));
+    gCtrl.appendChild(switchRow('🗿 Contraste alto', 'hc', s.set.hc === true, v => {
+      ENTS.setHC(v);
+      toast(v ? 'Bordes más definidos' : 'Contraste normal', 'info');
+    }));
+    body.appendChild(gCtrl);
+
+    const gGame = groupTitle('🎯 Juego');
+    const difRow = document.createElement('div');
+    difRow.className = 'set-row';
+    difRow.innerHTML = '<span>🎯 Dificultad</span>';
+    const pick = document.createElement('div');
+    pick.className = 'set-pick';
+    DAT.DIFFS.forEach(d => {
+      const b = document.createElement('button');
+      b.textContent = d.name;
+      b.className = s.set.diff === d.id ? 'active' : '';
+      b.onclick = () => {
+        SAVE.setSetting('diff', d.id);
+        renderSettings();
+        SND.sfx.click();
+        toast('Dificultad: ' + d.name + ' (para tu próximo vuelo)', 'info');
+      };
+      pick.appendChild(b);
+    });
+    difRow.appendChild(pick);
+    gGame.appendChild(difRow);
+
+    const gfxRow = document.createElement('div');
+    gfxRow.className = 'set-row';
+    gfxRow.innerHTML = '<span>✨ Efectos visuales</span>';
+    const pick2 = document.createElement('div');
+    pick2.className = 'set-pick';
+    [['low', 'Bajo'], ['medium', 'Medio'], ['high', 'Alto']].forEach(g => {
+      const b = document.createElement('button');
+      b.textContent = g[1];
+      b.className = s.set.gfx === g[0] ? 'active' : '';
+      b.onclick = () => {
+        SAVE.setSetting('gfx', g[0]);
+        renderSettings();
+        SND.sfx.click();
+        toast('Efectos visuales: ' + g[1], 'info');
+      };
+      pick2.appendChild(b);
+    });
+    gfxRow.appendChild(pick2);
+    gGame.appendChild(gfxRow);
+    body.appendChild(gGame);
+
+    const gData = groupTitle('💾 Datos');
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'btn btn-danger';
+    resetBtn.style.marginTop = '2px';
+    resetBtn.textContent = '🗑 Reiniciar todo el progreso';
+    resetBtn.onclick = () => {
+      SND.sfx.click();
+      confirm('¿Reiniciar progreso?', 'Se borrarán monedas, aves, mapas y logros. Esta acción no se puede deshacer.',
+        [
+          { label: 'Cancelar', cb: () => { } },
+          { label: 'Sí, borrar', style: 'btn-danger', cb: () => { SAVE.reset(); SND.stopMusic(); location.reload(); } }
+        ]);
+    };
+    gData.appendChild(resetBtn);
+    body.appendChild(gData);
+
+    const about = document.createElement('div');
+    about.className = 'prog-card';
+    about.style.textAlign = 'center';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v2.8 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    body.appendChild(about);
+  }
+
+  function switchRow(label, key, initVal, onChange) {
+    const row = document.createElement('div');
+    row.className = 'set-row';
+    row.innerHTML = '<span>' + label + '</span><div class="switch' + (initVal ? ' on' : '') + '" id="sw-' + key + '"></div>';
+    const sw = row.querySelector('.switch');
+    sw.onclick = () => {
+      const on = !sw.classList.contains('on');
+      sw.classList.toggle('on', on);
+      SAVE.setSetting(key, on);
+      onChange(on);
+      SND.sfx.click();
+    };
+    return row;
+  }
+
+  function sliderRow(label, key, initVal, onChange) {
+    const row = document.createElement('div');
+    row.className = 'set-row';
+    row.innerHTML = '<span>' + label + '</span>';
+    const wrap = document.createElement('div');
+    wrap.className = 'set-slider';
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = '0'; input.max = '1'; input.step = '0.05';
+    input.value = String(initVal);
+    input.oninput = () => {
+      const v = parseFloat(input.value);
+      SAVE.setSetting(key, v);
+      onChange(v);
+    };
+    wrap.appendChild(input);
+    row.appendChild(wrap);
+    return row;
+  }
+
+  /* ---------- MISIONES 📋 ---------- */
+  function renderMissions() {
+    const body = $('genBody');
+    body.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'prog-card';
+    head.style.textAlign = 'center';
+    const done = (SAVE.get().stats.missionsDone || 0);
+    head.innerHTML = '<h3>MISIONES DIARIAS Y SEMANALES</h3><div style="font-size:13px;color:#dbe7ff">Completa misiones y reclama monedas 🪙. <b>Hechas: ' + done + '</b></div>';
+    body.appendChild(head);
+
+    DAT.MISSIONS.forEach(m => {
+      const isW = !!m.weekly;
+      const cur = SAVE.missionProgress(m);
+      const target = m.target;
+      const pct = Math.min(100, Math.round(cur / target * 100));
+      const claimed = SAVE.missionDoneToday(m);
+      const card = document.createElement('div');
+      card.className = 'prog-card';
+      card.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<b style="color:#ffe066">' + (isW ? '🎖 ' : '📌 ') + m.name + '</b>' +
+        '<span style="font-size:13px;color:#dbe7ff">' + cur + ' / ' + target + '</span></div>' +
+        '<div style="font-size:12px;color:#bcd0ff">' + m.desc + '</div>' +
+        '<div class="bar"><i style="width:' + pct + '%"></i></div>';
+      const btn = document.createElement('button');
+      btn.className = 'btn ' + (claimed ? 'btn-ghost' : pct >= 100 ? '' : 'btn-ghost');
+      btn.disabled = claimed || pct < 100;
+      btn.textContent = claimed ? '✓ Reclamada' : (pct >= 100 ? 'Reclamar +' + m.reward + ' 🪙' : 'Faltan ' + (target - cur));
+      btn.onclick = () => {
+        const r = SAVE.claimMission(m);
+        if (r) { toast('¡Misión completada! +' + r.reward + ' 🪙', 'good'); SND.sfx.level(); renderMissions(); refreshHome(); }
+        SAVE.checkAch().forEach(a => popAch(a));
+      };
+      card.appendChild(btn);
+      body.appendChild(card);
+    });
+  }
+
+  /* ---------- PASE DE VUELO 🎫 ---------- */
+  function passRewardIco(t) {
+    if (t.reward.item) {
+      const tk = DAT.TOOLS.find(x => x.key === t.reward.item);
+      return { icon: tk ? tk.icon : '🎒', name: tk ? tk.name : t.reward.item, n: t.reward.n };
+    }
+    if (t.reward.hat) { const h = DAT.getHat(t.reward.hat); return { icon: '👒', name: h.name, n: 1 }; }
+    if (t.reward.fx) { const f = DAT.getFx(t.reward.fx); return { icon: '✨', name: f.name, n: 1 }; }
+    if (t.reward.map) { const m = DAT.getMap(t.reward.map); return { icon: '🗺', name: m.name, n: 1 }; }
+    if (t.reward.skin) { const sk = DAT.getSkin(t.reward.skin); return { icon: '🐤', name: sk.name, n: 1 }; }
+    return { icon: '🪙', name: (t.reward.coins || 0) + ' monedas', n: 1 };
+  }
+
+  function renderPass() {
+    const body = $('genBody');
+    body.innerHTML = '';
+    const se = DAT.seasonInfo();
+    const tiers = DAT.passTiers();
+    const xp = SAVE.totalXp();
+    const tier = SAVE.passReached();
+    const pc = SAVE.passClaimedCount();
+
+    const head = document.createElement('div');
+    head.className = 'prog-card';
+    head.style.border = '2px solid ' + se.accent;
+    head.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;justify-content:center;flex-wrap:wrap">' +
+      '<span style="font-size:28px">' + se.pass.icon + ' ' + se.icon + '</span>' +
+      '<div><h3 style="margin:0;color:' + se.accent + '">' + se.pass.name.toUpperCase() + '</h3>' +
+      '<div style="font-size:12px;color:#dbe7ff">' + se.name + ' ' + DAT.seasonKey() + ' · ' + se.months + '</div></div></div>' +
+      '<div style="font-size:20px;font-weight:900;color:#ffe066;margin:8px 0 4px">' + xp + ' XP' +
+      '<span style="font-size:12px;color:#8aa0cc"> · Nv pase ' + tier + '/' + tiers.length + ' · ' + pc + ' recompensas</span></div>' +
+      '<div class="pass-prog-bar"><div class="pass-prog-fill" style="width:' + Math.min(100, Math.round(tier / tiers.length * 100)) + '%"></div></div>' +
+      '<div style="font-size:11px;color:#8aa0cc;margin-top:6px">⚡ Cuando cambie la temporada, el Pase rota solo con nuevas recompensas.</div>';
+    body.appendChild(head);
+
+    const track = document.createElement('div');
+    track.className = 'pass-track';
+    const scroll = document.createElement('div');
+    scroll.className = 'pass-track-scroll';
+    const curI = tier - 1;
+    tiers.forEach((t, idx) => {
+      const claimed = SAVE.get().passClaimed.indexOf(idx) !== -1;
+      const can = !claimed && tier > idx;
+      const rw = passRewardIco(t);
+      const cell = document.createElement('button');
+      cell.className = 'pass-cell' + (claimed ? ' claimed' : '') + (can ? ' avail' : '') + (idx === curI ? ' cur' : '');
+      cell.disabled = claimed || !can;
+      cell.innerHTML =
+        '<div class="pass-cell-ico">' + rw.icon + (rw.n > 1 ? '<b>×' + rw.n + '</b>' : '') + '</div>' +
+        '<div class="pass-cell-xp">' + t.xp + ' XP</div>' +
+        '<div class="pass-cell-name">' + rw.name + '</div>' +
+        (claimed ? '<div class="pass-cell-st ok">✓</div>' : (can ? '<div class="pass-cell-st">Reclamar</div>' : '<div class="pass-cell-st lock">🔒</div>'));
+      cell.onclick = () => {
+        if (idx >= tier) { toast('Nivel de pase ' + (idx + 1) + ' (necesitas ' + t.xp + ' XP)', 'info'); return; }
+        const r = SAVE.claimPassTier(idx);
+        if (r) { toast('¡Recompensa del Pase! 🎫', 'good'); SND.sfx.level(); renderPass(); refreshHome(); }
+        SAVE.checkAch().forEach(a => popAch(a));
+      };
+      scroll.appendChild(cell);
+    });
+    track.appendChild(scroll);
+    body.appendChild(track);
+  }
+
+  /* ---------- HOGAR: nido, incubadora y decoración ---------- */
+  function renderHome(initialTab) {
+    const body = $('genBody');
+    const tabs = document.createElement('div');
+    tabs.className = 'tabs shop-tabs';
+    const cats = [['nest', '🪺', 'Nido'], ['eggs', '🥚', 'Huevos'], ['decor', '🎨', 'Decoración']];
+    let activeTab = (initialTab && cats.some(c => c[0] === initialTab)) ? initialTab : 'nest';
+    const mkTabs = () => {
+      tabs.innerHTML = '';
+      cats.forEach(c => {
+        const b = document.createElement('button');
+        b.className = 'tab' + (c[0] === activeTab ? ' active' : '');
+        b.innerHTML = '<span class="tab-ico">' + c[1] + '</span><span class="tab-t">' + c[2] + '</span>';
+        b.onclick = () => { activeTab = c[0]; SND.sfx.click(); mkTabs(); drawTab(); };
+        tabs.appendChild(b);
+      });
+    };
+    const drawTab = () => {
+      body.querySelectorAll('.home-tab-body').forEach(x => x.remove());
+      const tb = document.createElement('div');
+      tb.className = 'home-tab-body';
+      if (activeTab === 'nest') drawNestTab(tb);
+      else if (activeTab === 'eggs') drawEggsTab(tb);
+      else drawDecorTab(tb);
+      body.appendChild(tb);
+      $('genBody').scrollTop = 0;
+    };
+    body.appendChild(tabs);
+    mkTabs();
+    drawTab();
+  }
+
+  function drawNestTab(tb) {
+    const s = SAVE.get();
+    const ni = DAT.nestInfo(s.stats.coinsGot || 0);
+    const cv = document.createElement('canvas');
+    cv.width = 360; cv.height = 240;
+    cv.style.cssText = 'width:100%;max-width:360px;margin:0 auto;display:block;border-radius:16px;';
+    const c = cv.getContext('2d');
+    drawNestScene(c, cv.width, cv.height, Date.now());
+    tb.appendChild(cv);
+
+    const info = document.createElement('div');
+    info.className = 'panel-note';
+    info.innerHTML =
+      '<div class="nest-line"><span class="nest-ico">🪺</span><span class="nest-lvl">Nivel ' + (ni.level + 1) + ': ' + ni.name + '</span></div>' +
+      '<div class="eggbar"><i style="width:' + ni.pct + '%"></i></div>' +
+      '<div style="margin-top:6px;font-size:12px;color:#dbe7ff">' +
+      'Cada moneda recogida en vuelo añade un objeto al nido (llevas <b>' + ni.objCount + '</b> de ' + DAT.NEST_MAX_OBJ + ').' +
+      (ni.next ? '<br>Próximo nivel: <b>' + ni.next.name + '</b> con ' + ni.next.coins + ' monedas en vuelo.' : '<br>¡Nido legendario! 🎉') +
+      '</div>';
+    tb.appendChild(info);
+
+    const note = document.createElement('div');
+    note.className = 'panel-note';
+    note.innerHTML = '🪺 El nido crece con tus vuelos y la incubadora funciona con tiempo real: los huevos eclosionan aunque no juegues.';
+    tb.appendChild(note);
+  }
+
+  function drawEggsTab(tb) {
+    const eggs = DAT.EGGS;
+    const s = SAVE.get();
+    // incubadora actual
+    const incub = document.createElement('div');
+    incub.className = 'panel-note';
+    let html = '<div style="font-weight:900;color:#ffe066">🥚 INCUBADORA · ' + SAVE.eggSlotsFree() + ' hueco' + (SAVE.eggSlotsFree() === 1 ? '' : 's') + ' libre' + (SAVE.eggSlotsFree() === 1 ? '' : 's') + '</div>';
+    const inc = SAVE.eggIncubating();
+    if (!inc.length) {
+      html += '<div style="font-size:12px;color:#dbe7ff;margin-top:4px">Sin huevos incubando. Compra uno abajo y vuelve cuando eclosione.</div>';
+    } else {
+      inc.forEach((e, i) => {
+        const d = DAT.getEgg(e.id);
+        html += '<div class="eggpill' + (e.done ? ' ready' : '') + '">' +
+          '<span class="eggpill-ico">' + (e.done ? '🐣' : '🥚') + '</span>' +
+          '<span class="eggpill-name">' + (d ? d.name : 'Huevo') + '</span>' +
+          '<span class="eggbar sm"><i style="width:' + e.pct + '%"></i></span>' +
+          (e.done
+            ? '<button class="eggpill-btn" data-hatch="' + i + '">Eclosionar</button>'
+            : '<span class="eggpill-time">' + fmtLeft(e.leftMs) + '</span>') +
+          '</div>';
+      });
+    }
+    incub.innerHTML = html;
+    incub.querySelectorAll('[data-hatch]').forEach(b => {
+      b.onclick = () => {
+        SND.sfx.click();
+        hatchEggAction(parseInt(b.getAttribute('data-hatch'), 10));
+        renderHome('eggs');
+      };
+    });
+    tb.appendChild(incub);
+
+    // huevos a comprar
+    const grid = document.createElement('div');
+    grid.className = 'items';
+    eggs.forEach(e => {
+      const card = document.createElement('div');
+      card.className = 'item';
+      const can = s.coins >= e.price && SAVE.eggSlotsFree() > 0;
+      card.innerHTML =
+        '<div class="i-art" style="font-size:40px">' + e.icon + '</div>' +
+        '<div class="i-name">' + e.name + '</div>' +
+        '<div class="i-desc">' + e.desc + '</div>' +
+        '<button class="i-price" style="' + (can ? '' : 'opacity:.5') + '">🥚 ' + e.price + ' 🪙</button>';
+      card.querySelector('.i-price').onclick = () => {
+        SND.sfx.click();
+        const r = SAVE.buyEgg(e.id);
+        if (r.ok) {
+          toast('🥚 ' + e.name + ' incubando (' + e.mins + ' min) — vuelve luego para eclosionarlo', 'good');
+          renderHome('eggs');
+        } else {
+          toast(r.msg, '');
+        }
+      };
+      grid.appendChild(card);
+    });
+    tb.appendChild(grid);
+    const note = document.createElement('div');
+    note.className = 'panel-note';
+    note.textContent = 'Los huevos eclosionan en un ave o una estela que aún no tengas. Cuanto mejor sea el huevo, más tiempo incuba.';
+    tb.appendChild(note);
+  }
+
+  function drawDecorTab(tb) {
+    const s = SAVE.get();
+    const cats = [['bg', '🖼️ Fondo'], ['floor', '🧺 Suelo'], ['poster', '🪧 Póster'], ['rug', '🧵 Alfombra']];
+    cats.forEach(cat => {
+      const sec = document.createElement('div');
+      sec.className = 'shop-sec';
+      sec.textContent = cat[1];
+      tb.appendChild(sec);
+      const grid = document.createElement('div');
+      grid.className = 'items';
+      DAT.decorsByCat(cat[0]).forEach(d => {
+        const owned = SAVE.isDecorOwned(d.id);
+        const equipped = s.nest.decor[cat[0]] === d.id;
+        const card = document.createElement('div');
+        card.className = 'item';
+        card.innerHTML =
+          '<div class="i-art" style="background:linear-gradient(165deg,' + d.bg1 + ', ' + d.bg2 + ')">' +
+          '<span style="font-size:30px">' + (d.art || '⬜') + '</span></div>' +
+          '<div class="i-name">' + d.name + '</div>' +
+          '<button class="i-price" style="' + (owned ? '' : 'opacity:.85') + '">' +
+          (equipped ? '✔ En uso' : owned ? 'Equipar' : d.price === 0 ? 'Gratis' : d.price + ' 🪙') +
+          '</button>';
+        card.querySelector('.i-price').onclick = () => {
+          SND.sfx.click();
+          if (!owned) {
+            const r = SAVE.buyDecor(d.id);
+            if (!r.ok) { toast(r.msg, ''); return; }
+            toast('🎨 ¡Decoración comprada!', 'good');
+          }
+          SAVE.equipDecor(cat[0], d.id);
+          refreshHome();
+          renderHome('decor');
+        };
+        grid.appendChild(card);
+      });
+      tb.appendChild(grid);
+    });
+  }
+
+  return {
+    hideAllScreens, showLoading, showHome, refreshHome,
+    setHudVisible, showStartHint, setPaused, refreshHudTools, updateEffectTimers,
+    showGameOver, showModeClear, toast, confirm, openGeneric, closeGeneric,
+    showModePick, closeModePick, isModePickOpen,
+    popAch,
+    current: () => currentGeneric
+  };
+})();

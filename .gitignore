@@ -1,0 +1,26 @@
+# Artefactos de compilación
+dist/
+*.apk
+*.aab
+*.idsig
+
+# Dependencias y herramientas descargadas para el APK
+android/libs/
+android/tools/r8.jar
+android/.build/
+
+# Claves y secretos locales
+*.keystore
+*.jks
+*.p12
+.env
+.env.*
+
+# Datos del sistema
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.log
+
+# Dependencias de Node (si se añaden en el futuro)
+node_modules/
