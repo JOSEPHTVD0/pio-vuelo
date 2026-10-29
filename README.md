@@ -20,6 +20,34 @@ El juego se publica automáticamente con GitHub Pages desde la rama `main`.
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
 
+## Novedades de la versión 2.9
+
+- **Portada rediseñada:** billetera de monedas y piezas, avisos contextuales, tutorial de bienvenida, botón **Continuar**, accesos rápidos con contadores y resumen del nido.
+- **Navegación consistente:** cada botón abre una pantalla real; las acciones importantes piden confirmación y las opciones no disponibles se muestran deshabilitadas con su motivo.
+- **Ajustes funcionales:** volumen general, efectos y música, sensibilidad, límite de FPS, pantalla completa, notificaciones, animaciones de interfaz, confirmación de compras y restauración de valores. Todo se aplica al instante y persiste.
+- **Herramientas con durabilidad:** cada uso consume stock y desgasta la herramienta. Una herramienta rota no se consume ni se pierde hasta repararla. Se puede mejorar hasta nivel 5 y la pantalla muestra la comparativa antes/después.
+- **Inventario:** filtros por tipo, equipar aves/sombreros/estelas/mapas, estado y reparación de herramientas e historial reciente de compras, mejoras, reparaciones y roturas.
+- **Estadísticas y ayuda:** métricas de vuelo, mejores marcas, guía de modos, herramientas, economía y guardado.
+- **Economía centralizada y reequilibrada:** los precios de catálogo suben entre un 10 % y un 20 % una sola vez al cargar los datos. Las compras validan saldo y no pueden dejarlo negativo ni cobrar dos veces.
+- **Piezas 🔩:** material persistente para mejoras de nivel alto. Se gana 1 por vuelo, +1 al alcanzar 20 puntos y +1 al batir el récord.
+
+## Economía de la Temporada 2026
+
+Los precios se definen una sola vez en `DAT.ECONOMY` a partir de `basePrice` y se redondean a múltiplos de 5. Los tramos aplicados son ×1.10, ×1.13, ×1.16 y ×1.20 según el artículo, por lo que el conjunto queda en torno a un +10–20 % respecto a los valores anteriores.
+
+- La Caja Sorpresa pasa de 500 a 580 monedas.
+- Las mejoras de herramienta cuestan monedas y, desde el nivel 2→3, también piezas.
+- La reparación cuesta una fracción del precio de la herramienta según la durabilidad que falte.
+- Las compras, mejoras y reparaciones se registran en el historial y en las estadísticas.
+
+## Herramientas y durabilidad
+
+- Las herramientas automáticas se consumen al empezar el vuelo; las manuales se usan desde la bolsa del HUD.
+- Cada uso resta 1 unidad de stock y desgasta la durabilidad. La durabilidad máxima base es 12 y sube +3 por nivel de mejora.
+- El desgaste por uso baja con el nivel (`max(0.4, 1 − nivel × 0.1)`).
+- A 0 de durabilidad la herramienta queda rota: no se gasta, no se borra y no se puede usar hasta repararla.
+- Mejorar una herramienta aplica la nueva durabilidad máxima al momento; reparar cuesta monedas y no se permite si ya está completa.
+
 ## Escudos
 
 - **Escudos guardados:** se compran o se obtienen en la tienda. Se acumulan sin tope, pero cada partida consume como máximo **1** al bloquear un choque. Si no se usan, siguen disponibles para otro vuelo.
@@ -44,7 +72,14 @@ No hay dependencias de npm para jugar. Node solo se usa para las pruebas y el se
 node tools/test-game.js
 ```
 
-La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado y reinicios.
+La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos e integridad de la interfaz. Actualmente hay **275 pruebas** y todas deben pasar antes de publicar.
+
+## Limitaciones conocidas
+
+- El APK Android **no se puede recompilar** en este entorno porque faltan JDK 17 y Android SDK configurados. `android/assets` se mantiene sincronizado con los assets web, pero el binario `dist/PioVuelo.apk` seguirá siendo el anterior hasta compilarlo en una máquina con esos requisitos.
+- La verificación visual e interactiva se ha hecho con pruebas headless, comprobaciones de HTTP y servidor local. No se ha podido usar un navegador real en esta sesión, así que conviene revisar la portada y las pantallas nuevas en un dispositivo antes de darlas por cerradas.
+- El idioma está fijado en español y se muestra deshabilitado como “Español (único)”: no se simula un selector que no existe.
+- El guardado es local al navegador o dispositivo; no hay cuentas, servidores ni sincronización entre dispositivos.
 
 ## Android
 

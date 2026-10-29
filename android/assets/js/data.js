@@ -2,6 +2,48 @@
 window.DAT = (function () {
   'use strict';
 
+  /* ------------------------------------------------------------------
+   * ECONOMÍA CENTRALIZADA
+   * Todos los precios de tienda pasan por econPrice() una sola vez al
+   * cargar el catálogo. Así la interfaz y el cobro usan SIEMPRE el mismo
+   * número y el reequilibrio se ajusta desde aquí.
+   * ------------------------------------------------------------------ */
+  const ECONOMY = {
+    // subida moderada: común +10 %, poco común +13 %, raro +16 %, especial +20 %
+    mult: { common: 1.10, uncommon: 1.13, rare: 1.16, special: 1.20 },
+    tier(base) {
+      if (base < 120) return 'common';
+      if (base < 300) return 'uncommon';
+      if (base < 800) return 'rare';
+      return 'special';
+    },
+    round5(n) { return Math.max(5, Math.round(n / 5) * 5); },
+    price(base) {
+      if (typeof base !== 'number' || !isFinite(base) || base <= 0) return 0;
+      return this.round5(base * this.mult[this.tier(base)]);
+    },
+    // Mejora de herramienta: coste creciente por nivel (base ya reequilibrada)
+    toolUpPrice(level) { return this.round5(90 + Math.max(0, Math.min(4, level | 0)) * 82); },
+    // Materiales (🔩) que pide cada nivel: 1→2 gratis, 2→3 una pieza, ...
+    toolUpParts(level) { return [0, 0, 1, 2, 3][Math.max(0, Math.min(4, level | 0))] || 0; },
+    repairPrice(tool, missing, max) {
+      const price = tool && typeof tool.price === 'number' ? tool.price : 100;
+      const ratio = max > 0 ? Math.max(0, Math.min(1, missing / max)) : 1;
+      return this.round5(Math.max(10, price * 0.35 * ratio));
+    }
+  };
+
+  /* --- Durabilidad de herramientas (compartida por tipo) --------------- */
+  const TOOL_DUR = { base: 12, perLevel: 3, wearPerLevel: 0.1, minWear: 0.4 };
+  function toolBaseDur(tool) { return (tool && tool.dur) || TOOL_DUR.base; }
+  function toolMaxDur(key, level) {
+    const t = getTool(key);
+    return toolBaseDur(t) + Math.max(0, Math.min(5, level | 0)) * TOOL_DUR.perLevel;
+  }
+  function toolWear(key, level) {
+    return Math.max(TOOL_DUR.minWear, 1 - Math.max(0, Math.min(5, level | 0)) * TOOL_DUR.wearPerLevel);
+  }
+
   const SKINS = [
     { id: 'classic',       name: 'Pío Clásico',  desc: 'El legendario pajarito amarillo.', price: 0, body: '#ffd63f', wing: '#f4ad00', belly: '#fff3c0', beak: '#ff7b2e', cheek: '#ff8a5c' },
     { id: 'berry',         name: 'Fruti Roja',   desc: 'Roja como una fresa.',           price: 150, body: '#ff5c5c', wing: '#d63131', belly: '#ffd6d6', beak: '#ffa02e', cheek: '#ffb3a8' },
@@ -151,7 +193,7 @@ window.DAT = (function () {
     };
   }
   function boxDef() {
-    return { name: 'Caja Sorpresa', price: 500, desc: 'Abre un huevo sorpresa: te lleva un ave, sombrero o estela que aún no tengas (5% de que salga una variante dorada con brillo ✨).' };
+    return { name: 'Caja Sorpresa', price: ECONOMY.price(500), desc: 'Abre un huevo sorpresa: te lleva un ave, sombrero o estela que aún no tengas (5% de que salga una variante dorada con brillo ✨).' };
   }
 
   /* Evolución del ave: la XP acumulada al volar sube su etapa (1 → 2 → 3) */
@@ -602,7 +644,8 @@ window.DAT = (function () {
   function getMap(id) { return MAPS.find(m => m.id === id) || MAPS[0]; }
   function getDiff(id) { return DIFFS.find(d => d.id === id) || DIFFS[1]; }
   function getAch(id) { return ACH.find(a => a.id === id) || null; }
-  function getTool(id) { return TOOLS.find(t => t.id === id) || null; }
+  // Acepta el id ('tool-magnet') o la clave interna ('magnet') indistintamente.
+  function getTool(id) { return TOOLS.find(t => t.id === id) || TOOLS.find(t => t.key === id) || null; }
 
   /* Misiones diarias/semanales: metric recibe el estado SAVE y devuelve progreso */
   const MISSIONS = [
@@ -707,12 +750,24 @@ window.DAT = (function () {
   /* Pase de Vuelo base (referencia: primavera), se usa passTiers() en runtime */
   const PASS_TIERS = passTiers(new Date(2026, 2, 15));
 
+  /* Aplica el reequilibrio UNA vez a todo el catálogo de tienda.
+   * Los precios 0 (iniciales/gratis) se conservan. */
+  [SKINS, HATS, EFFECTS, MAPS, TOOLS, EGGS, DECOR].forEach(list => {
+    list.forEach(it => {
+      if (typeof it.price === 'number' && it.price > 0) {
+        it.basePrice = it.price;
+        it.price = ECONOMY.price(it.price);
+      }
+    });
+  });
+
   return {
     SKINS, HATS, EFFECTS, MAPS, ACH, DIFFS, TOOLS, MISSIONS, PASS_TIERS, SEASON_TIERS,
     SEASONS, SEASON_ORDER, seasonIndex, seasonKey, seasonInfo, passTiers,
     CONTENT_EPOCH, curWeek, isUnlocked, weekLabel,
     getSkin, getHat, getFx, getMap, getDiff, getAch, getTool,
     skinStats, boxDef, evolveStage,
+    ECONOMY, TOOL_DUR, toolMaxDur, toolWear,
     NEST_LEVELS, NEST_MAX_OBJ, nestInfo, nestObjPos,
     EGGS, getEgg, eggPool,
     DECOR, getDecor, decorsByCat

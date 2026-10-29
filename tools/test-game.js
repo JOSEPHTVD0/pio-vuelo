@@ -619,6 +619,319 @@ section('9. PAUSA: cuenta atrás 3-2-1 antes de continuar');
   ok(!G.isResuming(), 'salir al menú cancela la cuenta atrás');
 }
 
+/* ---------------- 10. Economía centralizada ---------------- */
+section('10. ECONOMÍA: precios reequilibrados y cobros seguros');
+{
+  SAVE.reset(); SAVE.load();
+  const berry = DAT.SKINS.find(x => x.id === 'berry');
+  ok(berry && berry.basePrice === 150, 'se conserva el precio base de las aves', berry && berry.basePrice);
+  ok(berry.price === 170, 'precio final = base + tramo (150 → 170)', berry.price);
+  ok(berry.price > berry.basePrice * 1.09 && berry.price <= berry.basePrice * 1.21,
+    'la subida está en el rango +10–20 %', berry.price + ' vs ' + berry.basePrice);
+
+  const catalog = [].concat(DAT.SKINS, DAT.HATS, DAT.EFFECTS, DAT.MAPS, DAT.TOOLS, DAT.EGGS, DAT.DECOR)
+    .filter(x => x && typeof x.basePrice === 'number' && x.basePrice > 0);
+  ok(catalog.length > 50, 'todo el catálogo de pago tiene precio base', 'n=' + catalog.length);
+  ok(catalog.every(x => x.price % 5 === 0), 'todos los precios quedan en múltiplos de 5');
+  const outOfRange = catalog.filter(x => x.price < x.basePrice * 1.09 || x.price > x.basePrice * 1.21);
+  ok(outOfRange.length === 0, 'ningún precio se sale del reequilibrio', outOfRange.map(x => x.id + ':' + x.price).join(','));
+  ok(DAT.boxDef().price === 580, 'la Caja Sorpresa también se reequilibra (500 → 580)', DAT.boxDef().price);
+
+  const d = SAVE.get();
+  d.coins = 100; SAVE.save();
+  ok(SAVE.spendCoins(101) === false && SAVE.get().coins === 100, 'no se puede gastar más de lo que hay');
+  ok(SAVE.spendCoins(0) === false && SAVE.get().coins === 100, 'gastar 0 no altera el saldo');
+  ok(SAVE.addCoins(-25) === 0 && SAVE.get().coins === 100, 'no se pueden añadir monedas negativas');
+  ok(SAVE.spendCoins(60) === true && SAVE.get().coins === 40, 'el cobro válido descuenta una sola vez');
+
+  d.coins = 0; SAVE.save();
+  const poor = SAVE.buy('skin', 'berry');
+  ok(!poor.ok && SAVE.get().coins === 0, 'comprar sin saldo falla y no deja números negativos');
+  ok(!SAVE.buyTool('tool-magnet').ok && SAVE.get().coins === 0, 'comprar herramienta sin saldo falla');
+
+  SAVE.addCoins(1000);
+  const coinsBefore = SAVE.get().coins;
+  const buy1 = SAVE.buy('skin', 'berry');
+  ok(buy1.ok && SAVE.get().coins === coinsBefore - berry.price, 'la compra descuenta exactamente el precio',
+    SAVE.get().coins + ' vs ' + (coinsBefore - berry.price));
+  const buy2 = SAVE.buy('skin', 'berry');
+  ok(!buy2.ok, 'no se puede comprar dos veces el mismo artículo');
+  ok(SAVE.owns(SAVE.get().skinsOwned, 'berry'), 'el artículo comprado queda en el inventario');
+  SAVE.equip('skin', 'berry');
+  ok(SAVE.get().skin === 'berry', 'equipar una skin comprada funciona');
+}
+
+/* ---------------- 11. Durabilidad, reparación y mejoras ---------------- */
+section('11. DURABILIDAD: desgaste, rotura, reparación y mejora');
+{
+  SAVE.reset(); SAVE.load();
+  const tool = DAT.TOOLS.find(t => t.key === 'magnet');
+  const info0 = SAVE.toolDurInfo('magnet');
+  ok(info0.max === DAT.toolMaxDur('magnet', 0), 'durabilidad máxima inicial según el catálogo', info0.max);
+  ok(info0.cur === info0.max && info0.pct === 100, 'una herramienta nueva empieza al 100 %');
+  ok(SAVE.toolUsable('magnet'), 'la herramienta nueva es usable');
+
+  ok(SAVE.wearTool('magnet') === info0.max - 1, 'cada uso resta 1 punto de durabilidad');
+  for (let i = 0; i < info0.max; i++) SAVE.wearTool('magnet');
+  ok(SAVE.toolDur('magnet') === 0, 'la durabilidad nunca baja de 0');
+  ok(!SAVE.toolUsable('magnet') && SAVE.toolDurInfo('magnet').broken, 'a 0 la herramienta queda rota');
+  ok(SAVE.wearTool('magnet') === 0, 'usar una herramienta rota no genera valores negativos');
+
+  SAVE.addCoins(5000);
+  const bought = SAVE.buyTool(tool.id);
+  ok(bought.ok, 'se puede comprar una herramienta rota para reponer stock');
+  ok(SAVE.toolDur('magnet') === 1, 'comprar stock también recupera 1 punto (sin pasar del máximo)', SAVE.toolDur('magnet'));
+
+  const cost = SAVE.toolRepairCost('magnet');
+  ok(cost > 0 && cost < tool.price, 'la reparación cuesta menos que la herramienta', cost + ' vs ' + tool.price);
+  const coinsB = SAVE.get().coins;
+  const repaired = SAVE.repairTool('magnet');
+  ok(repaired.ok && repaired.price === cost, 'reparar cobra el coste calculado');
+  ok(SAVE.get().coins === coinsB - cost, 'la reparación descuenta exactamente una vez');
+  ok(SAVE.toolDur('magnet') === SAVE.toolMaxDur('magnet'), 'la reparación deja la herramienta al máximo');
+  ok((SAVE.get().stats.toolsRepaired || 0) >= 1, 'se cuenta la reparación en las estadísticas');
+  ok(!SAVE.repairTool('magnet').ok, 'no se puede reparar una herramienta ya completa');
+
+  group('Mejoras con piezas');
+  SAVE.reset(); SAVE.load(); SAVE.addCoins(20000);
+  const st0 = SAVE.toolStats('magnet');
+  ok(st0.now.level === 0 && st0.next.level === 1, 'la comparativa muestra el siguiente nivel');
+  ok(st0.next.max > st0.now.max, 'mejorar aumenta la durabilidad máxima', st0.now.max + '→' + st0.next.max);
+  ok(st0.next.wear < st0.now.wear, 'mejorar reduce el desgaste por uso', st0.now.wear + '→' + st0.next.wear);
+
+  const cUp = SAVE.get().coins;
+  const up1 = SAVE.upToolLevel('magnet');
+  ok(up1.ok && up1.level === 1, 'sube al nivel 1');
+  ok(SAVE.get().coins === cUp - up1.price, 'la mejora cobra exactamente el precio');
+  ok(SAVE.toolLevel('magnet') === 1, 'el nivel queda guardado');
+  ok(SAVE.toolMaxDur('magnet') === DAT.toolMaxDur('magnet', 1), 'la nueva durabilidad máxima se aplica');
+  ok(SAVE.toolDur('magnet') === SAVE.toolMaxDur('magnet'), 'la mejora añade la resistencia nueva sin reparar gratis de más');
+
+  const up2 = SAVE.upToolLevel('magnet');
+  ok(up2.ok && up2.parts === 0, 'nivel 1 → 2 no pide piezas');
+
+  const cBlocked = SAVE.get().coins;
+  const lvBlocked = SAVE.toolLevel('magnet');
+  const noParts = SAVE.upToolLevel('magnet');
+  ok(!noParts.ok && noParts.msg === 'no_parts', 'nivel 2 → 3 exige una pieza 🔩');
+  ok(SAVE.get().coins === cBlocked && SAVE.toolLevel('magnet') === lvBlocked,
+    'si faltan piezas no se cobra nada ni sube el nivel');
+
+  SAVE.addParts(1);
+  const withParts = SAVE.upToolLevel('magnet');
+  ok(withParts.ok && SAVE.partsCount() === 0, 'con 1 pieza la mejora se completa y consume la pieza');
+
+  let guard = 0;
+  while (SAVE.toolLevel('magnet') < 5 && guard++ < 10) {
+    SAVE.addParts(5); SAVE.addCoins(5000);
+    if (!SAVE.upToolLevel('magnet').ok) break;
+  }
+  ok(SAVE.toolLevel('magnet') === 5, 'se puede llegar al nivel máximo 5');
+  ok(SAVE.upToolLevel('magnet').msg === 'max', 'al nivel 5 ya no se puede mejorar');
+}
+
+/* ---------------- 12. Piezas como material ---------------- */
+section('12. PIEZAS 🔩: economía de material y recompensas');
+{
+  SAVE.reset(); SAVE.load();
+  ok(SAVE.partsCount() === 0, 'se empieza sin piezas');
+  SAVE.addParts(-5);
+  ok(SAVE.partsCount() === 0, 'no se pueden restar piezas');
+  SAVE.addParts(2);
+  ok(SAVE.partsCount() === 2, 'las piezas se acumulan');
+  ok(SAVE.spendParts(3) === false && SAVE.partsCount() === 2, 'no se pueden gastar piezas que no hay');
+  ok(SAVE.spendParts(2) === true && SAVE.partsCount() === 0, 'gastar piezas válido descuenta exacto');
+
+  const runA = SAVE.partsCount();
+  const record = SAVE.endRun(25, 4, 5, 30, 120, 'free');
+  ok(record === true, '25 pts es récord con la tabla vacía');
+  ok(SAVE.partsCount() === runA + 3, 'un récord con 20+ pts da 3 piezas', SAVE.partsCount() - runA);
+
+  const runB = SAVE.partsCount();
+  SAVE.endRun(5, 1, 0, 10, 40, 'free');
+  ok(SAVE.partsCount() === runB + 1, 'un vuelo normal sin marca da 1 pieza', SAVE.partsCount() - runB);
+  ok((SAVE.get().stats.partsEarned || 0) >= 4, 'las piezas ganadas se cuentan en estadísticas');
+}
+
+/* ---------------- 13. Ajustes persistentes ---------------- */
+section('13. AJUSTES: persistencia, saneado y restauración');
+{
+  SAVE.reset(); SAVE.load();
+  const def = SAVE.resetSettings();
+  ok(def.volG === 1 && def.fps === 0 && def.sens === 1, 'restaurar deja los valores de fábrica');
+  ok(def.notif === true && def.uiAnim === true && def.confirmBuy === false, 'los ajustes nuevos tienen valores por defecto');
+
+  SAVE.setSetting('volG', 0.35);
+  SAVE.setSetting('fps', 60);
+  SAVE.setSetting('sens', 1.25);
+  SAVE.setSetting('notif', false);
+  SAVE.setSetting('uiAnim', false);
+  SAVE.setSetting('confirmBuy', true);
+  SAVE.load();
+  const st = SAVE.get().set;
+  ok(near(st.volG, 0.35, 0.001), 'el volumen general persiste tras recargar', st.volG);
+  ok(st.fps === 60, 'el límite de FPS persiste', st.fps);
+  ok(near(st.sens, 1.25, 0.001), 'la sensibilidad persiste', st.sens);
+  ok(st.notif === false && st.uiAnim === false && st.confirmBuy === true,
+    'notificaciones, animaciones y confirmación de compras persisten');
+
+  const raw = JSON.parse(localStorage.getItem(KEY));
+  raw.set.volG = 'roto';
+  raw.set.fps = 999;
+  raw.set.sens = 99;
+  raw.set.confirmBuy = 'sí';
+  localStorage.setItem(KEY, JSON.stringify(raw));
+  SAVE.load();
+  const bad = SAVE.get().set;
+  ok(typeof bad.volG === 'number' && bad.volG >= 0 && bad.volG <= 1, 'un volumen inválido se sanea', bad.volG);
+  ok(bad.fps === 0, 'un límite de FPS fuera de la lista vuelve a Auto', bad.fps);
+  ok(near(bad.sens, 1.5, 0.001), 'una sensibilidad exagerada se limita al máximo', bad.sens);
+  ok(bad.confirmBuy === true, 'los booleanos se normalizan');
+
+  ok(SAVE.get().tutorialDone === false, 'el tutorial empieza pendiente');
+  SAVE.finishTutorial();
+  SAVE.load();
+  ok(SAVE.get().tutorialDone === true, 'cerrar el tutorial persiste');
+}
+
+/* ---------------- 14. Historial de compras ---------------- */
+section('14. HISTORIAL: compras, mejoras y reparaciones');
+{
+  SAVE.reset(); SAVE.load();
+  SAVE.addCoins(30000);
+  ok(SAVE.getHistory().length === 0, 'el historial empieza vacío');
+  const bt = SAVE.buyTool('tool-magnet');
+  ok(bt.ok && SAVE.getHistory().length === 1, 'comprar una herramienta queda en el historial');
+  ok(SAVE.getHistory()[0].k === 'compra' && SAVE.getHistory()[0].n === DAT.getTool('tool-magnet').name,
+    'el historial guarda tipo y nombre', JSON.stringify(SAVE.getHistory()[0]));
+
+  SAVE.wearTool('magnet');
+  SAVE.wearTool('magnet');
+  const rep = SAVE.repairTool('magnet');
+  ok(rep.ok && SAVE.getHistory()[0].k === 'reparacion', 'la reparación encabeza el historial');
+
+  for (let i = 0; i < 40; i++) SAVE.buyTool('tool-magnet');
+  ok(SAVE.getHistory().length === 30, 'el historial se limita a 30 entradas', SAVE.getHistory().length);
+
+  SAVE.addParts(5); SAVE.addCoins(5000);
+  const up = SAVE.upToolLevel('magnet');
+  ok(up.ok && SAVE.getHistory()[0].k === 'mejora', 'las mejoras también se registran');
+}
+
+/* ---------------- 15. Migración de guardados antiguos ---------------- */
+section('15. MIGRACIÓN: guardados anteriores sin campos nuevos');
+{
+  const old = {
+    v: 1, coins: 120, coinsEarned: 120, level: 2, xp: 10,
+    stats: { best: 7, flights: 2, pipes: 5, timePlayed: 60, coinsGot: 20, dist: 100 },
+    skinsOwned: [{ id: 'classic' }, { id: 'berry' }], hatsOwned: [],
+    fxOwned: [{ id: 'fx-none' }], mapsOwned: [{ id: 'day' }],
+    skin: 'berry', hat: null, fx: 'fx-none', map: 'day',
+    items: { magnet: 2 }, toolUp: { magnet: 2 }, toolMode: {},
+    nest: { decor: { bg: 'bg-cielo', floor: 'fl-pasto', poster: 'po-estrella', rug: 'rug-nada' }, decorOwned: [], eggs: [] },
+    set: { sfx: true, music: true, vib: true, diff: 'normal', gfx: 'high', mode: 'free', volS: 0.8, volM: 0.5 }
+  };
+  localStorage.setItem(KEY, JSON.stringify(old));
+  SAVE.load();
+  const d = SAVE.get();
+  ok(d.coins === 120 && d.stats.best === 7, 'los datos antiguos se conservan');
+  ok(d.parts === 0, 'se añaden piezas con valor 0 si faltaban');
+  ok(typeof d.toolDur === 'object' && d.toolDur.magnet === DAT.toolMaxDur('magnet', 2),
+    'la durabilidad se inicializa según el nivel guardado', d.toolDur.magnet);
+  ok(d.toolUp.magnet === 2 && SAVE.toolLevel('magnet') === 2, 'los niveles de mejora antiguos se respetan');
+  ok(d.set.volG === 1 && d.set.fps === 0 && d.set.sens === 1, 'los ajustes nuevos toman su valor por defecto');
+  ok(d.set.notif === true && d.set.uiAnim === true && d.set.confirmBuy === false, 'los interruptores nuevos arrancan activos/neutros');
+  ok(near(d.set.volS, 0.8, 0.001) && near(d.set.volM, 0.5, 0.001), 'los volúmenes antiguos se mantienen');
+  ok(Array.isArray(d.history) && d.history.length === 0, 'se crea un historial vacío');
+  ok(d.tutorialDone === false, 'el tutorial queda pendiente en saves antiguos');
+  ok(d.skin === 'berry' && SAVE.owns(d.skinsOwned, 'berry'), 'el ave equipada sigue siendo válida');
+
+  const corrupt = JSON.parse(JSON.stringify(old));
+  corrupt.coins = -50;
+  corrupt.stats.best = -10;
+  localStorage.setItem(KEY, JSON.stringify(corrupt));
+  SAVE.load();
+  ok(SAVE.get().coins === 0 && SAVE.get().stats.best === 0, 'un guardado con valores negativos se sanea');
+}
+
+/* ---------------- 16. Integridad de la interfaz ---------------- */
+section('16. INTERFAZ: pantallas, navegación e inicio');
+{
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+  const mainSrc = fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8');
+
+  ['btnPlay', 'btnContinue', 'homeCoins', 'homeParts', 'homeNotice', 'homeTutorial',
+    'homeNest', 'homeBest', 'homeLevel', 'homeXp', 'btnReplay', 'dailyPill', 'dailyRunPill',
+    'badgeMissions', 'badgePass', 'badgeHome', 'badgeTools', 'homeSoundIco'
+  ].forEach(id => ok(html.indexOf('id="' + id + '"') !== -1, 'index.html incluye #' + id));
+
+  const navs = Array.from(new Set(Array.from(html.matchAll(/data-nav="([^"]+)"/g)).map(m => m[1])));
+  ok(navs.length >= 8, 'la portada tiene accesos rápidos', navs.join(','));
+  navs.forEach(n => ok(uiSrc.indexOf("case '" + n + "':") !== -1 || uiSrc.indexOf("case '" + n + "':") !== -1,
+    'la navegación «' + n + '» tiene pantalla real'));
+
+  ok(uiSrc.indexOf('function renderInventory') !== -1, 'existe la pantalla de inventario');
+  ok(uiSrc.indexOf('function renderStats') !== -1, 'existe la pantalla de estadísticas');
+  ok(uiSrc.indexOf('function renderHelp') !== -1, 'existe la pantalla de ayuda');
+  ok(mainSrc.indexOf("getElementById('btnContinue')") !== -1, 'Continuar tiene acción real');
+  ok(mainSrc.indexOf("getElementById('btnTutorialDone')") !== -1, 'el tutorial se puede cerrar');
+  ok(mainSrc.indexOf('setMasterVol') === -1 ? true : mainSrc.indexOf('st.volG') !== -1,
+    'el volumen general se aplica al arrancar');
+}
+
+/* ---------------- 17. Herramientas en vuelo ---------------- */
+section('17. HERRAMIENTAS EN VUELO: consumo automático y manual');
+{
+  SAVE.reset(); SAVE.load(); SAVE.addCoins(20000);
+  SAVE.buyTool('tool-magnet');
+  SAVE.buyTool('tool-slow');
+  SAVE.setToolMode('slow', 'manual');
+
+  // Imán roto con stock: el consumo automático no debe gastarlo
+  for (let i = 0; i < 20; i++) SAVE.wearTool('magnet');
+  ok(SAVE.toolDur('magnet') === 0, 'el imán queda roto para la prueba');
+  const magnetStock = SAVE.itemCount('magnet');
+  T.consumeTools();
+  ok(SAVE.itemCount('magnet') === magnetStock, 'una herramienta rota no se consume automáticamente');
+  ok(SAVE.toolDur('magnet') === 0, 'consumir una herramienta rota no cambia su durabilidad');
+
+  // Herramienta sana en modo auto: se consume una vez y se desgasta
+  SAVE.setToolMode('slow', 'auto');
+  const slowStock = SAVE.itemCount('slow');
+  const slowDur = SAVE.toolDur('slow');
+  T.consumeTools();
+  ok(SAVE.itemCount('slow') === slowStock - 1, 'la herramienta automática gasta 1 unidad al iniciar');
+  ok(SAVE.toolDur('slow') < slowDur, 'el uso automático desgasta la herramienta');
+
+  // Uso manual en partida
+  SAVE.setToolMode('slow', 'manual');
+  SAVE.setToolMode('magnet', 'manual');
+  SAVE.repairTool('magnet');
+  ok(SAVE.toolUsable('magnet'), 'el imán reparado vuelve a ser usable');
+  G.startPlay('free');
+  ok(G.getState() === 'play', 'la partida está activa para usar la bolsa');
+  const manualStock = SAVE.itemCount('magnet');
+  const manualDur = SAVE.toolDur('magnet');
+  const manualUses = SAVE.get().stats.manualUses || 0;
+  T.useBagTool('magnet');
+  ok(SAVE.itemCount('magnet') === manualStock - 1, 'usar la bolsa gasta 1 unidad');
+  ok(SAVE.toolDur('magnet') < manualDur, 'usar la bolsa desgasta la herramienta');
+  ok((SAVE.get().stats.manualUses || 0) === manualUses + 1, 'se cuenta el uso manual en estadísticas');
+
+  // Herramienta rota con stock: la bolsa no la consume
+  SAVE.get().items.magnet = 2; SAVE.save();
+  for (let i = 0; i < 20; i++) SAVE.wearTool('magnet');
+  T.useBagTool('magnet');
+  ok(SAVE.itemCount('magnet') === 2, 'la bolsa no consume una herramienta rota');
+  ok(SAVE.toolDur('magnet') === 0, 'la herramienta rota sigue rota tras intentar usarla');
+
+  // Sin stock no ocurre nada
+  SAVE.get().items.slow = 0; SAVE.save();
+  T.useBagTool('slow');
+  ok(SAVE.itemCount('slow') === 0, 'sin stock la bolsa no hace nada');
+}
+
 /* ---------------- Resumen ---------------- */
 console.log('\n────────────────────────────────────────');
 console.log('Pruebas superadas: ' + pass + ' · fallidas: ' + fail);

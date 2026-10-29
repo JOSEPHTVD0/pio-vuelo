@@ -74,20 +74,84 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
   <div id="screen-home" class="screen hidden">
     <div class="home-amb" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="home-top">
-      <div class="coin-chip"><div class="coin-ico"></div><span id="homeCoins">0</span></div>
-      <button class="icon-btn" id="btnHomeSound" aria-label="Sonido"><span class="ico" id="homeSoundIco">&#128266;</span></button>
+      <div class="home-wallet">
+        <div class="coin-chip"><div class="coin-ico"></div><span id="homeCoins">0</span></div>
+        <div class="parts-chip" title="Piezas 🔩: material para mejorar herramientas de nivel alto. Ganas 1 por vuelo, +1 con 20+ puntos y +1 si bates tu récord.">
+          <span class="parts-ico">🔩</span><span id="homeParts">0</span>
+        </div>
+      </div>
+      <button class="icon-btn" id="btnHomeSound" aria-label="Activar o desactivar sonido">
+        <span class="ico" id="homeSoundIco">&#128266;</span>
+      </button>
     </div>
     <div class="home-title">
       <h1>P&#237;o <span>Vuelo</span></h1>
       <canvas id="homeBird" width="360" height="240" aria-hidden="true"></canvas>
     </div>
     <div class="home-body">
-      <section class="hm-sec">
+      <div id="homeNotice" class="home-notice hidden" aria-live="polite"></div>
+
+      <section class="home-tutorial hidden" id="homeTutorial">
+        <div class="tut-head"><span class="tut-ico">🐤</span><b>Bienvenido a Pío Vuelo</b></div>
+        <ol class="tut-steps">
+          <li>Toca la pantalla o pulsa <kbd>Espacio</kbd> para aletear.</li>
+          <li>Esquiva los tubos y recoge monedas 🪙.</li>
+          <li>Gasta en la tienda: aves, estelas, mapas y herramientas 🛠.</li>
+        </ol>
+        <div class="tut-actions">
+          <button class="btn btn-small" id="btnTutorialGuide">Ver guía</button>
+          <button class="btn btn-small btn-play" id="btnTutorialDone">Entendido</button>
+        </div>
+      </section>
+
+      <section class="hm-sec hm-play">
         <h2 class="hm-sec-title">&#9992;&#65039; VUELA</h2>
         <button class="btn btn-play" id="btnPlay">JUGAR</button>
         <div class="hm-sec-sub" id="btnPlaySub"></div>
+        <button class="home-continue" id="btnContinue">
+          <span class="bc-ico">&#9654;</span>
+          <span class="bc-txt">
+            <span class="bc-title">Continuar</span>
+            <span class="bc-sub">Tu primer vuelo te espera</span>
+          </span>
+          <span class="bc-arrow">&#8250;</span>
+        </button>
         <div id="homeTools" class="home-tools hidden"></div>
         <button class="btn btn-replay hidden" id="btnReplay">&#127916; Replay</button>
+      </section>
+
+      <section class="hm-sec">
+        <h2 class="hm-sec-title">&#9889; ACCESOS R&#193;PIDOS</h2>
+        <div class="home-quick">
+          <button class="q-nav" data-nav="shop">
+            <span class="qn-ico">&#128722;</span><span class="qn-t">Tienda</span>
+            <span class="q-badge hidden" id="badgeTools">0</span>
+          </button>
+          <button class="q-nav" data-nav="inventory">
+            <span class="qn-ico">&#127890;</span><span class="qn-t">Inventario</span>
+          </button>
+          <button class="q-nav" data-nav="missions">
+            <span class="qn-ico">&#128203;</span><span class="qn-t">Misiones</span>
+            <span class="q-badge hidden" id="badgeMissions">0</span>
+          </button>
+          <button class="q-nav" data-nav="pass">
+            <span class="qn-ico">&#127934;</span><span class="qn-t">Pase</span>
+            <span class="q-badge hidden" id="badgePass">0</span>
+          </button>
+          <button class="q-nav" data-nav="home" data-tab="nest">
+            <span class="qn-ico">&#129514;</span><span class="qn-t">Nido</span>
+            <span class="q-badge hidden" id="badgeHome">0</span>
+          </button>
+          <button class="q-nav" data-nav="maps">
+            <span class="qn-ico">&#127757;</span><span class="qn-t">Mapas</span>
+          </button>
+          <button class="q-nav" data-nav="stats">
+            <span class="qn-ico">&#128202;</span><span class="qn-t">Estadísticas</span>
+          </button>
+          <button class="q-nav" data-nav="help">
+            <span class="qn-ico">&#10067;</span><span class="qn-t">Ayuda</span>
+          </button>
+        </div>
       </section>
 
       <section class="hm-sec">
@@ -103,16 +167,11 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
         <div id="homeNest" class="home-nest"></div>
       </section>
 
-      <section class="hm-sec">
-        <h2 class="hm-sec-title">&#128193; MENÚ</h2>
+      <section class="hm-sec hm-more">
+        <h2 class="hm-sec-title">&#128193; M&#193;S</h2>
         <div class="home-nav">
-          <button class="acc-nav" data-nav="home"><span class="an-ico">&#127968;</span><span>Hogar</span></button>
           <button class="acc-nav" data-nav="profile"><span class="an-ico">&#128100;</span><span>Perfil</span></button>
           <button class="acc-nav" data-nav="records"><span class="an-ico">&#127942;</span><span>Récords</span></button>
-          <button class="acc-nav" data-nav="shop"><span class="an-ico">&#128722;</span><span>Tienda</span></button>
-          <button class="acc-nav" data-nav="maps"><span class="an-ico">&#127757;</span><span>Mapas</span></button>
-          <button class="acc-nav" data-nav="missions"><span class="an-ico">&#128203;</span><span>Misiones</span></button>
-          <button class="acc-nav" data-nav="pass"><span class="an-ico">&#127934;</span><span>Pase</span></button>
           <button class="acc-nav" data-nav="progress"><span class="an-ico">&#128200;</span><span>Progreso</span></button>
           <button class="acc-nav" data-nav="settings"><span class="an-ico">&#9881;</span><span>Ajustes</span></button>
         </div>

@@ -4,7 +4,7 @@ window.SND = (function () {
 
   let ctx = null, master = null, musicGain = null, sfxGain = null, started = false;
   let sfxOn = true, musicOn = true;
-  let sfxVol = 1, musicVol = 1;
+  let sfxVol = 1, musicVol = 1, masterVol = 1;
   let musicTimer = null, nextStep = 0, step = 0;
 
   const PITCH = [0, 3, 5, 7, 10, 12, 15]; // pentatonic-ish scale (semitonos desde base)
@@ -15,7 +15,7 @@ window.SND = (function () {
     if (!AC) return;
     ctx = new AC();
     master = ctx.createGain();
-    master.gain.value = 1.0;
+    master.gain.value = masterVol;
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14;
     comp.knee.value = 24;
@@ -158,13 +158,22 @@ window.SND = (function () {
       try { musicGain.gain.cancelScheduledValues(ctx.currentTime); musicGain.gain.linearRampToValueAtTime(0.85 * musicVol, ctx.currentTime + 0.4); } catch (e) { }
     }
   }
-  function setVolumes(sv, mv) { setSfxVol(sv); setMusicVol(mv); }
+  // Volumen general: se aplica sobre toda la mezcla (efectos + música).
+  function setMasterVol(v) {
+    masterVol = Math.max(0, Math.min(1, v === undefined ? 1 : (parseFloat(v) || 0)));
+    if (master) { try { master.gain.value = masterVol; } catch (e) { } }
+    return masterVol;
+  }
+  function setVolumes(sv, mv, gv) {
+    setSfxVol(sv); setMusicVol(mv);
+    if (gv !== undefined) setMasterVol(gv);
+  }
 
   // Reproduce todas las notas en un "click flash" al activar el switch de música desde apagado? se usa setMusic.
 
   return {
     unlock, ensure, setSfx, setMusic, isMusicOn, startMusic, stopMusic,
-    setVolumes, setSfxVol, setMusicVol,
+    setVolumes, setSfxVol, setMusicVol, setMasterVol,
     sfx: S,
     hotkeys: null
   };

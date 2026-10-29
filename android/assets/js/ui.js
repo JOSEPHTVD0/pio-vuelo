@@ -203,6 +203,8 @@ window.UI = (function () {
     $('homeLevel').textContent = 'Nv. ' + s.level;
     const cur = SAVE.xpFor(s.level);
     $('homeXp').style.width = Math.min(100, Math.round(s.xp / cur * 100)) + '%';
+    const partsEl = document.getElementById('homeParts');
+    if (partsEl) partsEl.textContent = SAVE.partsCount();
     const nmEl = document.getElementById('homeName');
     if (nmEl) nmEl.textContent = SAVE.getProfile().name || 'Jugador';
     const shEl = document.getElementById('homeShields');
@@ -224,11 +226,83 @@ window.UI = (function () {
         btnReplay.classList.add('hidden');
       }
     }
+    // Continuar: retoma el último modo guardado (el progreso meta ya está a salvo)
+    const cont = document.getElementById('btnContinue');
+    if (cont) {
+      const label = { free: 'Vuelo libre', zen: 'Zen', boss: 'Jefe', wind: 'Viento' }[s.set.mode] || 'Vuelo libre';
+      cont.querySelector('.bc-title').textContent = 'Continuar · ' + label;
+      cont.querySelector('.bc-sub').textContent = s.stats.flights ? 'Récord ' + s.stats.best + ' pts · Nv. ' + s.level : 'Tu primer vuelo te espera';
+    }
+    // Avisos importantes (recompensas, misiones, herramientas rotas)
+    const notice = document.getElementById('homeNotice');
+    if (notice) {
+      const alerts = homeAlerts(s);
+      if (alerts.length) {
+        notice.classList.remove('hidden');
+        notice.innerHTML = alerts.slice(0, 2).map(a => '<button class="home-alert ' + a.kind + '" data-alert="' + a.action + '"><span>' + a.icon + '</span><b>' + a.text + '</b></button>').join('');
+        notice.querySelectorAll('[data-alert]').forEach(b => {
+          b.onclick = () => { SND.sfx.click(); handleAlert(b.getAttribute('data-alert')); };
+        });
+      } else {
+        notice.classList.add('hidden');
+        notice.innerHTML = '';
+      }
+    }
+    // Tutorial de bienvenida (solo hasta que el jugador lo cierra)
+    const tut = document.getElementById('homeTutorial');
+    if (tut) tut.classList.toggle('hidden', s.tutorialDone === true);
+    updateHomeBadges(s);
     drawDaily();
     drawDailyRun();
     drawHomeTools();
     drawNestStatus();
     startEggTick();
+  }
+
+  // Avisos de la portada, ordenados por importancia.
+  function homeAlerts(s) {
+    const out = [];
+    const daily = SAVE.dailyInfo();
+    if (daily.ready) out.push({ icon: '🎁', text: 'Recompensa diaria disponible', kind: 'good', action: 'daily' });
+    const claim = DAT.MISSIONS.filter(m => SAVE.missionProgress(m) >= m.target && !SAVE.missionDoneToday(m)).length;
+    if (claim) out.push({ icon: '📋', text: claim + ' misión' + (claim === 1 ? '' : 'es') + ' por reclamar', kind: 'info', action: 'missions' });
+    const broken = DAT.TOOLS.filter(t => SAVE.itemCount(t.key) > 0 && !SAVE.toolUsable(t.key));
+    if (broken.length) out.push({ icon: '🔧', text: broken.length + ' herramienta' + (broken.length === 1 ? '' : 's') + ' sin durabilidad', kind: 'warn', action: 'tools' });
+    if (!SAVE.challengePlayedToday()) out.push({ icon: '🌱', text: 'Desafío diario sin jugar · hasta 150 🪙', kind: 'info', action: 'dailyrun' });
+    return out;
+  }
+
+  function handleAlert(action) {
+    if (action === 'daily') {
+      const r = SAVE.claimDaily();
+      if (r) { SND.sfx.achieve(); FX.confetti(400, 150); toast('🎁 +' + r.reward + ' 🪙 · racha ' + r.streak + ' 🔥', 'good'); }
+      refreshHome();
+    } else if (action === 'missions') openGeneric('missions');
+    else if (action === 'tools') openGeneric('shop', 'tools');
+    else if (action === 'dailyrun') {
+      if (SAVE.challengePlayedToday()) { toast('Ya jugaste el desafío de hoy 🌙', 'info'); return; }
+      G.setMode('challenge');
+      G.startPlay();
+    }
+    else if (action === 'inventory') openGeneric('inventory');
+  }
+
+  // Pequeños contadores de novedad en los accesos rápidos.
+  function updateHomeBadges(s) {
+    const set = (id, n) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = n > 99 ? '99+' : String(n);
+      el.classList.toggle('hidden', !n);
+    };
+    const claim = DAT.MISSIONS.filter(m => SAVE.missionProgress(m) >= m.target && !SAVE.missionDoneToday(m)).length;
+    set('badgeMissions', claim);
+    const passN = (SAVE.passReached ? SAVE.passReached() - SAVE.passClaimedCount() : 0) || 0;
+    set('badgePass', Math.max(0, passN));
+    const readyEggs = SAVE.eggIncubating().filter(e => e.done).length;
+    set('badgeHome', readyEggs);
+    const lowTools = DAT.TOOLS.filter(t => SAVE.itemCount(t.key) > 0 && SAVE.toolDurInfo(t.key).pct <= 25).length;
+    set('badgeTools', lowTools);
   }
 
   // Resumen del nido + incubadora con tiempo real en la pantalla de inicio
@@ -376,11 +450,23 @@ window.UI = (function () {
     if (!el) return;
     const it = SAVE.get().items || {};
     const parts = [];
-    DAT.TOOLS.forEach(t => { if ((it[t.key] || 0) > 0) parts.push(t.icon + ' x' + it[t.key]); });
+    let warn = 0;
+    DAT.TOOLS.forEach(t => {
+      if ((it[t.key] || 0) > 0) {
+        const d = SAVE.toolDurInfo(t.key);
+        const icon = d.broken ? '🔧' : t.icon;
+        if (!d.broken && d.pct <= 25) warn++;
+        parts.push(icon + ' x' + it[t.key] + (d.broken ? '(rota)' : d.pct <= 25 ? '(' + d.pct + '%)' : ''));
+      }
+    });
     if (parts.length) {
-      el.textContent = '🎒 ' + parts.join(' ');
+      el.innerHTML = '<span class="ht-label">🎒 Bolsa</span><span class="ht-list">' + parts.join(' · ') + '</span>' +
+        (warn ? '<button class="ht-warn" id="htWarn">⚠️ ' + warn + ' al desgaste · revisar</button>' : '');
       el.classList.remove('hidden');
+      const w = document.getElementById('htWarn');
+      if (w) w.onclick = () => { SND.sfx.click(); openGeneric('inventory'); };
     } else {
+      el.innerHTML = '';
       el.classList.add('hidden');
     }
   }
@@ -409,16 +495,21 @@ window.UI = (function () {
     if (!bar) return;
     const list = G && G.manualToolList ? G.manualToolList() : [];
     if (G && G.isPlay() && list.length) {
-      const sig = list.map(t => t.key + ':' + SAVE.itemCount(t.key)).join('|');
+      const sig = list.map(t => {
+        const d = SAVE.toolDurInfo(t.key);
+        return t.key + ':' + SAVE.itemCount(t.key) + ':' + d.pct + ':' + (d.broken ? 1 : 0);
+      }).join('|');
       bar.classList.remove('hidden');
       if (bar._sig === sig) return;
       bar._sig = sig;
       bar.innerHTML = '';
       list.forEach(t => {
+        const d = SAVE.toolDurInfo(t.key);
         const b = document.createElement('button');
-        b.className = 'hud-btn hud-tb';
-        b.setAttribute('aria-label', t.name);
-        b.innerHTML = t.icon + '<span class="t-cnt">' + SAVE.itemCount(t.key) + '</span>';
+        b.className = 'hud-btn hud-tb' + (d.broken ? ' broken' : '') + (d.pct <= 25 && !d.broken ? ' low' : '');
+        b.setAttribute('aria-label', t.name + ' · durabilidad ' + d.pct + '%');
+        b.innerHTML = t.icon + '<span class="t-cnt">' + SAVE.itemCount(t.key) + '</span>' +
+          '<span class="t-dur"><i style="width:' + d.pct + '%"></i></span>';
         b.onclick = () => {
           SND.sfx.click();
           G.useBagTool(t.key);
@@ -609,6 +700,11 @@ window.UI = (function () {
   /* ---------- Toast ---------- */
   const MAX_TOASTS = 3; // máx. visibles para no llenar la pantalla
   function toast(msg, type) {
+    // Notificaciones desactivadas: se silencian los avisos informativos,
+    // pero nunca los errores/avisos críticos (good/warning/'').
+    try {
+      if (window.SAVE && SAVE.get && SAVE.get().set.notif === false && (!type || type === 'info')) return;
+    } catch (e) { }
     const wrap = $('toastWrap');
     // quitar los más antiguos sobrantes de golpe (sin acumular cosas viejas)
     while (wrap.childElementCount >= MAX_TOASTS) {
@@ -627,6 +723,17 @@ window.UI = (function () {
   }
 
   /* ---------- Modal ---------- */
+  function confirmAction(title, text, cb) {
+    confirm(title, text, [
+      { label: 'Cancelar', cb: () => { } },
+      { label: 'Confirmar', style: 'btn-play', cb: cb }
+    ]);
+  }
+  function confirmIfNeeded(title, text, cb) {
+    if (SAVE.get().set.confirmBuy === true) confirmAction(title, text, cb);
+    else cb();
+  }
+
   function confirm(title, text, actions) {
     $('modalTitle').textContent = title;
     $('modalText').textContent = text;
@@ -647,7 +754,7 @@ window.UI = (function () {
     currentGeneric = kind;
     $('screen-generic').classList.remove('hidden');
     $('genBody').innerHTML = '';
-    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤' };
+    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤', inventory: 'INVENTARIO 📦', stats: 'ESTADÍSTICAS 📊', help: 'AYUDA ❓' };
     $('genTitle').textContent = titles[kind] || '';
     $('genCoins').textContent = SAVE.get().coins;
     switch (kind) {
@@ -660,6 +767,9 @@ window.UI = (function () {
       case 'home': renderHome(tab); break;
       case 'records': renderRecords(); break;
       case 'profile': renderProfile(); break;
+      case 'inventory': renderInventory(tab); break;
+      case 'stats': renderStats(); break;
+      case 'help': renderHelp(); break;
       default: break;
     }
     $('genBody').scrollTop = 0;
@@ -1048,10 +1158,14 @@ window.UI = (function () {
     grid.appendChild(dv);
   }
 
-  function buyBox() {
+  function buyBox(confirmed) {
     const def = DAT.boxDef();
     const s = SAVE.get();
     if (s.coins < def.price) { SND.sfx.deny(); toast('No te alcanzan las monedas para la ' + def.name + ' (' + def.price + ' 🪙)', 'info'); return; }
+    if (!confirmed && s.set.confirmBuy) {
+      confirmAction('Abrir ' + def.name, 'Precio: ' + def.price + ' 🪙 · Saldo: ' + s.coins + ' 🪙\nEl contenido es aleatorio.', () => buyBox(true));
+      return;
+    }
     const r = SAVE.openBox();
     if (!r || !r.ok) { toast('Algo salió mal abriendo la caja', ''); return; }
     SND.sfx.buy();
@@ -1103,6 +1217,16 @@ window.UI = (function () {
       ds.className = 'i-desc'; ds.textContent = tool.desc + upgradeHint(tool.key);
       div.appendChild(ds);
 
+      // Durabilidad: barra, estado y resistencia al desgaste
+      const dur = SAVE.toolDurInfo(tool.key);
+      const durBox = document.createElement('div');
+      durBox.className = 'tool-dur' + (dur.broken ? ' broken' : dur.pct <= 25 ? ' low' : '');
+      durBox.innerHTML =
+        '<div class="td-top"><span>🔧 ' + (dur.broken ? 'Rota' : Math.round(dur.cur) + '/' + dur.max) + '</span>' +
+        '<span class="td-pct">' + dur.pct + '% · desgaste -' + Math.round((1 - dur.wear) * 100) + '%</span></div>' +
+        '<div class="td-bar"><i style="width:' + dur.pct + '%"></i></div>';
+      div.appendChild(durBox);
+
       if (tool.week && !DAT.isUnlocked(tool)) {
         const lk = document.createElement('div');
         lk.className = 'i-price';
@@ -1134,6 +1258,34 @@ window.UI = (function () {
       modeRow.appendChild(manB);
       div.appendChild(modeRow);
 
+      if (dur.missing > 0) {
+        const repRow = document.createElement('div');
+        repRow.className = 'tool-row';
+        const rep = document.createElement('button');
+        rep.className = 'chip chip-repair';
+        rep.innerHTML = '🔧 Reparar · <div class="coin-ico"></div> ' + SAVE.toolRepairCost(tool.key);
+        rep.onclick = (ev) => {
+          if (ev.stopPropagation) ev.stopPropagation();
+          confirmAction('Reparar ' + tool.name,
+            'Recuperará ' + dur.max + ' de durabilidad (' + Math.round(dur.missing) + ' puntos) por ' + SAVE.toolRepairCost(tool.key) + ' 🪙.',
+            () => {
+              const r = SAVE.repairTool(tool.key);
+              if (!r.ok) {
+                SND.sfx.deny();
+                toast(r.msg === 'no_money' ? 'No tienes suficientes monedas 💤' : 'No necesita reparación', '');
+                return;
+              }
+              SND.sfx.buy();
+              FX.confetti(400, 150);
+              drawToolsItems(); refreshHome();
+              const gc = $('genCoins'); if (gc) gc.textContent = SAVE.get().coins;
+              toast('🔧 ' + tool.name + ' reparada al 100% · -' + r.price + ' 🪙', 'good');
+            });
+        };
+        repRow.appendChild(rep);
+        div.appendChild(repRow);
+      }
+
       const upRow = document.createElement('div');
       upRow.className = 'tool-row';
       const lv = SAVE.toolLevel(tool.key);
@@ -1143,23 +1295,37 @@ window.UI = (function () {
         upBtn.textContent = '⭐ Nivel MAX';
       } else {
         upBtn.className = 'chip chip-up';
-        upBtn.innerHTML = '⬆ Mejorar · Nv ' + lv + ' → ' + (lv + 1) + ' <div class="coin-ico"></div> ' + SAVE.toolUpPrice(tool.key);
+        const parts = SAVE.toolUpParts(tool.key);
+        upBtn.innerHTML = '⬆ Nv ' + lv + ' → ' + (lv + 1) + ' · <div class="coin-ico"></div> ' + SAVE.toolUpPrice(tool.key) +
+          (parts ? ' · 🔩 ' + parts : '');
       }
       upBtn.onclick = (ev) => {
         if (ev.stopPropagation) ev.stopPropagation();
-        const res = SAVE.upToolLevel(tool.key);
-        if (!res.ok) {
-          if (res.msg === 'max') { toast(tool.name + ' ya está al máximo ⭐', 'info'); }
-          else { SND.sfx.deny(); toast('No tienes suficientes monedas 💤', ''); }
-          return;
-        }
-        SND.sfx.buy();
-        FX.confetti(400, 150);
-        drawToolsItems(); refreshHome();
-        const gc = $('genCoins');
-        if (gc) gc.textContent = SAVE.get().coins;
-        toast('⬆ ' + tool.name + ' mejorada a nivel ' + res.level, 'good');
-        SAVE.checkAch().forEach(a => popAch(a));
+        const st = SAVE.toolStats(tool.key);
+        if (!st.next) { toast(tool.name + ' ya está al máximo ⭐', 'info'); return; }
+        confirmAction('Mejorar ' + tool.name,
+          'Nivel ' + st.now.level + ' → ' + st.next.level + '\n' +
+          'Durabilidad máx: ' + st.now.max + ' → ' + st.next.max + '\n' +
+          'Desgaste por uso: ' + st.now.wear.toFixed(2) + ' → ' + st.next.wear.toFixed(2) + '\n' +
+          'Coste: ' + st.price + ' 🪙' + (st.parts ? ' + ' + st.parts + ' 🔩' : '') + '\n' +
+          'Tienes: ' + SAVE.get().coins + ' 🪙 · ' + SAVE.partsCount() + ' 🔩',
+          () => {
+            const res = SAVE.upToolLevel(tool.key);
+            if (!res.ok) {
+              SND.sfx.deny();
+              if (res.msg === 'max') toast(tool.name + ' ya está al máximo ⭐', 'info');
+              else if (res.msg === 'no_parts') toast('Faltan piezas 🔩 (' + res.parts + ' necesarias)', '');
+              else toast('No tienes suficientes monedas 💤', '');
+              return;
+            }
+            SND.sfx.buy();
+            FX.confetti(400, 150);
+            drawToolsItems(); refreshHome();
+            const gc = $('genCoins');
+            if (gc) gc.textContent = SAVE.get().coins;
+            toast('⬆ ' + tool.name + ' nivel ' + res.level + ' · durabilidad ' + res.max, 'good');
+            SAVE.checkAch().forEach(a => popAch(a));
+          });
       };
       upRow.appendChild(upBtn);
       div.appendChild(upRow);
@@ -1207,11 +1373,15 @@ window.UI = (function () {
     return lvTxt;
   }
 
-  function buyToolItem(tool) {
+  function buyToolItem(tool, confirmed) {
     const s = SAVE.get();
     if (s.coins < tool.price) {
       SND.sfx.deny();
       toast('No tienes suficientes monedas 💤', '');
+      return;
+    }
+    if (!confirmed && s.set.confirmBuy) {
+      confirmAction('Comprar ' + tool.name, 'Precio: ' + tool.price + ' 🪙 · Saldo: ' + s.coins + ' 🪙\nRecibirás 1 uso adicional.', () => buyToolItem(tool, true));
       return;
     }
     const res = SAVE.buyTool(tool.id);
@@ -1228,12 +1398,16 @@ window.UI = (function () {
     }
   }
 
-  function buyItem(cat, item, ownedList) {
+  function buyItem(cat, item, ownedList, confirmed) {
     const s = SAVE.get();
     const vt = cat === 'hats' ? 'hat' : cat === 'fx' ? 'fx' : 'skin';
     if (s.coins < item.price) {
       SND.sfx.deny();
       toast('No tienes suficientes monedas 💤', '');
+      return;
+    }
+    if (!confirmed && s.set.confirmBuy) {
+      confirmAction('Comprar ' + item.name, 'Precio: ' + item.price + ' 🪙 · Saldo: ' + s.coins + ' 🪙\nSe equipará automáticamente.', () => buyItem(cat, item, ownedList, true));
       return;
     }
     const res = SAVE.buy(vt, item.id);
@@ -1312,15 +1486,24 @@ window.UI = (function () {
           div.appendChild(pr);
           div.onclick = () => {
             if (s.coins < m.price) { SND.sfx.deny(); toast('Necesitas más monedas para ' + m.name, ''); return; }
-            const res = SAVE.buy('map', m.id);
-            if (res.ok) {
-              SAVE.equip('map', m.id);
-              BG.init(m.id); BG.reset();
-              SND.sfx.buy();
-              renderMaps();
-              $('genCoins').textContent = SAVE.get().coins;
-              toast('¡Mapa desbloqueado: ' + m.name + '!', 'good');
-            }
+            const doBuy = () => {
+              const res = SAVE.buy('map', m.id);
+              if (res.ok) {
+                SAVE.equip('map', m.id);
+                BG.init(m.id); BG.reset();
+                SND.sfx.buy();
+                renderMaps();
+                $('genCoins').textContent = SAVE.get().coins;
+                toast('¡Mapa desbloqueado: ' + m.name + '!', 'good');
+              } else {
+                SND.sfx.deny();
+                toast('No se pudo comprar el mapa', '');
+              }
+            };
+            if (s.set.confirmBuy) {
+              confirmAction('Comprar mapa ' + m.name,
+                'Precio: ' + m.price + ' 🪙 · Saldo: ' + s.coins + ' 🪙\nSe equipará al comprarlo.', doBuy);
+            } else doBuy();
           };
         }
       }
@@ -1696,6 +1879,330 @@ window.UI = (function () {
     body.appendChild(note);
   }
 
+  /* ---------- INVENTARIO ---------- */
+  function renderInventory(initialCat) {
+    const body = $('genBody');
+    body.innerHTML = '';
+    const s = SAVE.get();
+
+    const head = document.createElement('div');
+    head.className = 'inv-head';
+    head.innerHTML =
+      '<div class="inv-wallet"><span class="coin-ico"></span><b>' + s.coins + '</b><span>monedas</span></div>' +
+      '<div class="inv-wallet"><span class="parts-ico">🔩</span><b>' + SAVE.partsCount() + '</b><span>piezas</span></div>' +
+      '<div class="inv-wallet"><span>🛡️</span><b>' + SAVE.shieldCount() + '</b><span>escudos</span></div>';
+    body.appendChild(head);
+
+    const cats = [['all', '📦', 'Todo'], ['skins', '🐤', 'Aves'], ['hats', '🎩', 'Sombreros'], ['fx', '💫', 'Estelas'], ['maps', '🗺', 'Mapas'], ['tools', '🛠', 'Herramientas']];
+    let active = (initialCat && cats.some(c => c[0] === initialCat)) ? initialCat : 'all';
+    const tabs = document.createElement('div');
+    tabs.className = 'tabs shop-tabs';
+    const tabEls = [];
+    const grid = document.createElement('div');
+    grid.className = 'inv-grid';
+    const history = document.createElement('div');
+    history.className = 'inv-history';
+
+    function drawTabs() {
+      tabs.innerHTML = '';
+      tabEls.length = 0;
+      cats.forEach(c => {
+        const b = document.createElement('button');
+        b.className = 'tab' + (c[0] === active ? ' active' : '');
+        b.innerHTML = '<span class="tab-ico">' + c[1] + '</span><span class="tab-t">' + c[2] + '</span>';
+        b.onclick = () => {
+          active = c[0];
+          SND.sfx.click();
+          drawTabs();
+          drawGrid();
+        };
+        tabEls.push(b);
+        tabs.appendChild(b);
+      });
+    }
+
+    function card(emoji, name, sub, equipped, actions) {
+      const d = document.createElement('div');
+      d.className = 'inv-card' + (equipped ? ' equipped' : '');
+      d.innerHTML = '<div class="inv-ico">' + emoji + '</div>' +
+        '<div class="inv-txt"><b>' + esc(name) + '</b><span>' + sub + '</span></div>' +
+        (equipped ? '<span class="inv-eq">✔ En uso</span>' : '');
+      if (actions && actions.length) {
+        const row = document.createElement('div');
+        row.className = 'inv-actions';
+        actions.forEach(a => {
+          const b = document.createElement('button');
+          b.className = 'chip ' + (a.style || '');
+          b.innerHTML = a.label;
+          b.onclick = () => { SND.sfx.click(); a.cb(); };
+          row.appendChild(b);
+        });
+        d.appendChild(row);
+      }
+      return d;
+    }
+
+    function drawGrid() {
+      grid.innerHTML = '';
+      let shown = 0;
+      if (active === 'all' || active === 'skins') {
+        const list = s.skinsOwned.map(o => DAT.getSkin(o.id)).filter(Boolean);
+        list.forEach(it => {
+          shown++;
+          grid.appendChild(card('🐤', it.name, it.desc + (it.golden ? ' ✨' : ''),
+            s.skin === it.id,
+            s.skin === it.id ? [] : [{ label: 'Usar', cb: () => { SAVE.equip('skin', it.id); SND.sfx.click(); drawTabs(); drawGrid(); refreshHome(); } }]));
+        });
+      }
+      if (active === 'all' || active === 'hats') {
+        const list = s.hatsOwned.map(o => DAT.getHat(o.id)).filter(Boolean);
+        if (!list.length) grid.appendChild(emptyNote('Aún no tienes sombreros. Se compran en la tienda.'));
+        list.forEach(it => {
+          shown++;
+          grid.appendChild(card('🎩', it.name, 'Sombrero',
+            s.hat === it.id,
+            s.hat === it.id
+              ? [{ label: 'Quitar', cb: () => { s.hat = null; SAVE.save(); drawGrid(); refreshHome(); } }]
+              : [{ label: 'Usar', cb: () => { SAVE.equip('hat', it.id); drawGrid(); refreshHome(); } }]));
+        });
+      }
+      if (active === 'all' || active === 'fx') {
+        const list = s.fxOwned.map(o => DAT.getFx(o.id)).filter(Boolean);
+        list.forEach(it => {
+          shown++;
+          grid.appendChild(card('💫', it.name, 'Estela',
+            s.fx === it.id,
+            s.fx === it.id ? [] : [{ label: 'Usar', cb: () => { SAVE.equip('fx', it.id); drawGrid(); refreshHome(); } }]));
+        });
+      }
+      if (active === 'all' || active === 'maps') {
+        const list = s.mapsOwned.map(o => DAT.getMap(o.id)).filter(Boolean);
+        list.forEach(it => {
+          shown++;
+          grid.appendChild(card(it.icon || '🗺', it.name, 'Escenario',
+            s.map === it.id,
+            s.map === it.id ? [] : [{ label: 'Usar', cb: () => { SAVE.equip('map', it.id); drawGrid(); refreshHome(); } }]));
+        });
+      }
+      if (active === 'all' || active === 'tools') {
+        DAT.TOOLS.forEach(t => {
+          const count = SAVE.itemCount(t.key);
+          if (!count) return;
+          shown++;
+          const d = SAVE.toolDurInfo(t.key);
+          const lv = SAVE.toolLevel(t.key);
+          const sub = (d.broken ? '🔧 Rota · ' : '🔧 ' + Math.round(d.cur) + '/' + d.max + ' · ') +
+            'x' + count + (lv ? ' · ⭐' + lv : '') + ' · ' + (SAVE.toolModeVal(t.key) === 'manual' ? 'manual' : 'auto');
+          const acts = [];
+          if (d.missing > 0) {
+            acts.push({
+              label: '🔧 Reparar · ' + SAVE.toolRepairCost(t.key), style: 'chip-repair',
+              cb: () => confirmAction('Reparar ' + t.name,
+                'Coste: ' + SAVE.toolRepairCost(t.key) + ' 🪙 · Saldo: ' + SAVE.get().coins + ' 🪙\nRecuperará ' + Math.round(d.missing) + ' puntos de durabilidad.',
+                () => {
+                  const r = SAVE.repairTool(t.key);
+                  if (!r.ok) { SND.sfx.deny(); toast(r.msg === 'no_money' ? 'No tienes suficientes monedas 💤' : 'No necesita reparación', ''); return; }
+                  SND.sfx.buy(); toast('🔧 ' + t.name + ' reparada · -' + r.price + ' 🪙', 'good');
+                  drawGrid(); refreshHome();
+                })
+            });
+          }
+          acts.push({ label: '⬆ Mejorar', cb: () => openGeneric('shop', 'tools') });
+          const c = card(t.icon, t.name, sub, false, acts);
+          const bar = document.createElement('div');
+          bar.className = 'td-bar inv-dur' + (d.broken ? ' broken' : d.pct <= 25 ? ' low' : '');
+          bar.innerHTML = '<i style="width:' + d.pct + '%"></i>';
+          c.appendChild(bar);
+          grid.appendChild(c);
+        });
+        if (!shown) grid.appendChild(emptyNote('No tienes herramientas. Cómpralas en Tienda → Herramientas.'));
+      }
+      if (active === 'all') {
+        const eggs = SAVE.eggIncubating();
+        if (eggs.length) {
+          const box = document.createElement('div');
+          box.className = 'inv-sub';
+          box.innerHTML = '<h3>🥚 INCUBADORA</h3>';
+          eggs.forEach(e => {
+            const line = document.createElement('div');
+            line.className = 'inv-line';
+            line.innerHTML = '<span>🥚 ' + esc((DAT.getEgg(e.id) || {}).name || 'Huevo') + '</span><span>' + (e.done ? '🐣 listo' : fmtLeft(e.leftMs)) + '</span>';
+            box.appendChild(line);
+          });
+          grid.appendChild(box);
+        }
+        const dec = s.nest.decorOwned || [];
+        if (dec.length) {
+          const box = document.createElement('div');
+          box.className = 'inv-sub';
+          box.innerHTML = '<h3>🪺 DECORACIÓN</h3>';
+          dec.forEach(id => {
+            const d = DAT.getDecor(id);
+            if (!d) return;
+            const line = document.createElement('div');
+            line.className = 'inv-line';
+            line.innerHTML = '<span>' + esc(d.name) + '</span><span>' + esc(d.cat) + '</span>';
+            box.appendChild(line);
+          });
+          grid.appendChild(box);
+        }
+      }
+      if (!shown && active !== 'all') grid.appendChild(emptyNote('Nada por aquí todavía.'));
+    }
+
+    function emptyNote(txt) {
+      const d = document.createElement('div');
+      d.className = 'panel-note';
+      d.textContent = txt;
+      return d;
+    }
+
+    function drawHistory() {
+      const list = SAVE.getHistory();
+      history.innerHTML = '<h3>🧾 HISTORIAL RECIENTE</h3>';
+      if (!list.length) {
+        history.innerHTML += '<div class="panel-note">Sin compras ni mejoras todavía.</div>';
+        return;
+      }
+      list.slice(0, 12).forEach(h => {
+        const row = document.createElement('div');
+        row.className = 'hist-row h-' + (h.k || 'otros');
+        const ico = h.k === 'mejora' ? '⬆' : h.k === 'reparacion' ? '🔧' : h.k === 'rotura' ? '💥' : '🛒';
+        row.innerHTML = '<span class="hist-ico">' + ico + '</span><span class="hist-name">' + esc(h.n) + '</span>' +
+          '<span class="hist-d">' + esc(h.d || '') + '</span><span class="hist-t">' + fmtDate(h.t) + '</span>';
+        history.appendChild(row);
+      });
+    }
+
+    drawTabs();
+    body.appendChild(tabs);
+    body.appendChild(grid);
+    body.appendChild(history);
+    drawGrid();
+    drawHistory();
+
+    const note = document.createElement('div');
+    note.className = 'panel-note';
+    note.textContent = 'Las herramientas rotas no se consumen ni se pierden: sigue en tu bolsa hasta que la repares. El desgaste baja con cada uso y la mejora aumenta la durabilidad máxima.';
+    body.appendChild(note);
+  }
+
+  /* ---------- ESTADÍSTICAS ---------- */
+  function renderStats() {
+    const body = $('genBody');
+    body.innerHTML = '';
+    const s = SAVE.get();
+    const st = s.stats || {};
+    const numOr = (v) => (typeof v === 'number' && isFinite(v)) ? v : 0;
+    const mins = Math.floor(numOr(st.timePlayed) / 60);
+    const timeTxt = mins >= 60 ? Math.floor(mins / 60) + ' h ' + (mins % 60) + ' min' : mins + ' min';
+    const rows = [
+      ['🏆 Mejor puntuación', numOr(st.best)],
+      ['✈️ Vuelos', numOr(st.flights)],
+      ['🎯 Tubos superados', numOr(st.pipes)],
+      ['📏 Distancia total', Math.floor(numOr(st.dist)) + ' m'],
+      ['🪙 Monedas recogidas', numOr(st.coinsGot)],
+      ['💸 Monedas gastadas', numOr(st.spent)],
+      ['🛠 Herramientas usadas', numOr(st.toolsUsed)],
+      ['👆 Herramientas manuales', numOr(st.manualUses)],
+      ['⬆ Mejoras compradas', numOr(st.upgs)],
+      ['🔧 Reparaciones', numOr(st.toolsRepaired)],
+      ['🔩 Piezas ganadas', numOr(st.partsEarned)],
+      ['🛡 Escudos absorbidos', numOr(st.shieldAbsorbed)],
+      ['👾 Enemigos esquivados', numOr(st.enemiesGot)],
+      ['🌟 Poderes recogidos', numOr(st.powersGot)],
+      ['🏅 Logros', (s.achieved || []).length],
+      ['📋 Misiones completadas', numOr(st.missionsDone)],
+      ['🌙 Desafíos jugados', numOr(st.challengePlayed)],
+      ['⚔️ Duelos ganados', numOr(st.duelWins)],
+      ['👹 Jefes derrotados', numOr(st.bossDefeated)],
+      ['💨 Tramos de viento', numOr(st.windZones)],
+      ['🧘 Mejor marca Zen', numOr(st.zenBest) + ' m'],
+      ['⏱ Tiempo de vuelo', timeTxt]
+    ];
+
+    const grid = document.createElement('div');
+    grid.className = 'stats-cards';
+    rows.forEach(r => {
+      const d = document.createElement('div');
+      d.className = 'stat-card';
+      d.innerHTML = '<span class="sc-l">' + r[0] + '</span><b class="sc-v">' + r[1] + '</b>';
+      grid.appendChild(d);
+    });
+    body.appendChild(grid);
+
+    const top = document.createElement('div');
+    top.className = 'inv-sub';
+    top.innerHTML = '<h3>🏅 TUS MEJORES VUELOS</h3>';
+    const best3 = (s.best3 || []).slice(0, 3);
+    if (!best3.length) top.innerHTML += '<div class="panel-note">Juega tu primer vuelo para ver marcas aquí.</div>';
+    best3.forEach((r, i) => {
+      const line = document.createElement('div');
+      line.className = 'inv-line';
+      line.innerHTML = '<span>' + (i + 1) + '. ' + r.score + ' pts</span><span>' + fmtDate(r.t) + '</span>';
+      top.appendChild(line);
+    });
+    body.appendChild(top);
+
+    const note = document.createElement('div');
+    note.className = 'panel-note';
+    note.textContent = 'Estas cifras salen directamente del progreso guardado en este navegador. Se actualizan al terminar cada vuelo.';
+    body.appendChild(note);
+  }
+
+  /* ---------- AYUDA ---------- */
+  function renderHelp() {
+    const body = $('genBody');
+    body.innerHTML = '';
+    const sec = (title, html) => {
+      const d = document.createElement('div');
+      d.className = 'help-sec';
+      d.innerHTML = '<h3>' + title + '</h3>' + html;
+      body.appendChild(d);
+    };
+    sec('🐤 Cómo jugar', '<ul>' +
+      '<li>Toca la pantalla o pulsa <kbd>Espacio</kbd> / <kbd>↑</kbd> para aletear.</li>' +
+      '<li>Pasa entre los tubos: cada uno suma puntos y distancia.</li>' +
+      '<li>Recoge monedas 🪙 y poderes; esquiva enemigos y obstáculos.</li>' +
+      '<li>Al chocar termina el vuelo y se guardan monedas, XP, piezas y récord.</li>' +
+      '</ul>');
+    sec('🎮 Modos', '<ul>' +
+      '<li><b>Libre</b>: el clásico sin límite de tiempo.</li>' +
+      '<li><b>Duelo</b>: compite contra la marca de otro jugador.</li>' +
+      '<li><b>Desafío diario</b>: una partida especial al día.</li>' +
+      '<li><b>Zen</b>: sin monedas, solo tu mejor distancia.</li>' +
+      '<li><b>Jefe</b> y <b>Viento</b>: variantes con enemigos y corrientes.</li>' +
+      '</ul>');
+    sec('🛠 Herramientas y durabilidad', '<ul>' +
+      '<li>Se compran en la tienda y se activan en <b>auto</b> al empezar o en <b>manual</b> desde la barra del HUD.</li>' +
+      '<li>Cada uso consume 1 unidad y desgasta la herramienta.</li>' +
+      '<li>Si llega a 0 queda <b>rota</b>: no se gasta ni se pierde, pero no funciona hasta repararla.</li>' +
+      '<li><b>Mejorar</b> sube la durabilidad máxima y reduce el desgaste; los niveles altos piden piezas 🔩.</li>' +
+      '</ul>');
+    sec('🔩 Piezas y economía', '<ul>' +
+      '<li>Ganas 1 pieza por vuelo, +1 al llegar a 20 puntos y +1 si bates tu récord.</li>' +
+      '<li>Los precios de la tienda ya incluyen el reequilibrio de la Temporada 2026.</li>' +
+      '<li>Nunca puedes gastar más de lo que tienes: las compras se validan antes de cobrar.</li>' +
+      '</ul>');
+    sec('⚙️ Ajustes', '<ul>' +
+      '<li>Volumen general, efectos y música; sensibilidad, límite de FPS y pantalla completa.</li>' +
+      '<li>Notificaciones, animaciones de interfaz y confirmación de compras.</li>' +
+      '<li>Todo se guarda al instante en este dispositivo.</li>' +
+      '</ul>');
+    sec('💾 Guardado', '<p>El progreso se guarda en <b>localStorage</b> de este navegador. Si borras los datos del sitio o usas modo incógnito, se pierde. No hay cuentas ni servidores.</p>');
+
+    const actions = document.createElement('div');
+    actions.className = 'help-actions';
+    const b1 = document.createElement('button');
+    b1.className = 'btn'; b1.textContent = '📦 Abrir inventario';
+    b1.onclick = () => { SND.sfx.click(); openGeneric('inventory'); };
+    const b2 = document.createElement('button');
+    b2.className = 'btn'; b2.textContent = '⚙️ Ajustes';
+    b2.onclick = () => { SND.sfx.click(); openGeneric('settings'); };
+    actions.appendChild(b1); actions.appendChild(b2);
+    body.appendChild(actions);
+  }
+
   function renderSettings() {
     const body = $('genBody');
     const s = SAVE.get();
@@ -1724,6 +2231,10 @@ window.UI = (function () {
     gSound.appendChild(sliderRow('🎵 Volumen música', 'volM', s.set.volM, v => {
       SND.setMusicVol(v);
     }));
+    gSound.appendChild(sliderRow('🔉 Volumen general', 'volG', s.set.volG, v => {
+      if (SND.setMasterVol) SND.setMasterVol(v);
+      if (v > 0.05) SND.sfx.click();
+    }));
     body.appendChild(gSound);
 
     const gCom = groupTitle('🛋 Comodidad');
@@ -1739,9 +2250,22 @@ window.UI = (function () {
       FX.setReduced(v);
       toast(v ? 'Movimiento reducido (accesibilidad)' : 'Movimiento completo', 'info');
     }));
+    gCom.appendChild(switchRow('🔔 Notificaciones', 'notif', s.set.notif !== false, v => {
+      toast(v ? 'Avisos informativos activados' : 'Avisos informativos silenciados (los errores siguen apareciendo)', 'info');
+    }));
+    gCom.appendChild(switchRow('🎞 Animaciones de interfaz', 'uiAnim', s.set.uiAnim !== false, v => {
+      document.body.classList.toggle('no-ui-anim', !v);
+      toast(v ? 'Animaciones de interfaz activadas' : 'Animaciones de interfaz desactivadas', 'info');
+    }));
+    gCom.appendChild(switchRow('🛒 Confirmar compras', 'confirmBuy', s.set.confirmBuy === true, v => {
+      toast(v ? 'Se pedirá confirmación antes de comprar' : 'Compras directas (sin confirmación)', 'info');
+    }));
     body.appendChild(gCom);
 
     const gCtrl = groupTitle('🐤 Control');
+    gCtrl.appendChild(sliderRow('👆 Sensibilidad de aleteo', 'sens', s.set.sens, v => {
+      toast('Sensibilidad: ' + Math.round(v * 100) + '%', 'info');
+    }, { min: 0.5, max: 1.5, step: 0.05, format: v => Math.round(v * 100) + '%' }));
     gCtrl.appendChild(switchRow('👆 Flap al soltar', 'lift', s.set.lift === true, v => {
       toast(v ? 'Flap también al soltar el dedo' : 'Flap solo al tocar', 'info');
     }));
@@ -1794,6 +2318,69 @@ window.UI = (function () {
     });
     gfxRow.appendChild(pick2);
     gGame.appendChild(gfxRow);
+
+    // Límite de FPS (0 = automático). Se aplica en el bucle real del juego.
+    const fpsRow = document.createElement('div');
+    fpsRow.className = 'set-row';
+    fpsRow.innerHTML = '<span>🖥 Límite de FPS</span>';
+    const fpsPick = document.createElement('div');
+    fpsPick.className = 'set-pick';
+    [0, 30, 60, 120].forEach(f => {
+      const b = document.createElement('button');
+      b.textContent = f ? String(f) : 'Auto';
+      b.className = ((s.set.fps | 0) === f) ? 'active' : '';
+      b.onclick = () => {
+        SAVE.setSetting('fps', f);
+        renderSettings();
+        SND.sfx.click();
+        toast(f ? 'FPS limitados a ' + f : 'FPS automáticos (sin límite artificial)', 'info');
+      };
+      fpsPick.appendChild(b);
+    });
+    fpsRow.appendChild(fpsPick);
+    gGame.appendChild(fpsRow);
+
+    // Pantalla completa real (si el navegador la permite)
+    const fsRow = document.createElement('div');
+    fsRow.className = 'set-row';
+    fsRow.appendChild(Object.assign(document.createElement('span'), { textContent: '🖵 Pantalla completa' }));
+    const fsWrap = document.createElement('div');
+    fsWrap.className = 'set-pick';
+    const fsBtn = document.createElement('button');
+    const fsSupported = !!(document.documentElement && document.documentElement.requestFullscreen);
+    fsBtn.textContent = (!fsSupported) ? 'No disponible' : (document.fullscreenElement ? 'Salir' : 'Activar');
+    fsBtn.disabled = !fsSupported;
+    fsBtn.onclick = () => {
+      if (!fsSupported) return;
+      try {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen().catch(() => toast('El navegador bloqueó la pantalla completa', 'warning'));
+      } catch (e) {
+        toast('Pantalla completa no disponible aquí', 'warning');
+      }
+      setTimeout(() => { try { renderSettings(); } catch (e) { } }, 350);
+    };
+    fsWrap.appendChild(fsBtn);
+    fsRow.appendChild(fsWrap);
+    gGame.appendChild(fsRow);
+
+    // Idioma: solo español por ahora (se muestra deshabilitado, sin simularlo)
+    const langRow = document.createElement('div');
+    langRow.className = 'set-row disabled';
+    langRow.innerHTML = '<span>🌐 Idioma</span>';
+    const langWrap = document.createElement('div');
+    langWrap.className = 'set-pick';
+    const langBtn = document.createElement('button');
+    langBtn.textContent = 'Español (único)';
+    langBtn.disabled = true;
+    langBtn.className = 'active';
+    langWrap.appendChild(langBtn);
+    langRow.appendChild(langWrap);
+    gGame.appendChild(langRow);
+    const langNote = document.createElement('div');
+    langNote.className = 'set-note';
+    langNote.textContent = 'Este juego solo incluye textos en español. No se muestra un selector falso de idiomas.';
+    gGame.appendChild(langNote);
     body.appendChild(gGame);
 
     const gData = groupTitle('💾 Datos');
@@ -1810,6 +2397,28 @@ window.UI = (function () {
         ]);
     };
     gData.appendChild(resetBtn);
+    const defSet = document.createElement('button');
+    defSet.className = 'btn btn-ghost';
+    defSet.style.marginTop = '8px';
+    defSet.textContent = '↩ Restaurar ajustes predeterminados';
+    defSet.onclick = () => {
+      SND.sfx.click();
+      confirmAction('Restaurar ajustes', 'Volverán el volumen, control, efectos y accesibilidad a sus valores de fábrica. El progreso NO se borra.', () => {
+        const st = SAVE.resetSettings();
+        SND.setSfx(st.sfx); SND.setMusic(st.music);
+        SND.setVolumes(st.volS, st.volM);
+        if (SND.setMasterVol) SND.setMasterVol(st.volG);
+        FX.setReduced(!!st.reduced); ENTS.setHC(!!st.hc);
+        document.body.classList.toggle('no-ui-anim', st.uiAnim === false);
+        renderSettings();
+        toast('↩ Ajustes restaurados', 'good');
+      });
+    };
+    gData.appendChild(defSet);
+    const saveInfo = document.createElement('div');
+    saveInfo.className = 'set-note';
+    saveInfo.textContent = SAVE.lastSaveError() ? '⚠️ El último guardado falló. Revisa el almacenamiento del navegador.' : '💾 Guardado local activo (localStorage) · se guarda al cambiar cualquier ajuste y al terminar cada vuelo.';
+    gData.appendChild(saveInfo);
     body.appendChild(gData);
 
     const about = document.createElement('div');
@@ -1834,7 +2443,8 @@ window.UI = (function () {
     return row;
   }
 
-  function sliderRow(label, key, initVal, onChange) {
+  function sliderRow(label, key, initVal, onChange, opts) {
+    opts = opts || {};
     const row = document.createElement('div');
     row.className = 'set-row';
     row.innerHTML = '<span>' + label + '</span>';
@@ -1842,14 +2452,22 @@ window.UI = (function () {
     wrap.className = 'set-slider';
     const input = document.createElement('input');
     input.type = 'range';
-    input.min = '0'; input.max = '1'; input.step = '0.05';
+    input.min = String(opts.min === undefined ? 0 : opts.min);
+    input.max = String(opts.max === undefined ? 1 : opts.max);
+    input.step = String(opts.step === undefined ? 0.05 : opts.step);
     input.value = String(initVal);
+    const val = document.createElement('span');
+    val.className = 'set-val';
+    const fmt = v => opts.format ? opts.format(v) : Math.round(v * 100) + '%';
+    val.textContent = fmt(initVal);
     input.oninput = () => {
       const v = parseFloat(input.value);
+      val.textContent = fmt(v);
       SAVE.setSetting(key, v);
       onChange(v);
     };
     wrap.appendChild(input);
+    wrap.appendChild(val);
     row.appendChild(wrap);
     return row;
   }
@@ -2064,13 +2682,22 @@ window.UI = (function () {
         '<button class="i-price" style="' + (can ? '' : 'opacity:.5') + '">🥚 ' + e.price + ' 🪙</button>';
       card.querySelector('.i-price').onclick = () => {
         SND.sfx.click();
-        const r = SAVE.buyEgg(e.id);
-        if (r.ok) {
-          toast('🥚 ' + e.name + ' incubando (' + e.mins + ' min) — vuelve luego para eclosionarlo', 'good');
-          renderHome('eggs');
-        } else {
-          toast(r.msg, '');
-        }
+        if (SAVE.eggSlotsFree() <= 0) { SND.sfx.deny(); toast('Incubadora llena: eclosiona un huevo antes de comprar otro 🥚', 'info'); return; }
+        if (s.coins < e.price) { SND.sfx.deny(); toast('No tienes suficientes monedas 💤', ''); return; }
+        const doBuy = () => {
+          const r = SAVE.buyEgg(e.id);
+          if (r.ok) {
+            toast('🥚 ' + e.name + ' incubando (' + e.mins + ' min) — vuelve luego para eclosionarlo', 'good');
+            renderHome('eggs');
+          } else {
+            SND.sfx.deny();
+            toast(r.msg === 'no_money' ? 'No tienes suficientes monedas 💤' : r.msg, '');
+          }
+        };
+        if (s.set.confirmBuy) {
+          confirmAction('Comprar ' + e.name,
+            'Precio: ' + e.price + ' 🪙 · Saldo: ' + s.coins + ' 🪙\nIncubará durante ' + e.mins + ' min.', doBuy);
+        } else doBuy();
       };
       grid.appendChild(card);
     });
@@ -2105,14 +2732,21 @@ window.UI = (function () {
           '</button>';
         card.querySelector('.i-price').onclick = () => {
           SND.sfx.click();
-          if (!owned) {
-            const r = SAVE.buyDecor(d.id);
-            if (!r.ok) { toast(r.msg, ''); return; }
-            toast('🎨 ¡Decoración comprada!', 'good');
-          }
-          SAVE.equipDecor(cat[0], d.id);
-          refreshHome();
-          renderHome('decor');
+          const doBuy = () => {
+            if (!owned) {
+              if (s.coins < d.price) { SND.sfx.deny(); toast('No tienes suficientes monedas 💤', ''); return; }
+              const r = SAVE.buyDecor(d.id);
+              if (!r.ok) { SND.sfx.deny(); toast(r.msg === 'no_money' ? 'No tienes suficientes monedas 💤' : r.msg, ''); return; }
+              toast('🎨 ¡Decoración comprada!', 'good');
+            }
+            SAVE.equipDecor(cat[0], d.id);
+            refreshHome();
+            renderHome('decor');
+          };
+          if (!owned && d.price > 0 && s.set.confirmBuy) {
+            confirmAction('Comprar ' + d.name,
+              'Precio: ' + d.price + ' 🪙 · Saldo: ' + s.coins + ' 🪙\nSe equipará en el nido.', doBuy);
+          } else doBuy();
         };
         grid.appendChild(card);
       });

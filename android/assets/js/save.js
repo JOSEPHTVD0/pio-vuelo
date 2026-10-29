@@ -10,13 +10,15 @@ window.SAVE = (function () {
       v: 1,
       coins: DEFAULT_PERKS.coins,
       coinsEarned: 0,
+      parts: 0,             // 🔩 piezas: material para mejoras de nivel alto
       level: 1,
       xp: 0,
-      stats: { best: 0, flights: 0, pipes: 0, timePlayed: 0, coinsGot: 0, dist: 0, powersGot: 0, spent: 0, megaGot: 0, dailyClaimed: 0, enemiesGot: 0, xcGot: 0, toolsUsed: 0, toolsBought: 0, shared: 0, batsGot: 0, chainGot: 0, gemsGot: 0, challengePlayed: 0, manualUses: 0, upgs: 0, missionsDone: 0, toolTypes: [], shieldAbsorbed: 0, ghostPassed: 0, weekendRuns: 0, fenixUsed: 0, maxDistNoHit: 0, zeroCoinRuns: 0, duelWins: 0, windZones: 0, giantPassed: 0, replaysWatched: 0, seedDays: 0, zenBest: 0, bossDefeated: 0 },
+      stats: { best: 0, flights: 0, pipes: 0, timePlayed: 0, coinsGot: 0, dist: 0, powersGot: 0, spent: 0, megaGot: 0, dailyClaimed: 0, enemiesGot: 0, xcGot: 0, toolsUsed: 0, toolsBought: 0, shared: 0, batsGot: 0, chainGot: 0, gemsGot: 0, challengePlayed: 0, manualUses: 0, upgs: 0, missionsDone: 0, toolTypes: [], shieldAbsorbed: 0, ghostPassed: 0, weekendRuns: 0, fenixUsed: 0, maxDistNoHit: 0, zeroCoinRuns: 0, duelWins: 0, windZones: 0, giantPassed: 0, replaysWatched: 0, seedDays: 0, zenBest: 0, bossDefeated: 0, partsEarned: 0, toolsRepaired: 0 },
       best3: [],
       items: { start: 0, magnet: 0, slow: 0, coins: 0, boost: 0, luck: 0, score: 0, sprint: 0, treasure: 0, clock: 0, turbo: 0, combo: 0, shield: 0, ghost: 0, frenzy: 0, eco: 0, hype: 0, bomb: 0, aura: 0, twin: 0, oasis: 0, doble: 0, runa: 0, titan: 0, fenix: 0, bateria: 0, cris: 0, ferro: 0, para: 0, zoom: 0, mirilla: 0, amuleto: 0, rescate: 0, ticket: 0, radar: 0, bala: 0, flot: 0 },
       toolUp: {},           // nivel de mejora por herramienta (0..5)
       toolMode: {},         // 'auto' | 'manual' por herramienta (default auto)
+      toolDur: {},          // durabilidad actual por herramienta
       dailyC: { date: '', best: 0, played: false },
       dailyH: {},
       replay: null,
@@ -26,7 +28,9 @@ window.SAVE = (function () {
       hat: null, hatsOwned: [],
       fx: 'fx-none', fxOwned: [{ id: 'fx-none' }],
       map: 'day', mapsOwned: [{ id: 'day' }],
-      set: { sfx: true, music: true, vib: true, diff: 'normal', gfx: 'high', mode: 'free', hc: false, moon: false, volS: 1, volM: 1, reduced: false, shake: true, lift: false },
+      set: { sfx: true, music: true, vib: true, diff: 'normal', gfx: 'high', mode: 'free', hc: false, moon: false, volS: 1, volM: 1, volG: 1, reduced: false, shake: true, lift: false, fps: 0, sens: 1, notif: true, uiAnim: true, confirmBuy: false },
+      tutorialDone: false,
+      history: [],          // últimas compras/mejoras/reparaciones (máx. 30)
       dailyM: { date: '', claimed: [] },
       dailyBase: {},        // progreso de 0 para las misiones diarias de hoy
       weeklyM: { week: '', claimed: [] },
@@ -217,8 +221,49 @@ window.SAVE = (function () {
         if (typeof data.stats.replaysWatched !== 'number') data.stats.replaysWatched = 0;
         if (typeof data.stats.seedDays !== 'number') data.stats.seedDays = 0;
         if (!Array.isArray(data.stats.toolTypes)) data.stats.toolTypes = [];
+        if (typeof data.parts !== 'number' || !isFinite(data.parts) || data.parts < 0) data.parts = 0;
+        data.parts = Math.floor(data.parts);
+        if (typeof data.stats.partsEarned !== 'number' || data.stats.partsEarned < 0) data.stats.partsEarned = 0;
+        if (typeof data.stats.toolsRepaired !== 'number' || data.stats.toolsRepaired < 0) data.stats.toolsRepaired = 0;
         if (typeof data.toolUp !== 'object' || !data.toolUp) data.toolUp = {};
         if (typeof data.toolMode !== 'object' || !data.toolMode) data.toolMode = {};
+        if (typeof data.toolDur !== 'object' || !data.toolDur) data.toolDur = {};
+        // valida niveles y durabilidad; las herramientas nuevas arrancan al máximo
+        DAT.TOOLS.forEach(t => {
+          let lv = data.toolUp[t.key];
+          data.toolUp[t.key] = (typeof lv === 'number' && isFinite(lv)) ? Math.max(0, Math.min(5, Math.floor(lv))) : 0;
+          const max = DAT.toolMaxDur(t.key, data.toolUp[t.key]);
+          let cur = data.toolDur[t.key];
+          data.toolDur[t.key] = (typeof cur === 'number' && isFinite(cur)) ? Math.max(0, Math.min(max, cur)) : max;
+        });
+        // inventario: sin duplicados ni elementos desconocidos
+        const dedupe = (list, source, allowGold) => {
+          const seen = {};
+          return (Array.isArray(list) ? list : []).filter(e => {
+            const id = e && e.id;
+            if (!id || seen[id]) return false;
+            const known = source.some(x => x.id === id) ||
+              (allowGold && id.length > 5 && id.slice(-5) === '-gold' && source.some(x => x.id === id.slice(0, -5)));
+            if (!known) return false;
+            seen[id] = true;
+            return true;
+          }).map(e => Object.assign({}, e, { id: e.id }));
+        };
+        data.skinsOwned = dedupe(data.skinsOwned, DAT.SKINS, true);
+        data.hatsOwned = dedupe(data.hatsOwned, DAT.HATS);
+        data.fxOwned = dedupe(data.fxOwned, DAT.EFFECTS);
+        data.mapsOwned = dedupe(data.mapsOwned, DAT.MAPS);
+        if (!owns(data.skinsOwned, 'classic')) data.skinsOwned.unshift({ id: 'classic' });
+        if (!owns(data.fxOwned, 'fx-none')) data.fxOwned.unshift({ id: 'fx-none' });
+        if (!owns(data.mapsOwned, 'day')) data.mapsOwned.unshift({ id: 'day' });
+        if (!owns(data.skinsOwned, data.skin)) data.skin = 'classic';
+        if (data.hat && !owns(data.hatsOwned, data.hat)) data.hat = null;
+        if (!owns(data.fxOwned, data.fx)) data.fx = 'fx-none';
+        if (!owns(data.mapsOwned, data.map)) data.map = 'day';
+        if (!Array.isArray(data.history)) data.history = [];
+        data.history = data.history.filter(h => h && typeof h === 'object' && typeof h.k === 'string').slice(0, 30);
+        data.tutorialDone = data.tutorialDone === true;
+        if (!Array.isArray(data.history)) data.history = [];
         if (!data.dailyC || typeof data.dailyC !== 'object') data.dailyC = { date: '', best: 0, played: false };
         if (!data.dailyH || typeof data.dailyH !== 'object') data.dailyH = {};
         if (data.replay === undefined) data.replay = null;
@@ -234,8 +279,17 @@ window.SAVE = (function () {
         if (typeof data.lastDaily !== 'string') data.lastDaily = '';
         if (typeof data.dailyStreak !== 'number') data.dailyStreak = 0;
         if (!data.set) data.set = defaults().set;
-        ['sfx', 'music', 'vib', 'diff', 'gfx', 'mode', 'hc', 'moon', 'volS', 'volM', 'reduced', 'shake', 'lift'].forEach(k => {
+        ['sfx', 'music', 'vib', 'diff', 'gfx', 'mode', 'hc', 'moon', 'volS', 'volM', 'volG', 'reduced', 'shake', 'lift', 'fps', 'sens', 'notif', 'uiAnim', 'confirmBuy'].forEach(k => {
           if (data.set[k] === undefined) data.set[k] = defaults().set[k];
+        });
+        // sanea ajustes numéricos/booleanos (saves antiguos o manipulados)
+        data.set.volS = Math.max(0, Math.min(1, num(data.set.volS) || 0));
+        data.set.volM = Math.max(0, Math.min(1, num(data.set.volM) || 0));
+        data.set.volG = Math.max(0, Math.min(1, isFinite(num(data.set.volG)) ? num(data.set.volG) : 1));
+        data.set.sens = Math.max(0.5, Math.min(1.5, num(data.set.sens) || 1));
+        data.set.fps = [0, 30, 60, 120].indexOf(num(data.set.fps)) !== -1 ? num(data.set.fps) : 0;
+        ['sfx', 'music', 'vib', 'hc', 'moon', 'reduced', 'shake', 'lift', 'notif', 'uiAnim', 'confirmBuy'].forEach(k => {
+          data.set[k] = data.set[k] !== false;
         });
         if (['free', 'zen', 'boss', 'wind'].indexOf(data.set.mode) === -1) data.set.mode = 'free'; // migración: solo modos continuos se guardan
         if (!data.dailyM || typeof data.dailyM !== 'object') data.dailyM = { date: '', claimed: [] };
@@ -297,13 +351,35 @@ window.SAVE = (function () {
 
   /* --- Monedas --- */
   function addCoins(n) {
-    data.coins += n; data.coinsEarned += n;
+    n = Math.floor(num(n));
+    if (n <= 0) return 0;              // nunca resta ni admite valores inválidos
+    data.coins = Math.max(0, data.coins + n);
+    data.coinsEarned = Math.max(0, data.coinsEarned + n);
     save();
     return n;
   }
   function spendCoins(n) {
-    if (data.coins < n) return false;
+    n = Math.floor(num(n));
+    if (!(n > 0)) return false;
+    if (data.coins < n) return false;  // nunca deja el saldo negativo
     data.coins -= n; save();
+    return true;
+  }
+  function partsCount() { return Math.max(0, Math.floor(num(data.parts))); }
+  function addParts(n) {
+    n = Math.floor(num(n));
+    if (n <= 0) return partsCount();
+    data.parts = partsCount() + n;
+    data.stats.partsEarned = Math.max(0, Math.floor(num(data.stats.partsEarned))) + n;
+    save();
+    return data.parts;
+  }
+  function spendParts(n) {
+    n = Math.floor(num(n));
+    if (!(n > 0)) return false;
+    if (partsCount() < n) return false;
+    data.parts = partsCount() - n;
+    save();
     return true;
   }
 
@@ -362,6 +438,9 @@ window.SAVE = (function () {
     const isRecord = score > data.stats.best;
     if (isRecord) data.stats.best = score;
     recordRun(score, pipesPassed, coinsGot, distMeters, modeName);
+    // 🔩 Piezas: 1 por vuelo + 1 por buena marca + 1 si es récord personal
+    const gotParts = 1 + (score >= 20 ? 1 : 0) + (isRecord ? 1 : 0);
+    addParts(gotParts);
     return isRecord;
   }
 
@@ -480,6 +559,7 @@ window.SAVE = (function () {
     data.coins -= item.price;
     data.stats.spent = (data.stats.spent || 0) + item.price;
     data[cat.list].push({ id });
+    pushHistory('compra', item.name, item.price + ' 🪙');
     save();
     return { ok: true, item };
   }
@@ -507,6 +587,7 @@ window.SAVE = (function () {
       const base = DAT.SKINS[Math.floor(Math.random() * DAT.SKINS.length)];
       const gold = DAT.getSkin(base.id + '-gold');
       if (!owns(data.skinsOwned, gold.id)) data.skinsOwned.push({ id: gold.id });
+      pushHistory('compra', def.name, 'Variante dorada: ' + gold.name);
       save();
       return { ok: true, kind: 'gold', item: gold };
     }
@@ -516,6 +597,7 @@ window.SAVE = (function () {
     DAT.EFFECTS.forEach(f => { if (!owns(data.fxOwned, f.id)) pool.push({ kind: 'fx', item: f }); });
     if (pool.length === 0) {
       data.coins += 100; // consolación: ya lo tienes todo
+      pushHistory('compra', def.name, 'Consolación: 100 🪙');
       save();
       return { ok: true, kind: 'coins', amount: 100 };
     }
@@ -523,9 +605,18 @@ window.SAVE = (function () {
     if (r.kind === 'skin') data.skinsOwned.push({ id: r.item.id });
     else if (r.kind === 'hat') data.hatsOwned.push({ id: r.item.id });
     else data.fxOwned.push({ id: r.item.id });
+    pushHistory('compra', def.name, r.item.name);
     save();
     return { ok: true, kind: r.kind, item: r.item };
   }
+
+  /* --- Historial de compras/mejoras (máx. 30) --- */
+  function pushHistory(kind, name, detail) {
+    if (!Array.isArray(data.history)) data.history = [];
+    data.history.unshift({ k: kind, n: name, d: detail || '', t: Date.now() });
+    if (data.history.length > 30) data.history.length = 30;
+  }
+  function getHistory() { return (data.history || []).slice(); }
 
   /* --- Herramientas de la bolsa (consumibles) --- */
   function buyTool(id) {
@@ -533,29 +624,94 @@ window.SAVE = (function () {
     if (!tool) return { ok: false, msg: 'No existe' };
     if (tool.week && !DAT.isUnlocked(tool)) return { ok: false, msg: 'Se habilitará en la ' + DAT.weekLabel(tool) };
     if (data.coins < tool.price) return { ok: false, msg: 'no_money' };
-    spendCoins(tool.price);
+    if (!spendCoins(tool.price)) return { ok: false, msg: 'no_money' };
     data.stats.spent = (data.stats.spent || 0) + tool.price;
     data.stats.toolsBought = (data.stats.toolsBought || 0) + 1;
     data.items[tool.key] = (data.items[tool.key] || 0) + 1;
+    // comprar también deja la herramienta un poco más entera (nunca pasa del máximo)
+    const max = DAT.toolMaxDur(tool.key, toolLevel(tool.key));
+    data.toolDur[tool.key] = Math.min(max, toolDur(tool.key) + 1);
+    pushHistory('compra', tool.name, '+' + 1 + ' uso · ' + tool.price + ' 🪙');
     save();
     return { ok: true, tool: tool, owned: data.items[tool.key] };
   }
   function itemCount(key) { return (data.items && data.items[key]) || 0; }
 
-  /* --- Mejoras y modo de activación de herramientas --- */
-  function toolLevel(key) { return Math.min(5, data.toolUp[key] || 0); }
-  function toolUpPrice(key) { return 80 + toolLevel(key) * 70; }
+  /* --- Mejoras, durabilidad y modo de activación --- */
+  function toolLevel(key) { return Math.min(5, Math.max(0, Math.floor(num(data.toolUp[key])))); }
+  function toolMaxDur(key) { return DAT.toolMaxDur(key, toolLevel(key)); }
+  function toolWear(key) { return DAT.toolWear(key, toolLevel(key)); }
+  function toolDur(key) {
+    const max = toolMaxDur(key);
+    const cur = num(data.toolDur[key]);
+    if (!(cur > 0) && data.toolDur[key] === undefined) return max;
+    return Math.max(0, Math.min(max, cur));
+  }
+  function toolDurInfo(key) {
+    const max = toolMaxDur(key);
+    const cur = toolDur(key);
+    return {
+      cur: cur, max: max, pct: max > 0 ? Math.round(cur / max * 100) : 0,
+      broken: cur <= 0.0001, wear: toolWear(key), wearPct: Math.round(toolWear(key) * 100),
+      missing: Math.max(0, max - cur)
+    };
+  }
+  function toolUsable(key) { return toolDur(key) > 0.0001; }
+  // Consume desgaste de una herramienta usada. Devuelve la durabilidad restante.
+  function wearTool(key) {
+    if (!toolUsable(key)) return 0;
+    const left = Math.max(0, toolDur(key) - toolWear(key));
+    data.toolDur[key] = left;
+    if (left <= 0.0001) pushHistory('rotura', (DAT.getTool(key) || {}).name || key, 'Necesita reparación');
+    save();
+    return left;
+  }
+  function toolUpPrice(key) { return DAT.ECONOMY.toolUpPrice(toolLevel(key)); }
+  function toolUpParts(key) { return DAT.ECONOMY.toolUpParts(toolLevel(key)); }
+  function toolRepairCost(key) {
+    const info = toolDurInfo(key);
+    if (info.missing <= 0) return 0;
+    return DAT.ECONOMY.repairPrice(DAT.getTool(key), info.missing, info.max);
+  }
+  function repairTool(key) {
+    const info = toolDurInfo(key);
+    const tool = DAT.getTool(key);
+    if (!tool) return { ok: false, msg: 'No existe' };
+    if (info.missing <= 0) return { ok: false, msg: 'full' };
+    const price = toolRepairCost(key);
+    if (data.coins < price) return { ok: false, msg: 'no_money', price: price };
+    if (!spendCoins(price)) return { ok: false, msg: 'no_money', price: price };
+    data.coins = Math.max(0, data.coins); // blindaje: saldo nunca negativo
+    data.stats.spent = (data.stats.spent || 0) + price;
+    data.stats.toolsRepaired = (data.stats.toolsRepaired || 0) + 1;
+    data.toolDur[key] = info.max;
+    pushHistory('reparacion', tool.name, 'Reparada · ' + price + ' 🪙');
+    save();
+    return { ok: true, price: price, max: info.max };
+  }
   function upToolLevel(key) {
+    const tool = DAT.getTool(key);
+    if (!tool) return { ok: false, msg: 'No existe' };
     const lv = toolLevel(key);
     if (lv >= 5) return { ok: false, msg: 'max' };
     const price = toolUpPrice(key);
-    if (data.coins < price) return { ok: false, msg: 'no_money' };
-    spendCoins(price);
+    const parts = toolUpParts(key);
+    // Validación completa ANTES de descontar: evita cobros dobles o parciales.
+    if (data.coins < price) return { ok: false, msg: 'no_money', price: price, parts: parts };
+    if (partsCount() < parts) return { ok: false, msg: 'no_parts', price: price, parts: parts };
+    const oldMax = toolMaxDur(key);
+    data.coins -= price;
+    data.parts = partsCount() - parts;
     data.toolUp[key] = lv + 1;
-    data.stats.spent = (data.stats.spent || 0) + price; // las mejoras también cuentan como gasto de tienda
+    const newMax = toolMaxDur(key);
+    // la mejora añade la nueva resistencia al estado actual (no repara gratis)
+    const cur = toolDur(key);
+    data.toolDur[key] = Math.min(newMax, cur + (newMax - oldMax));
+    data.stats.spent = (data.stats.spent || 0) + price;
     data.stats.upgs = (data.stats.upgs || 0) + 1;
+    pushHistory('mejora', tool.name, 'Nv ' + lv + ' → ' + (lv + 1) + ' · ' + price + ' 🪙' + (parts ? ' + ' + parts + ' 🔩' : ''));
     save();
-    return { ok: true, level: lv + 1, price: price };
+    return { ok: true, level: lv + 1, price: price, parts: parts, max: newMax, wear: toolWear(key) };
   }
   function toolModeVal(key) { return data.toolMode[key] === 'manual' ? 'manual' : 'auto'; }
   function setToolMode(key, mode) {
@@ -566,6 +722,13 @@ window.SAVE = (function () {
   function noteToolUse(key) {
     data.stats.toolsUsed = (data.stats.toolsUsed || 0) + 1;
     if (data.stats.toolTypes.indexOf(key) === -1) data.stats.toolTypes.push(key);
+  }
+  // Comparativa antes/después para la interfaz de mejoras.
+  function toolStats(key) {
+    const lv = toolLevel(key);
+    const now = { level: lv, max: DAT.toolMaxDur(key, lv), wear: DAT.toolWear(key, lv) };
+    const next = lv < 5 ? { level: lv + 1, max: DAT.toolMaxDur(key, lv + 1), wear: DAT.toolWear(key, lv + 1) } : null;
+    return { now: now, next: next, cur: toolDur(key), price: toolUpPrice(key), parts: toolUpParts(key) };
   }
 
   /* --- Ventajas del panel de administración --- */
@@ -626,6 +789,13 @@ window.SAVE = (function () {
 
   /* --- Ajustes --- */
   function setSetting(k, v) { data.set[k] = v; save(); }
+  function defaultSettings() { return Object.assign({}, defaults().set); }
+  function resetSettings() {
+    data.set = defaults().set;
+    save();
+    return data.set;
+  }
+  function finishTutorial() { data.tutorialDone = true; save(); return true; }
 
   /* --- Recompensa diaria + racha --- */
   function padN(n) { return n < 10 ? '0' + n : '' + n; }
@@ -901,6 +1071,7 @@ window.SAVE = (function () {
     data.coins -= d.price;
     data.stats.spent = (data.stats.spent || 0) + d.price;
     data.nest.decorOwned.push(id);
+    pushHistory('compra', d.name, d.price + ' 🪙');
     save();
     return { ok: true, item: d };
   }
@@ -936,6 +1107,7 @@ window.SAVE = (function () {
     data.coins -= def.price;
     data.stats.spent = (data.stats.spent || 0) + def.price;
     data.nest.eggs.push({ id: def.id, start: Date.now(), dur: def.mins * 60000 });
+    pushHistory('compra', def.name, def.price + ' 🪙 · incubando');
     save();
     return { ok: true, item: def };
   }
@@ -969,9 +1141,12 @@ window.SAVE = (function () {
   const SAVE = {
     load, save, get, defaults,
     addCoins, spendCoins, addXp, xpFor,
+    partsCount, addParts, spendParts,
     skinXp, addSkinXp, skinStage, openBox,
     endRun, setCombo, buy, equip, checkAch, setSetting, reset, owns,
-    buyTool, itemCount, toolLevel, toolUpPrice, upToolLevel, toolModeVal, setToolMode, noteToolUse,
+    buyTool, itemCount, toolLevel, toolUpPrice, toolUpParts, upToolLevel, toolModeVal, setToolMode, noteToolUse,
+    toolMaxDur, toolWear, toolDur, toolDurInfo, toolUsable, wearTool, toolRepairCost, repairTool, toolStats,
+    getHistory, resetSettings, defaultSettings, finishTutorial,
     unlockAll, giveTools, giveAllUpg, achAll, chalReset, adminSetStreak,
     dailyInfo, claimDaily, addBest,
     challengePlayedToday, recordChallenge, dailyHistory, seedToday,

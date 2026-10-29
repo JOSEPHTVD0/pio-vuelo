@@ -623,6 +623,13 @@ function difficultyFor(sc, diffc) {
     if (halted || document.hidden) { halted = true; loopActive = false; lastTime = ms; return; } // no sigue tras apagar pantalla
     const rawDt = Math.max(0, Math.min((ms - lastTime) / 1000, 1)); // tiempo real (sin el límite de física)
     const dt = Math.min(rawDt, 0.033);
+    // Límite de FPS opcional: se salta el frame de lógica sin tocar lastTime,
+    // así el tiempo acumulado se aplica en el siguiente frame (no se pierde).
+    const fpsCap = (window.SAVE && SAVE.get && SAVE.get().set.fps) | 0;
+    if (fpsCap > 0 && !paused && (ms - lastTime) < (1000 / fpsCap - 1.5)) {
+      rafId = requestAnimationFrame(loop);
+      return;
+    }
     lastTime = ms;
     if (paused || state === 'load') { rafId = requestAnimationFrame(loop); return; }
     if (resumeLeft > 0) {
@@ -951,7 +958,8 @@ function difficultyFor(sc, diffc) {
 
   // Aleteo de física (sin sonido): compartido por los jugadores y el Replay
   function flapPhys(b) {
-    b.vy = PHYS.flapVel * skinStats.flap * 0.98;
+    const sens = (window.SAVE && SAVE.get && SAVE.get().set.sens) || 1;
+    b.vy = PHYS.flapVel * skinStats.flap * 0.98 * (0.7 + 0.3 * Math.max(0.5, Math.min(1.5, sens)));
     b.squish = 1.18;
     b.wingPhase = 0;
   }
@@ -1217,18 +1225,26 @@ function difficultyFor(sc, diffc) {
     oasisLast = 0;
     const s = SAVE.get();
     const used = [];
+    const broken = [];
     DAT.TOOLS.forEach(tool => {
       if (SAVE.toolModeVal(tool.key) !== 'auto') return;
       if ((s.items[tool.key] || 0) <= 0) return;
+      // Una herramienta rota no se gasta ni se pierde: hay que repararla.
+      if (!SAVE.toolUsable(tool.key)) { broken.push(tool.icon); return; }
       s.items[tool.key]--;
       applyToolEffect(tool.key, mode);
       SAVE.noteToolUse(tool.key);
+      const left = SAVE.wearTool(tool.key);
       used.push(tool.icon);
+      if (left <= 0.0001) broken.push(tool.icon);
     });
     SAVE.save();
     if (used.length) {
       UI.toast('🛠 Herramientas activas: ' + used.join(' '), 'info');
       FX.burst(bird.x, bird.y, '#cdefff', 14, 200);
+    }
+    if (broken.length) {
+      UI.toast('🔧 ' + broken.join(' ') + ' sin durabilidad: repáralas en Herramientas', 'warning');
     }
   }
 
@@ -1421,14 +1437,23 @@ function difficultyFor(sc, diffc) {
     if (state !== 'play' || paused || replayMode) return;
     const tool = DAT.TOOLS.find(t => t.key === key);
     if (!tool || !SAVE.get() || (SAVE.get().items[key] || 0) < 1) return;
+    if (!SAVE.toolUsable(key)) {
+      SND.sfx.deny();
+      UI.toast('🔧 ' + tool.name + ' está rota · repárala en la tienda', 'warning');
+      return;
+    }
     SAVE.get().items[key]--;
     applyToolEffect(key, mode);
     SAVE.noteToolUse(key);
     SAVE.get().stats.manualUses = (SAVE.get().stats.manualUses || 0) + 1;
+    const left = SAVE.wearTool(key);
     SAVE.save();
     SND.sfx.power();
     FX.burst(bird.x, bird.y, '#cdefff', 12, 180);
-    UI.toast('👆 ' + tool.icon + ' ' + tool.name + ' activada', 'info');
+    const info = SAVE.toolDurInfo(key);
+    UI.toast('👆 ' + tool.icon + ' ' + tool.name + ' activada · 🔧 ' + Math.round(left) + '/' + info.max,
+      left <= 0.0001 ? 'warning' : 'info');
+    if (left <= 0.0001) UI.toast('🔧 ' + tool.name + ' se ha quedado sin durabilidad', 'warning');
     updateHUD();
   }
 
@@ -1855,6 +1880,8 @@ function difficultyFor(sc, diffc) {
       hit: hitObstacleBird,
       activate: activatePower,
       updateCoins: updateCoins,
+      consumeTools: consumeTools,
+      useBagTool: useBagTool,
       coins: () => coins,
       applyTool: applyToolEffect,
       coinSafe: addCoinSafe,

@@ -71,9 +71,10 @@ window.APP = (function () {
     const st = SAVE.get().set;
     SND.setSfx(st.sfx);
     SND.setMusic(st.music);
-    SND.setVolumes(st.volS, st.volM);
+    SND.setVolumes(st.volS, st.volM, st.volG);
     FX.setReduced(!!st.reduced);
     ENTS.setHC(!!st.hc);
+    document.body.classList.toggle('no-ui-anim', st.uiAnim === false);
     G.setMode(st.mode || 'free');
     G.resize();
     G.goMenu();
@@ -301,6 +302,28 @@ window.APP = (function () {
     $('btnModeBack').onclick = () => { SND.sfx.click(); UI.closeModePick(); };
     const btnReplay = document.getElementById('btnReplay');
     if (btnReplay) btnReplay.onclick = () => { SND.sfx.click(); G.startPlay('replay'); };
+    const btnContinue = document.getElementById('btnContinue');
+    if (btnContinue) btnContinue.onclick = () => {
+      SND.sfx.click();
+      const m = SAVE.get().set.mode || 'free';
+      const safeMode = ['free', 'duel', 'challenge', 'zen', 'boss', 'wind'].indexOf(m) !== -1 ? m : 'free';
+      if (safeMode === 'challenge' && SAVE.challengePlayedToday()) {
+        UI.toast('Ya jugaste el desafío de hoy 🌙 Elige otro modo', 'info');
+        UI.showModePick();
+        return;
+      }
+      G.setMode(safeMode);
+      G.startPlay();
+    };
+    const tutGuide = document.getElementById('btnTutorialGuide');
+    if (tutGuide) tutGuide.onclick = () => { SND.sfx.click(); UI.openGeneric('help'); };
+    const tutDone = document.getElementById('btnTutorialDone');
+    if (tutDone) tutDone.onclick = () => {
+      SND.sfx.click();
+      SAVE.finishTutorial();
+      UI.refreshHome();
+      UI.toast('¡Listo! Pulsa JUGAR para empezar 🐤', 'good');
+    };
     $('btnNextLevel').onclick = () => { SND.sfx.click(); G.startPlay(); };
     $('btnClearHome').onclick = () => { SND.sfx.click(); G.goMenu(); };
     $('btnPause').onclick = () => { SND.sfx.click(); G.togglePause(); };
