@@ -9,6 +9,7 @@ window.G = (function () {
 
   let state = 'load';           // load | menu | play | over
   let paused = false;
+  let resumeLeft = 0;       // cuenta atrás de 3 s al salir de pausa (0 = jugando)
   let t = 0;
   let lastTime = 0;
   let rafId = 0;
@@ -191,6 +192,7 @@ function difficultyFor(sc, diffc) {
 
   function newRun() {
     if (!SAVE.get()) SAVE.load();
+    clearResumeCountdown();
     bird = {
       x: W * 0.28, y: H * 0.42, y0: H * 0.42,
       vy: 0, r: clamp(Math.min(W, H) * 0.05, 18, 25),
@@ -563,12 +565,73 @@ function difficultyFor(sc, diffc) {
     ctx.restore();
   }
 
+  // Monedas: con imán se mueven hacia el ave SIN sumarles el scroll del mundo.
+  // Antes se atraían y luego se restaba la velocidad del escenario, por lo que
+  // a alta velocidad el punto de equilibrio quedaba detrás del ave y algunas
+  // monedas nunca llegaban a recogerse. Ahora la atracción es directa.
+  function updateCoins(dt, spd) {
+    const magnetOn = eff.magnet > t || rt.magnet;
+    for (let i = coins.length - 1; i >= 0; i--) {
+      const c = coins[i];
+      if (magnetOn) {
+        const pull = Math.min(1, dt * (12 + toolLv('magnet') * 1.2));
+        c.x += (bird.x - c.x) * pull;
+        c.y += (bird.y - c.y) * pull;
+      } else {
+        c.x -= spd * dt;
+      }
+      if (c.x < -30) { coins.splice(i, 1); continue; }
+      let pick = null;
+      for (const b of birds) {
+        if (b.dead) continue;
+        const dx = c.x - b.x, dy = c.y - b.y;
+        const rr = c.r + b.r * (magnetOn ? 1.0 : 0.8);
+        if (dx * dx + dy * dy < rr * rr) { pick = b; break; }
+      }
+      if (pick) {
+        coins.splice(i, 1);
+        coinCount++;
+        runColWorth += c.big ? 10 : 1;
+        if (c.big) {
+          SAVE.get().stats.megaGot = (SAVE.get().stats.megaGot || 0) + 1;
+          SAVE.save();
+        } else if (c.chain) {
+          SAVE.get().stats.chainGot = (SAVE.get().stats.chainGot || 0) + 1;
+          SAVE.save();
+        }
+        let val = c.big ? 10 : Math.max(1, Math.round((1 + Math.floor(lvl / 5)) * (diff && diff.coinMul ? diff.coinMul : 1))) + (rt.luck ? (1 + toolLv('luck')) : 0);
+        if (!c.big && (eff.xc > t || rt.coins)) val = val * 2 + toolLv('coins');
+        if (eff.ferro > t) val += 2;
+        SAVE.addCoins(val);
+        if (eff.bomb > t) { score += 1; FX.text(c.x, c.y - 34, '🧨 +1', 11, '#ffab91'); }
+        if (c.big) {
+          SND.sfx.power();
+          FX.burst(c.x, c.y, '#ffca28', 18, 260);
+          FX.text(c.x, c.y - 18, '+10 🪙', 18, '#ffca28');
+        } else {
+          SND.sfx.coin();
+          FX.burst(c.x, c.y, '#ffd54f', 12, 170);
+          FX.text(c.x, c.y - 16, '+' + val, 16, '#ffe066');
+        }
+        updateHUD();
+      }
+    }
+  }
+
   function loop(ms) {
     loopActive = true;
     if (halted || document.hidden) { halted = true; loopActive = false; lastTime = ms; return; } // no sigue tras apagar pantalla
-    const dt = Math.max(0, Math.min((ms - lastTime) / 1000, 0.033));
+    const rawDt = Math.max(0, Math.min((ms - lastTime) / 1000, 1)); // tiempo real (sin el límite de física)
+    const dt = Math.min(rawDt, 0.033);
     lastTime = ms;
     if (paused || state === 'load') { rafId = requestAnimationFrame(loop); return; }
+    if (resumeLeft > 0) {
+      // La cuenta atrás corre con tiempo real aunque el navegador vaya a pocos FPS.
+      updateResumeCountdown(rawDt);
+      render();
+      rafId = requestAnimationFrame(loop);
+      return;
+    }
     t += dt; // el reloj global no avanza mientras se esté en pausa
 
     if (state === 'menu' || state === 'cleared' || state === 'over') {
@@ -739,50 +802,8 @@ function difficultyFor(sc, diffc) {
         }
       }
 
-      // mover monedas
-      for (let i = coins.length - 1; i >= 0; i--) {
-        const c = coins[i];
-        if (eff.magnet > t || rt.magnet) {
-          c.x += (bird.x - c.x) * Math.min(1, dt * (7 + toolLv('magnet') * 0.4));
-          c.y += (bird.y - c.y) * Math.min(1, dt * (5 + toolLv('magnet') * 0.3));
-        }
-        c.x -= spd * dt;
-        if (c.x < -30) { coins.splice(i, 1); continue; }
-        let pick = null;
-        for (const b of birds) {
-          if (b.dead) continue;
-          const dx = c.x - b.x, dy = c.y - b.y;
-          const rr = c.r + b.r * 0.8;
-          if (dx * dx + dy * dy < rr * rr) { pick = b; break; }
-        }
-        if (pick) {
-          coins.splice(i, 1);
-          coinCount++;
-          runColWorth += c.big ? 10 : 1;
-          if (c.big) {
-            SAVE.get().stats.megaGot = (SAVE.get().stats.megaGot || 0) + 1;
-            SAVE.save();
-          } else if (c.chain) {
-            SAVE.get().stats.chainGot = (SAVE.get().stats.chainGot || 0) + 1;
-            SAVE.save();
-          }
-          let val = c.big ? 10 : Math.max(1, Math.round((1 + Math.floor(lvl / 5)) * (diff && diff.coinMul ? diff.coinMul : 1))) + (rt.luck ? (1 + toolLv('luck')) : 0);
-          if (!c.big && (eff.xc > t || rt.coins)) val = val * 2 + toolLv('coins');
-          if (eff.ferro > t) val += 2;
-          SAVE.addCoins(val);
-          if (eff.bomb > t) { score += 1; FX.text(c.x, c.y - 34, '🧨 +1', 11, '#ffab91'); }
-          if (c.big) {
-            SND.sfx.power();
-            FX.burst(c.x, c.y, '#ffca28', 18, 260);
-            FX.text(c.x, c.y - 18, '+10 🪙', 18, '#ffca28');
-          } else {
-            SND.sfx.coin();
-            FX.burst(c.x, c.y, '#ffd54f', 12, 170);
-            FX.text(c.x, c.y - 16, '+' + val, 16, '#ffe066');
-          }
-          updateHUD();
-        }
-      }
+      // mover y recoger monedas
+      updateCoins(dt, spd);
 
       // mover enemigos
       for (let i = enemies.length - 1; i >= 0; i--) {
@@ -884,6 +905,7 @@ function difficultyFor(sc, diffc) {
     loopActive = false;
     if (cancelAnimationFrame) cancelAnimationFrame(rafId);
     if (state === 'play' && !paused) {
+      clearResumeCountdown();
       paused = true;
       autoPaused = true;
       UI.setPaused(true);
@@ -918,7 +940,7 @@ function difficultyFor(sc, diffc) {
   }
 
   function flap() {
-    if (paused || state !== 'play' || replayMode) return; // en el Replay los aleteos los pone la grabación
+    if (paused || resumeLeft > 0 || state !== 'play' || replayMode) return; // en el Replay los aleteos los pone la grabación
     SND.unlock();
     SND.sfx.flap();
     if (readyTap) { readyTap = false; airborne = true; UI.showStartHint(false); }
@@ -1143,6 +1165,7 @@ function difficultyFor(sc, diffc) {
     if (replayMode) startReplayExport();
     paused = false;
     autoPaused = false;
+    clearResumeCountdown();
     UI.setPaused(false);
     UI.setHudVisible(true);
     UI.showStartHint(true);
@@ -1420,17 +1443,46 @@ function difficultyFor(sc, diffc) {
     if (m !== 'challenge' && m !== 'duel') SAVE.setSetting('mode', mode);
   }
 
+  // Cuenta atrás al reanudar: el mundo sigue congelado hasta que llega a 0.
+  function beginResumeCountdown() {
+    if (state !== 'play') return;
+    resumeLeft = 3;
+    if (typeof UI !== 'undefined' && UI.setResumeCountdown) UI.setResumeCountdown(3);
+  }
+
+  function clearResumeCountdown() {
+    resumeLeft = 0;
+    if (typeof UI !== 'undefined' && UI.setResumeCountdown) UI.setResumeCountdown(0);
+  }
+
+  function updateResumeCountdown(dt) {
+    resumeLeft = Math.max(0, resumeLeft - dt);
+    if (typeof UI !== 'undefined' && UI.setResumeCountdown) {
+      UI.setResumeCountdown(resumeLeft > 0 ? Math.ceil(resumeLeft) : 0);
+    }
+  }
+
   function togglePause() {
     if (state !== 'play') return;
-    paused = !paused;
-    if (!paused) autoPaused = false;
-    UI.setPaused(paused);
-    UI.setHudVisible(!paused);
-    if (paused) SND.stopMusic(); else SND.startMusic();
+    if (paused) {
+      paused = false;
+      autoPaused = false;
+      UI.setPaused(false);
+      UI.setHudVisible(true);
+      SND.startMusic();
+      beginResumeCountdown(); // 3, 2, 1 antes de que el mundo vuelva a moverse
+    } else {
+      clearResumeCountdown(); // pausar durante la cuenta atrás la cancela
+      paused = true;
+      UI.setPaused(true);
+      UI.setHudVisible(false);
+      SND.stopMusic();
+    }
   }
 
   function setPaused(p) {
     if (state !== 'play') return;
+    clearResumeCountdown(); // reiniciar/salir no usan cuenta atrás
     paused = p;
     if (!p) autoPaused = false;
     UI.setPaused(p);
@@ -1441,6 +1493,7 @@ function difficultyFor(sc, diffc) {
   function goMenu() {
     state = 'menu';
     paused = false;
+    clearResumeCountdown();
     for (const k in eff) eff[k] = 0;   // ningún cronómetro queda visible en el menú
     effDur = {};
     runShields = 0;        // los escudos recogidos no pasan al menú
@@ -1766,6 +1819,8 @@ function difficultyFor(sc, diffc) {
     isPlay: () => state === 'play',
     waitingFly: () => state === 'play' && readyTap,
     isPaused: () => paused,
+    isResuming: () => resumeLeft > 0,
+    getResumeLeft: () => resumeLeft,
     getMode: () => mode,
     getBirds: () => birds,
     getPipes: () => pipes.map(p => ({ x: p.x, w: p.w, gap: p.gap, gapHalf: p.gapHalf, big: !!p.big, boss: !!p.boss, seg: p.seg || 0 })),
@@ -1799,6 +1854,8 @@ function difficultyFor(sc, diffc) {
       effectTimers: effectTimers,
       hit: hitObstacleBird,
       activate: activatePower,
+      updateCoins: updateCoins,
+      coins: () => coins,
       applyTool: applyToolEffect,
       coinSafe: addCoinSafe,
       spawnEnemy: spawnEnemy,
@@ -1810,6 +1867,7 @@ function difficultyFor(sc, diffc) {
       getEffDur: () => Object.assign({}, effDur),
       setT: v => { t = v; },
       getT: () => t,
+      tickResume: updateResumeCountdown,
       getRunShields: () => runShields,
       getUsedStockShield: () => usedStockShield,
       isSpotFree: isSpotFree,

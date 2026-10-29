@@ -110,6 +110,15 @@ const noop = new Proxy(function () { }, {
   get(t, p) { return p === Symbol.toPrimitive ? () => '' : noop; },
   apply() { return undefined; }
 });
+// FX.draw() y FX.getShake() se usan al renderizar: devolver datos válidos
+// permite probar el bucle real sin navegador.
+const fxMock = new Proxy(function () { }, {
+  get(t, p) {
+    if (p === 'getShake') return () => ({ x: 0, y: 0 });
+    return p === Symbol.toPrimitive ? () => '' : noop;
+  },
+  apply() { return undefined; }
+});
 
 const sandbox = {
   console, Math, Date, JSON, isFinite, isNaN, parseInt, parseFloat,
@@ -126,7 +135,7 @@ const sandbox = {
   },
   addEventListener() { }, removeEventListener() { }, dispatchEvent() { return true; },
   innerWidth: 1024, innerHeight: 768, devicePixelRatio: 1,
-  UI: noop, SND: noop, FX: noop, ENTS: noop, BG: noop, ADS: undefined
+  UI: noop, SND: noop, FX: fxMock, ENTS: noop, BG: noop, ADS: undefined
 };
 sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
@@ -497,6 +506,118 @@ ok(SAVE.get().stats.flights === flightsA, 'reiniciar varias veces no incrementa 
 ok(SAVE.get().runs.length === runsA, 'reiniciar varias veces no duplica vuelos');
 ok(SAVE.shieldCount() === shA, 'reiniciar varias veces no altera escudos');
 ok(G.getEffectTimers().length === 0, 'reiniciar limpia los cronómetros');
+
+/* ---------------- 8. Imán: monedas detrás del ave ---------------- */
+section('8. IMÁN: recoge monedas detrás del ave a alta velocidad');
+{
+  G.startPlay('free');
+  const b = T.bird();
+  T.setT(10);
+  T.applyTool('magnet', 'free');
+  const list = T.coins();
+  list.length = 0;
+  const beforeCoins = SAVE.get().coins;
+  const placed = T.coinSafe(b.x - 140, b.y, 9);
+  ok(placed, 'se coloca una moneda detrás del ave');
+  ok(list.length === 1, 'hay 1 moneda detrás del ave', 'n=' + list.length);
+
+  let frames = 0;
+  for (let i = 0; i < 240 && list.length > 0; i++) {
+    T.updateCoins(1 / 60, 680); // velocidad muy alta: antes dejaba la moneda atrás
+    frames++;
+  }
+  ok(list.length === 0, 'el imán recoge la moneda que quedó detrás', 'frames=' + frames);
+  ok(frames < 120, 'la recoge en menos de 2 s', 'frames=' + frames);
+  ok(SAVE.get().coins > beforeCoins, 'la moneda suma al contador', SAVE.get().coins + ' vs ' + beforeCoins);
+
+  group('Varias monedas repartidas alrededor');
+  list.length = 0;
+  const spots = [
+    [b.x - 220, b.y - 60], [b.x - 120, b.y + 70], [b.x - 30, b.y - 90],
+    [b.x + 40, b.y + 40], [b.x - 160, b.y]
+  ];
+  let put = 0;
+  for (const s of spots) if (T.coinSafe(s[0], s[1], 9)) put++;
+  ok(put === spots.length, 'se colocan todas las monedas de prueba', put + '/' + spots.length);
+  for (let i = 0; i < 360 && list.length > 0; i++) T.updateCoins(1 / 60, 680);
+  ok(list.length === 0, 'el imán no deja ninguna moneda atrás', 'quedan=' + list.length);
+
+  group('Sin imán el scroll sigue funcionando');
+  list.length = 0;
+  const coin = T.coinSafe(b.x + 60, b.y, 9);
+  ok(coin, 'moneda de control colocada');
+  const x0 = list[0].x;
+  T.updateCoins(1 / 60, 300);
+  ok(list.length === 0 || list[0].x < x0, 'sin imán la moneda se desplaza con el mundo');
+}
+
+/* ---------------- 9. Cuenta atrás al reanudar ---------------- */
+section('9. PAUSA: cuenta atrás 3-2-1 antes de continuar');
+{
+  G.startPlay('free');
+  const b = T.bird();
+  T.setT(50);
+  G.setPaused(true);
+  ok(G.isPaused(), 'la partida queda en pausa');
+  ok(!G.isResuming(), 'en pausa no hay cuenta atrás');
+
+  G.togglePause(); // reanudar
+  ok(!G.isPaused(), 'se sale de la pausa');
+  ok(G.isResuming(), 'empieza la cuenta atrás');
+  ok(near(G.getResumeLeft(), 3, 0.001), 'la cuenta atrás empieza en 3', G.getResumeLeft());
+
+  const tBefore = T.getT();
+  const vyBefore = b.vy;
+  G.flap();
+  ok(b.vy === vyBefore, 'el aleteo está bloqueado durante la cuenta atrás');
+
+  T.tickResume(1.05);
+  ok(G.getResumeLeft() < 2 && G.getResumeLeft() > 1, 'pasa de 3 a 2', G.getResumeLeft());
+  ok(T.getT() === tBefore, 'el mundo sigue congelado entre números');
+  T.tickResume(1);
+  ok(G.getResumeLeft() < 1 && G.getResumeLeft() > 0, 'pasa de 2 a 1', G.getResumeLeft());
+  T.tickResume(1);
+  ok(near(G.getResumeLeft(), 0, 0.001), 'la cuenta atrás llega a 0', G.getResumeLeft());
+  ok(!G.isResuming(), 'al llegar a 0 se puede jugar');
+  G.flap();
+  ok(b.vy !== vyBefore, 'el aleteo vuelve a funcionar');
+
+  group('Cancelación de la cuenta atrás');
+  G.togglePause();
+  ok(G.isPaused(), 'se puede volver a pausar');
+  G.togglePause();
+  ok(G.isResuming(), 'al reanudar de nuevo arranca la cuenta atrás');
+  G.togglePause();
+  ok(G.isPaused() && !G.isResuming(), 'pausar durante la cuenta atrás la cancela');
+
+  G.togglePause();
+  ok(G.isResuming(), 'otra reanudación vuelve a contar');
+  G.setPaused(false);
+  ok(!G.isResuming(), 'setPaused(false) limpia la cuenta atrás');
+
+  group('Cuenta atrás con pocos FPS');
+  G.startPlay('free');
+  T.setT(80);
+  G.setPaused(true);
+  G.togglePause();
+  const tFps = T.getT();
+  G.loop(1000); // primer frame tras 1 s (navegador limitado a 1 FPS)
+  ok(G.getResumeLeft() < 2.01 && G.getResumeLeft() > 1.99, '1 s real descuenta 1 s aunque haya pocos FPS', G.getResumeLeft());
+  G.loop(2000);
+  ok(G.getResumeLeft() < 1.01 && G.getResumeLeft() > 0.99, '2 s reales descontados', G.getResumeLeft());
+  G.loop(3000);
+  ok(near(G.getResumeLeft(), 0, 0.001), '3 s reales terminan la cuenta atrás', G.getResumeLeft());
+  ok(T.getT() === tFps, 'el mundo no avanzó durante esos 3 s');
+
+  group('Reiniciar y salir');
+  G.setPaused(true);
+  G.togglePause();
+  ok(G.isResuming(), 'cuenta atrás activa antes de reiniciar');
+  G.forceRestart();
+  ok(!G.isResuming(), 'reiniciar cancela la cuenta atrás');
+  G.goMenu();
+  ok(!G.isResuming(), 'salir al menú cancela la cuenta atrás');
+}
 
 /* ---------------- Resumen ---------------- */
 console.log('\n────────────────────────────────────────');

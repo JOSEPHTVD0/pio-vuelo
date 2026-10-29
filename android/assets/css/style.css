@@ -401,6 +401,29 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .profile-shield-line b { font-size:24px; color:#b3e5fc; }
 .profile-shield-ico { font-size:22px; }
 
+/* Cuenta atrás de 3 s al reanudar una partida pausada */
+.resume-countdown {
+  position:absolute; inset:0; z-index:25; pointer-events:none;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  background:radial-gradient(circle at 50% 45%, rgba(10,18,40,.10), rgba(5,8,20,.42));
+  color:#fff; text-shadow:0 6px 20px rgba(0,0,0,.65);
+}
+.resume-countdown span {
+  font-size:clamp(78px, 19vw, 150px); font-weight:900; line-height:1;
+  color:#ffe066; letter-spacing:-4px;
+  text-shadow:0 0 22px rgba(255,224,102,.55), 0 8px 0 rgba(90,60,0,.35);
+}
+.resume-countdown small {
+  margin-top:8px; font-size:clamp(13px,3.4vw,18px); font-weight:900;
+  letter-spacing:2px; text-transform:uppercase; color:#dbe7ff;
+}
+.resume-countdown.pop span { animation:resumePop .55s cubic-bezier(.2,.8,.3,1); }
+@keyframes resumePop {
+  0% { transform:scale(1.45); opacity:.25; }
+  55% { transform:scale(.94); opacity:1; }
+  100% { transform:scale(1); opacity:1; }
+}
+
 @media (max-width:420px) {
   .hud-effects { top:calc(env(safe-area-inset-top,0px) + 102px); gap:4px; left:6px; right:6px; }
   .eff-chip { padding:3px 6px 4px; font-size:10px; column-gap:4px; }

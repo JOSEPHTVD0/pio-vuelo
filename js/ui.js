@@ -497,6 +497,26 @@ window.UI = (function () {
     }
   }
 
+  /* ---------- Cuenta atrás al reanudar ---------- */
+  function setResumeCountdown(n) {
+    const el = document.getElementById('resumeCountdown');
+    if (!el) return;
+    const num = Math.max(0, Math.floor(n) || 0);
+    if (num <= 0) {
+      if (el._n !== 0) { el.classList.add('hidden'); el._n = 0; }
+      return;
+    }
+    if (el._n === num && !el.classList.contains('hidden')) return;
+    el.classList.remove('hidden');
+    const span = document.getElementById('resumeCountNum');
+    if (span) span.textContent = num;
+    el._n = num;
+    // Reinicia la animación solo cuando cambia el número (3 → 2 → 1).
+    el.classList.remove('pop');
+    void el.offsetWidth;
+    el.classList.add('pop');
+  }
+
   /* ---------- Pausa ---------- */
   function setPaused(p) {
     $('screen-pause').classList.toggle('hidden', !p);
@@ -2102,7 +2122,7 @@ window.UI = (function () {
 
   return {
     hideAllScreens, showLoading, showHome, refreshHome,
-    setHudVisible, showStartHint, setPaused, refreshHudTools, updateEffectTimers,
+    setHudVisible, showStartHint, setPaused, setResumeCountdown, refreshHudTools, updateEffectTimers,
     showGameOver, showModeClear, toast, confirm, openGeneric, closeGeneric,
     showModePick, closeModePick, isModePickOpen,
     popAch,
