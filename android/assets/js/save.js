@@ -1138,8 +1138,30 @@ window.SAVE = (function () {
 
   function get() { return data; }
 
+  /* --- Copia de seguridad manual: exportar e importar el progreso --- */
+  function exportData() {
+    return JSON.stringify({ app: 'pio-vuelo', v: 1, exported: Date.now(), data: data }, null, 2);
+  }
+  function importData(text) {
+    let parsed;
+    try { parsed = JSON.parse(String(text || '')); }
+    catch (e) { return { ok: false, msg: 'json' }; }
+    const obj = (parsed && typeof parsed === 'object' && parsed.data) ? parsed.data : parsed;
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, msg: 'formato' };
+    // Rechaza archivos que no parezcan un guardado de Pío Vuelo.
+    if (typeof obj.coins !== 'number' || !obj.stats || typeof obj.stats !== 'object' || !obj.set) {
+      return { ok: false, msg: 'formato' };
+    }
+    try {
+      localStorage.setItem(KEY + '_import_bak', localStorage.getItem(KEY) || '');
+      localStorage.setItem(KEY, JSON.stringify(obj));
+    } catch (e) { return { ok: false, msg: 'storage' }; }
+    load();
+    return { ok: true };
+  }
+
   const SAVE = {
-    load, save, get, defaults,
+    load, save, get, defaults, exportData, importData,
     addCoins, spendCoins, addXp, xpFor,
     partsCount, addParts, spendParts,
     skinXp, addSkinXp, skinStage, openBox,

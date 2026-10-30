@@ -496,6 +496,8 @@ body.no-ui-anim *, body.no-ui-anim *::before, body.no-ui-anim *::after {
 .tool-dur.broken .td-bar i, .td-bar.broken i { background:#ff5252; }
 .chip-repair { border-color:#4fc3f7; background:rgba(79,195,247,.15); color:#b3e5fc; }
 .inv-dur { margin-top:-2px; }
+.inv-repair-all { display:flex; justify-content:center; }
+.inv-repair-all .chip { font-size:12px; padding:7px 14px; }
 
 /* Inventario */
 .inv-head { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:10px; }

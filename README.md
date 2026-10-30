@@ -30,6 +30,8 @@ El juego se publica automáticamente con GitHub Pages desde la rama `main`.
 - **Estadísticas y ayuda:** métricas de vuelo, mejores marcas, guía de modos, herramientas, economía y guardado.
 - **Economía centralizada y reequilibrada:** los precios de catálogo suben entre un 10 % y un 20 % una sola vez al cargar los datos. Las compras validan saldo y no pueden dejarlo negativo ni cobrar dos veces.
 - **Piezas 🔩:** material persistente para mejoras de nivel alto. Se gana 1 por vuelo, +1 al alcanzar 20 puntos y +1 al batir el récord.
+- **Copia de seguridad manual:** desde Ajustes → Datos puedes exportar el progreso a un archivo JSON e importarlo en otro navegador o tras borrar los datos. Antes de importar se guarda una copia del progreso anterior.
+- **Reparación masiva:** el inventario permite reparar todas las herramientas dañadas de una vez, mostrando el coste total y cobrando solo las que se completen.
 
 ## Economía de la Temporada 2026
 
@@ -72,7 +74,7 @@ No hay dependencias de npm para jugar. Node solo se usa para las pruebas y el se
 node tools/test-game.js
 ```
 
-La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos e integridad de la interfaz. Actualmente hay **275 pruebas** y todas deben pasar antes de publicar.
+La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos e integridad de la interfaz. Actualmente hay **288 pruebas** y todas deben pasar antes de publicar.
 
 ## Limitaciones conocidas
 
@@ -80,6 +82,7 @@ La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y
 - La verificación visual e interactiva se ha hecho con pruebas headless, comprobaciones de HTTP y servidor local. No se ha podido usar un navegador real en esta sesión, así que conviene revisar la portada y las pantallas nuevas en un dispositivo antes de darlas por cerradas.
 - El idioma está fijado en español y se muestra deshabilitado como “Español (único)”: no se simula un selector que no existe.
 - El guardado es local al navegador o dispositivo; no hay cuentas, servidores ni sincronización entre dispositivos.
+- El autoguardado está siempre activo para evitar pérdidas: no se ofrece un interruptor que pudiera desactivarlo por accidente. La sincronización vertical y la resolución las controla el navegador o el dispositivo; el límite de FPS sí se aplica y se documenta esa limitación en Ajustes.
 
 ## Android
 

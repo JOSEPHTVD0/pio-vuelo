@@ -932,6 +932,54 @@ section('17. HERRAMIENTAS EN VUELO: consumo automático y manual');
   ok(SAVE.itemCount('slow') === 0, 'sin stock la bolsa no hace nada');
 }
 
+/* ---------------- 18. Copia de seguridad y control ---------------- */
+section('18. COPIA DE SEGURIDAD Y SENSIBILIDAD REAL');
+{
+  SAVE.reset(); SAVE.load();
+  SAVE.addCoins(717);
+  const coins = SAVE.get().coins;
+  const text = SAVE.exportData();
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch (e) { }
+  ok(!!parsed && parsed.app === 'pio-vuelo' && parsed.data && parsed.data.coins === coins,
+    'exportar genera un JSON válido con el progreso actual');
+  ok(typeof parsed.exported === 'number' && parsed.exported > 0, 'la copia incluye la fecha de exportación');
+
+  const bad = SAVE.importData('{esto no es json');
+  ok(!bad.ok && bad.msg === 'json', 'un archivo que no es JSON se rechaza');
+  ok(SAVE.get().coins === coins, 'un archivo inválido no altera el progreso');
+
+  const foreign = SAVE.importData(JSON.stringify({ hola: 'mundo' }));
+  ok(!foreign.ok && foreign.msg === 'formato', 'un JSON ajeno se rechaza por formato');
+  ok(SAVE.get().coins === coins, 'un formato ajeno tampoco altera el progreso');
+
+  SAVE.spendCoins(coins);
+  ok(SAVE.get().coins === 0, 'se vacía el saldo antes de importar');
+  const good = SAVE.importData(text);
+  ok(good.ok, 'una copia válida se importa correctamente');
+  ok(SAVE.get().coins === coins, 'la importación recupera las monedas exactas');
+  SAVE.load();
+  ok(SAVE.get().coins === coins, 'el progreso importado persiste tras recargar');
+  ok(!!localStorage.getItem(KEY + '_import_bak'), 'antes de importar se guarda una copia del progreso anterior');
+
+  group('Sensibilidad de aleteo');
+  SAVE.reset(); SAVE.load();
+  SAVE.setSetting('sens', 0.5);
+  G.startPlay('free');
+  G.flap();
+  const vSoft = Math.abs(T.bird().vy);
+  SAVE.setSetting('sens', 1.5);
+  G.startPlay('free');
+  G.flap();
+  const vHard = Math.abs(T.bird().vy);
+  ok(vSoft > 0 && vHard > vSoft, 'la sensibilidad cambia el impulso real del aleteo', vSoft + ' vs ' + vHard);
+  SAVE.setSetting('sens', 1);
+  G.startPlay('free');
+  G.flap();
+  const vMid = Math.abs(T.bird().vy);
+  ok(vMid > vSoft && vMid < vHard, 'el valor intermedio queda entre ambos extremos', vSoft + ' < ' + vMid + ' < ' + vHard);
+}
+
 /* ---------------- Resumen ---------------- */
 console.log('\n────────────────────────────────────────');
 console.log('Pruebas superadas: ' + pass + ' · fallidas: ' + fail);

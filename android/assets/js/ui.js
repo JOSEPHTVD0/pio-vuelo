@@ -1985,6 +1985,35 @@ window.UI = (function () {
         });
       }
       if (active === 'all' || active === 'tools') {
+        const repairables = DAT.TOOLS.filter(t => SAVE.itemCount(t.key) > 0 && SAVE.toolDurInfo(t.key).missing > 0);
+        if (repairables.length) {
+          const total = repairables.reduce((acc, t) => acc + SAVE.toolRepairCost(t.key), 0);
+          const box = document.createElement('div');
+          box.className = 'inv-repair-all';
+          const allBtn = document.createElement('button');
+          allBtn.className = 'chip chip-repair';
+          allBtn.textContent = '🔧 Reparar todas (' + repairables.length + ') · ' + total + ' 🪙';
+          allBtn.onclick = () => {
+            SND.sfx.click();
+            confirmAction('Reparar herramientas',
+              'Se intentarán reparar ' + repairables.length + ' herramienta' + (repairables.length === 1 ? '' : 's') +
+              ' por ' + total + ' 🪙 en total.\nSaldo actual: ' + SAVE.get().coins + ' 🪙. Si no alcanza, se repararán solo las que puedas pagar.',
+              () => {
+                let spent = 0, done = 0;
+                repairables.forEach(t => {
+                  const r = SAVE.repairTool(t.key);
+                  if (r.ok) { spent += r.price; done++; }
+                });
+                if (!done) { SND.sfx.deny(); toast('No tienes monedas suficientes para reparar 💤', ''); return; }
+                SND.sfx.buy();
+                toast('🔧 ' + done + ' herramienta' + (done === 1 ? '' : 's') + ' reparada' + (done === 1 ? '' : 's') + ' · -' + spent + ' 🪙', 'good');
+                renderInventory(active);
+                refreshHome();
+              });
+          };
+          box.appendChild(allBtn);
+          grid.appendChild(box);
+        }
         DAT.TOOLS.forEach(t => {
           const count = SAVE.itemCount(t.key);
           if (!count) return;
@@ -2003,7 +2032,7 @@ window.UI = (function () {
                   const r = SAVE.repairTool(t.key);
                   if (!r.ok) { SND.sfx.deny(); toast(r.msg === 'no_money' ? 'No tienes suficientes monedas 💤' : 'No necesita reparación', ''); return; }
                   SND.sfx.buy(); toast('🔧 ' + t.name + ' reparada · -' + r.price + ' 🪙', 'good');
-                  drawGrid(); refreshHome();
+                  renderInventory(active); refreshHome();
                 })
             });
           }
@@ -2339,6 +2368,10 @@ window.UI = (function () {
     });
     fpsRow.appendChild(fpsPick);
     gGame.appendChild(fpsRow);
+    const fpsNote = document.createElement('div');
+    fpsNote.className = 'set-note';
+    fpsNote.textContent = 'La sincronización vertical y la resolución dependen del navegador o del dispositivo. El límite de FPS sí se aplica; no se muestran controles que no se puedan cumplir.';
+    gGame.appendChild(fpsNote);
 
     // Pantalla completa real (si el navegador la permite)
     const fsRow = document.createElement('div');
@@ -2415,16 +2448,81 @@ window.UI = (function () {
       });
     };
     gData.appendChild(defSet);
+
+    // Copia de seguridad manual del progreso (exportar / importar JSON local)
+    const expBtn = document.createElement('button');
+    expBtn.className = 'btn btn-ghost';
+    expBtn.style.marginTop = '8px';
+    expBtn.textContent = '📤 Exportar copia del progreso';
+    expBtn.onclick = () => {
+      SND.sfx.click();
+      try {
+        const blob = new Blob([SAVE.exportData()], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'pio-vuelo-' + new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) { } }, 2000);
+        toast('📤 Copia exportada al dispositivo', 'good');
+      } catch (e) {
+        toast('No se pudo exportar el progreso en este navegador', 'warning');
+      }
+    };
+    gData.appendChild(expBtn);
+
+    const impBtn = document.createElement('button');
+    impBtn.className = 'btn btn-ghost';
+    impBtn.style.marginTop = '8px';
+    impBtn.textContent = '📥 Importar copia del progreso';
+    impBtn.onclick = () => {
+      SND.sfx.click();
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json,.json';
+      input.style.display = 'none';
+      input.onchange = () => {
+        const f = input.files && input.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          confirm('Importar progreso', 'Se reemplazará el progreso actual por el de la copia. Se guarda una copia de seguridad antes de importar y la página se recargará.', [
+            { label: 'Cancelar', cb: () => { } },
+            {
+              label: 'Importar', style: 'btn-play', cb: () => {
+                const r = SAVE.importData(reader.result);
+                if (!r.ok) {
+                  SND.sfx.deny();
+                  toast(r.msg === 'storage' ? 'No se pudo escribir en el almacenamiento' : 'El archivo no es una copia válida de Pío Vuelo', 'warning');
+                  return;
+                }
+                toast('📥 Progreso importado · recargando…', 'good');
+                setTimeout(() => { try { location.reload(); } catch (e) { } }, 600);
+              }
+            }
+          ]);
+        };
+        reader.onerror = () => toast('No se pudo leer el archivo', 'warning');
+        reader.readAsText(f);
+      };
+      document.body.appendChild(input);
+      input.click();
+    };
+    gData.appendChild(impBtn);
+
     const saveInfo = document.createElement('div');
     saveInfo.className = 'set-note';
-    saveInfo.textContent = SAVE.lastSaveError() ? '⚠️ El último guardado falló. Revisa el almacenamiento del navegador.' : '💾 Guardado local activo (localStorage) · se guarda al cambiar cualquier ajuste y al terminar cada vuelo.';
+    saveInfo.textContent = (SAVE.lastSaveError() ? '⚠️ El último guardado falló. Revisa el almacenamiento del navegador. ' : '💾 Guardado local activo (localStorage) · se guarda al cambiar cualquier ajuste y al terminar cada vuelo. ') +
+      'Usa Exportar para conservar una copia fuera del navegador.';
     gData.appendChild(saveInfo);
     body.appendChild(gData);
 
     const about = document.createElement('div');
     about.className = 'prog-card';
     about.style.textAlign = 'center';
-    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v2.8 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v2.9 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
     body.appendChild(about);
   }
 
