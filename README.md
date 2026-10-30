@@ -20,8 +20,15 @@ El juego se publica automáticamente con GitHub Pages desde la rama `main`.
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
 
-## Novedades de la versión 2.9
+## Novedades de la versión 3.0
 
+- **Pase Prémium por temporada:** segunda línea de 14 recompensas exclusivas que se desbloquea con **3000 🪙** del juego (sin pagos reales). Incluye 3 aves, 2 sombreros, 2 estelas, el mapa **Cielo Prémium** y la herramienta **Reliquia del Pase**. Al cambiar de estación hay que volver a comprarlo y las recompensas repetidas se convierten en 250 🪙.
+- **Exclusividad real:** los artículos prémium nunca aparecen en la tienda ni salen en la Caja Sorpresa (tampoco en su variante dorada). Solo se obtienen reclamando la línea prémium.
+- **Mapas con mecánicas propias:** cada escenario aplica velocidad, gravedad, tamaño de hueco, frecuencia de tubos, multiplicador de monedas y viento mediante `DAT.mapCfg()`. Cielo Prémium duplica monedas y activa rachas de viento; Glitch acelera y estrecha huecos; Dulcelandia multiplica monedas.
+- **Música distinta por mapa:** el motor procedural elige progresión, timbre y bajo según la familia del escenario (día, noche, espacio, agua, fuego, hielo, dulce, bosque, synth y prémium).
+- **Fondos con identidad:** ciudades con ventanas, bosques, volcanes, dunas, picos de hielo, agujas de cristal y auroras para el mapa prémium.
+- **Generación segura:** las monedas y power-ups se recolocan o retiran si un tubo nuevo los invade, y las monedas cercanas a un tubo respetan su separación.
+- **Logros con descripción:** la notificación superior muestra nombre, descripción y recompensa, con cola de una en una y auto-cierre.
 - **Portada rediseñada:** billetera de monedas y piezas, avisos contextuales, tutorial de bienvenida, botón **Continuar**, accesos rápidos con contadores y resumen del nido.
 - **Navegación consistente:** cada botón abre una pantalla real; las acciones importantes piden confirmación y las opciones no disponibles se muestran deshabilitadas con su motivo.
 - **Ajustes funcionales:** volumen general, efectos y música, sensibilidad, límite de FPS, pantalla completa, notificaciones, animaciones de interfaz, confirmación de compras y restauración de valores. Todo se aplica al instante y persiste.
@@ -32,6 +39,24 @@ El juego se publica automáticamente con GitHub Pages desde la rama `main`.
 - **Piezas 🔩:** material persistente para mejoras de nivel alto. Se gana 1 por vuelo, +1 al alcanzar 20 puntos y +1 al batir el récord.
 - **Copia de seguridad manual:** desde Ajustes → Datos puedes exportar el progreso a un archivo JSON e importarlo en otro navegador o tras borrar los datos. Antes de importar se guarda una copia del progreso anterior.
 - **Reparación masiva:** el inventario permite reparar todas las herramientas dañadas de una vez, mostrando el coste total y cobrando solo las que se completen.
+
+## Pase Prémium
+
+- La línea gratuita y la prémium comparten la XP del jugador y sus 14 niveles.
+- El Pase Prémium se compra por temporada (3000 🪙), se activa al instante y no caduca a mitad de temporada.
+- Sus recompensas están marcadas con `exclusive: true` y nunca se venden en la tienda ni entran en cajas.
+- Si ya posees una recompensa exclusiva, reclamarla de nuevo la convierte en 250 🪙 en lugar de duplicarla.
+- Al cambiar la estación se reinician las reclamaciones y hay que desbloquear el pase de la nueva temporada.
+- El catálogo prémium actual: `p-aurora`, `p-crono`, `p-sombra`, `hat-corona-eterna`, `hat-sello-estelar`, `fx-prisma`, `fx-supernova`, `premium` (mapa) y `tool-legend` (herramienta).
+- La **Reliquia del Pase** es permanente: no consume stock al usarse, solo pierde durabilidad y se repara con monedas. Si vuelve a salir como recompensa, se convierte en 250 🪙 en lugar de acumular copias.
+
+## Mapas y audio
+
+- `DAT.MAP_CFG` define las mecánicas de cada mapa y `DAT.mapCfg(id)` devuelve una copia con valores por defecto seguros.
+- La velocidad, gravedad, hueco, frecuencia de tubos, multiplicador de monedas y viento se aplican en `game.js` al iniciar cada vuelo.
+- `SND.setMapTheme(id)` cambia la música procedural según el mapa; `SND.themeFor(id)` devuelve la familia sonora.
+- Los fondos de `bg.js` añaden estructuras y partículas propias por escenario sin tapar tubos ni al ave.
+- La herramienta `legend` (Reliquia del Pase) da +1 punto por tubo y +25 % de monedas durante toda la partida. Es permanente: no se gasta al usarla, pero sí se desgasta y hay que repararla.
 
 ## Economía de la Temporada 2026
 
@@ -74,12 +99,22 @@ No hay dependencias de npm para jugar. Node solo se usa para las pruebas y el se
 node tools/test-game.js
 ```
 
-La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos e integridad de la interfaz. Actualmente hay **288 pruebas** y todas deben pasar antes de publicar.
+La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos, Pase Prémium, exclusividad en tienda y cajas, mecánicas de mapas, logros y temas de audio. Actualmente hay **369 pruebas** y todas deben pasar antes de publicar.
+
+También hay una prueba de humo en un navegador real (Chrome o Edge headless, sin dependencias npm):
+
+```powershell
+node tools/browser-smoke.js
+```
+
+Arranca el servidor local, juega una partida, pausa, compra el Pase Prémium, reclama sus 14 recompensas y revisa tienda, mapas e inventario buscando errores de JavaScript. Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con `CHROME_PATH`.
 
 ## Limitaciones conocidas
 
 - El APK Android **no se puede recompilar** en este entorno porque faltan JDK 17 y Android SDK configurados. `android/assets` se mantiene sincronizado con los assets web, pero el binario `dist/PioVuelo.apk` seguirá siendo el anterior hasta compilarlo en una máquina con esos requisitos.
-- La verificación visual e interactiva se ha hecho con pruebas headless, comprobaciones de HTTP y servidor local. No se ha podido usar un navegador real en esta sesión, así que conviene revisar la portada y las pantallas nuevas en un dispositivo antes de darlas por cerradas.
+- La verificación visual e interactiva se ha hecho con pruebas headless, comprobaciones de HTTP y servidor local. No se ha podido usar un navegador real en esta sesión, así que conviene revisar la portada, el Pase Prémium y los mapas nuevos en un dispositivo antes de darlas por cerradas.
+- La música es procedural (WebAudio) y no usa archivos externos: suena distinta por familia de mapa, pero no son pistas grabadas. El audio requiere un gesto del usuario para desbloquearse en móvil.
+- El Pase Prémium se paga con monedas del juego, no con dinero real; no hay pasarela de pago ni compras externas.
 - El idioma está fijado en español y se muestra deshabilitado como “Español (único)”: no se simula un selector que no existe.
 - El guardado es local al navegador o dispositivo; no hay cuentas, servidores ni sincronización entre dispositivos.
 - El autoguardado está siempre activo para evitar pérdidas: no se ofrece un interruptor que pudiera desactivarlo por accidente. La sincronización vertical y la resolución las controla el navegador o el dispositivo; el límite de FPS sí se aplica y se documenta esa limitación en Ajustes.

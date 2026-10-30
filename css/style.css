@@ -208,6 +208,31 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .pass-cell-st.lock { color:#8aa0cc; }
 .pass-prog-bar { height:10px; background:rgba(255,255,255,.22); border-radius:6px; overflow:hidden; }
 .pass-prog-fill { height:100%; background:linear-gradient(90deg,#ffe066,#ff8a3d); border-radius:6px; transition:width .35s; box-shadow:0 0 10px rgba(255,224,102,.6); }
+/* Pase Prémium: dos líneas, compra por temporada y recompensas exclusivas */
+.pass-premium-card { margin:12px 0 8px; padding:14px; border-radius:18px; border:2px solid rgba(199,166,255,.55); background:linear-gradient(135deg,rgba(76,43,150,.55),rgba(35,20,80,.5)); box-shadow:0 8px 26px rgba(60,20,120,.35); }
+.pass-premium-card.active { border-color:#c7a6ff; background:linear-gradient(135deg,rgba(124,77,255,.4),rgba(30,15,70,.55)); }
+.ppc-top { display:flex; align-items:center; gap:12px; }
+.ppc-ico { font-size:32px; filter:drop-shadow(0 3px 8px rgba(180,120,255,.6)); }
+.ppc-title { font-size:16px; font-weight:900; color:#e7d6ff; letter-spacing:.5px; }
+.ppc-sub { font-size:12px; color:#cbb8ee; margin-top:2px; }
+.ppc-price { margin:10px 0 4px; font-size:14px; font-weight:900; color:#ffe066; display:flex; align-items:center; gap:6px; justify-content:center; }
+.ppc-note { font-size:11px; color:#b8a8d8; line-height:1.35; margin-top:6px; }
+.ppc-buy { width:100%; margin-top:10px; background:linear-gradient(135deg,#8e5bff,#c7a6ff); color:#1a0b33; font-weight:900; border:none; box-shadow:0 6px 18px rgba(142,91,255,.45); }
+.pass-block { margin:12px 0 6px; padding:8px 4px 4px; border-radius:16px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); }
+.pass-block.premium { border-color:rgba(199,166,255,.35); background:linear-gradient(180deg,rgba(124,77,255,.12),rgba(255,255,255,.03)); }
+.pass-block-head { display:flex; align-items:center; gap:8px; padding:0 8px 4px; }
+.pass-block-t { font-size:13px; font-weight:900; color:#ffe066; letter-spacing:.4px; }
+.pass-block.premium .pass-block-t { color:#d9b3ff; }
+.pass-block-sub { font-size:11px; color:#8aa0cc; font-weight:700; }
+.pass-all { margin-left:auto; font-size:10px !important; padding:4px 8px !important; }
+.pass-cell.prem { border-color:rgba(199,166,255,.45); background:rgba(124,77,255,.14); }
+.pass-cell.prem.avail { border-color:#c7a6ff; animation:dd-pop 1.4s ease-in-out infinite; }
+.pass-cell.excl { box-shadow:0 0 0 1px rgba(255,224,102,.25) inset; }
+.pass-cell.excl .pass-cell-name { color:#ffe9b0; }
+.item .i-rarity { font-size:10px; line-height:1.1; text-align:center; color:#9fb2d8; min-height:12px; margin-top:1px; }
+.item .i-rarity.excl { color:#d9b3ff; font-weight:800; }
+.item.exclusive-item { border-color:rgba(199,166,255,.75); background:linear-gradient(180deg,rgba(124,77,255,.18),rgba(255,255,255,.08)); }
+.item.exclusive-item::after { content:'💎'; position:absolute; top:6px; right:8px; font-size:12px; filter:drop-shadow(0 1px 4px rgba(180,120,255,.8)); }
 
 /* Barra de modo del HUD: pulso cuando se completa */
 #hudProgFill { transition:width .18s linear; }

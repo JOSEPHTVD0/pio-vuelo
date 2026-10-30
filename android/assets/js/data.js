@@ -27,7 +27,10 @@ window.DAT = (function () {
     // Materiales (🔩) que pide cada nivel: 1→2 gratis, 2→3 una pieza, ...
     toolUpParts(level) { return [0, 0, 1, 2, 3][Math.max(0, Math.min(4, level | 0))] || 0; },
     repairPrice(tool, missing, max) {
-      const price = tool && typeof tool.price === 'number' ? tool.price : 100;
+      // Las herramientas exclusivas tienen precio de venta 0: usan un valor
+      // de referencia para que repararlas no sea gratis.
+      const raw = tool && (tool.repairValue || tool.basePrice || tool.price);
+      const price = typeof raw === 'number' && raw > 0 ? raw : 100;
       const ratio = max > 0 ? Math.max(0, Math.min(1, missing / max)) : 1;
       return this.round5(Math.max(10, price * 0.35 * ratio));
     }
@@ -128,6 +131,15 @@ window.DAT = (function () {
     { id: 'ciclope',  name: 'Cíclope',    desc: 'Un ojo, mil Schottys.',      price: 1750, body: '#6d4c41', wing: '#4e342e', belly: '#d7ccc8', beak: '#ffee58', cheek: '#9ccc65', ghost: true, week: 50 }
   ];
 
+  /* ---- RECOMPENSAS EXCLUSIVAS DEL PASE PRÉMIUM ----
+   * Estos artículos NUNCA se venden en la tienda, ni salen en cajas.
+   * Solo se obtienen reclamando la línea prémium del Pase de la temporada. */
+  SKINS.push(
+    { id: 'p-aurora', name: 'Aurora Polar', desc: 'Exclusiva del Pase Prémium: brilla con luz polar.', price: 0, exclusive: true, rarity: 'legendaria', body: '#7de3ff', wing: '#3aa0ff', belly: '#eaffff', beak: '#ffd54f', cheek: '#b3f0ff', sparkle: true, shine: true },
+    { id: 'p-crono',  name: 'Cronos', desc: 'Exclusiva del Pase Prémium: el tiempo la obedece.', price: 0, exclusive: true, rarity: 'mítica', body: '#ffd54f', wing: '#ff8f00', belly: '#fff8e1', beak: '#ff6f00', cheek: '#ffe082', shine: true },
+    { id: 'p-sombra', name: 'Sombra Real', desc: 'Exclusiva del Pase Prémium: nadie más la tiene.', price: 0, exclusive: true, rarity: 'épica', body: '#3b2f63', wing: '#241a45', belly: '#b39ddb', beak: '#ffd54f', cheek: '#7e57c2', ghost: true }
+  );
+
   /* Atributos por ave: multiplicadores de vuelo (spd=velocidad del mundo, flap=aleteo, grav=caída, gap=hueco).
    Valores por defecto 1. Solo se listan las que difieren. */
   const SKIN_STATS = {
@@ -178,7 +190,11 @@ window.DAT = (function () {
     cheesecake:{ gap: 1.05, grav: 0.95 },
     macaron: { grav: 0.98 },
     grifo:   { flap: 1.11, gap: 1.04 },
-    ciclope: { flap: 1.1, grav: 0.94 }
+    ciclope: { flap: 1.1, grav: 0.94 },
+    /* ---- EXCLUSIVAS DEL PASE PRÉMIUM ---- */
+    'p-aurora': { gap: 1.05, grav: 0.93 },
+    'p-crono':  { flap: 1.12, spd: 1.02 },
+    'p-sombra': { spd: 1.06, grav: 0.94 }
   };
   const SKIN_STATS_DEF = { spd: 1, flap: 1, grav: 1, gap: 1 };
   function skinStats(id) { return Object.assign({}, SKIN_STATS_DEF, SKIN_STATS[id] || {}); }
@@ -344,6 +360,10 @@ window.DAT = (function () {
     { id: 'hat-visera',      name: 'Visera',        price: 560, type: 'helmet',   week: 46 },
     { id: 'hat-turbante',    name: 'Turbante',      price: 600, type: 'wizard',   week: 46 }
   ];
+  HATS.push(
+    { id: 'hat-corona-eterna', name: 'Corona Eterna', price: 0, exclusive: true, rarity: 'legendaria', type: 'crown' },
+    { id: 'hat-sello-estelar', name: 'Sello Estelar', price: 0, exclusive: true, rarity: 'épica', type: 'halo' }
+  );
 
   const EFFECTS = [
     { id: 'fx-none',   name: 'Sin estela',      price: 0,    color: null },
@@ -411,6 +431,10 @@ window.DAT = (function () {
     { id: 'fx-pluma',        name: 'Pluma',          price: 500,  color: '#eceff1', week: 46 },
     { id: 'fx-vapor',        name: 'Vapor',          price: 450,  color: '#cfd8dc', week: 46 }
   ];
+  EFFECTS.push(
+    { id: 'fx-prisma',    name: 'Prisma Prémium', price: 0, exclusive: true, rarity: 'legendaria', color: '#b388ff', rainbow: true, stars: true },
+    { id: 'fx-supernova', name: 'Supernova',      price: 0, exclusive: true, rarity: 'mítica',     color: '#ffd54f', stars: true }
+  );
 
   const MAPS = [
     { id: 'day',        name: 'Día Soleado',   icon: '🌞', price: 0,    minScore: 0,   unlock: null,  sky: ['#6ec6ff', '#d4f2ff'], ground: '#7cba55', hill1: '#8fce63', hill2: '#a9dc87', cloud: '#ffffff', stars: false, bubbles: false, grid: false, pipe: '#5fae43', pipeRim: '#3e8e2f', accent: '#ffd54f' },
@@ -463,6 +487,52 @@ window.DAT = (function () {
     { id: 'dulce',    name: 'Reino de Azúcar', icon: '🍰', price: 1270, minScore: 66, unlock: 'coins', sky: ['#fff3e0', '#ffe0b2'], ground: '#e6a8c8', hill1: '#f0bcd4', hill2: '#f8d2e0', cloud: '#ffffff', stars: false, bubbles: true,  grid: false, pipe: '#f06292', pipeRim: '#ad1457', accent: '#fff59d', week: 49 },
     { id: 'mitologia',name: 'Sala de Dioses',  icon: '⚡', price: 1450, minScore: 75, unlock: 'coins', sky: ['#0d0033', '#4a148c'], ground: '#1a0033', hill1: '#25004d', hill2: '#310064', cloud: '#5e35b1', stars: true,  bubbles: false, grid: true,  pipe: '#ffd700', pipeRim: '#c0a000', accent: '#18ffff', week: 50 }
   ];
+  /* Mapa exclusivo del Pase Prémium: cielo auroral, monedas dobles y rachas de viento. */
+  MAPS.push({
+    id: 'premium', name: 'Cielo Prémium', icon: '🌌', price: 0, exclusive: true, rarity: 'legendaria',
+    minScore: 0, unlock: 'premium',
+    sky: ['#07162e', '#2b1e5c'], ground: '#1b2a52', hill1: '#25396e', hill2: '#31498a', cloud: '#6f7fd8',
+    stars: true, bubbles: false, grid: false, pipe: '#7de3ff', pipeRim: '#2e8fd0', accent: '#c7a6ff'
+  });
+
+  /* ---- MECÁNICAS POR MAPA ----
+   * Cada escenario modifica de verdad la partida (no es solo decoración):
+   * velocidad, gravedad, tamaño de hueco, frecuencia de tubos, valor de
+   * monedas y viento lateral. Los valores se aplican en game.js. */
+  const MAP_CFG_DEF = { speedMul: 1, gravMul: 1, gapMul: 1, spawnMul: 1, coinMul: 1, wind: false };
+  const MAP_CFG = {
+    day:        { coinMul: 1 },
+    sunset:     { speedMul: 0.96, coinMul: 1.1 },
+    night:      { gravMul: 0.92, gapMul: 0.97 },
+    space:      { gravMul: 0.72, coinMul: 1.15 },
+    luna:       { gravMul: 0.7, coinMul: 1.2 },
+    neon:       { speedMul: 1.12, coinMul: 1.2 },
+    cyber:      { speedMul: 1.16, coinMul: 1.25 },
+    arcade:     { speedMul: 1.14, coinMul: 1.2 },
+    volt:       { speedMul: 1.15, spawnMul: 0.95 },
+    glitch:     { speedMul: 1.18, gapMul: 0.96 },
+    water:      { gravMul: 0.82, speedMul: 0.92, coinMul: 1.1 },
+    oceano:     { gravMul: 0.8, speedMul: 0.9, coinMul: 1.15 },
+    abismo:     { gravMul: 0.78, speedMul: 0.88, coinMul: 1.25 },
+    forest:     { gapMul: 1.04, coinMul: 1.1 },
+    selva:      { gapMul: 1.05, coinMul: 1.15 },
+    selva2:     { gapMul: 1.06, coinMul: 1.15 },
+    tundra:     { gapMul: 0.94, gravMul: 0.95 },
+    nevadoM:    { gapMul: 0.93, speedMul: 1.05 },
+    cristal:    { gapMul: 0.92, coinMul: 1.2 },
+    candy:      { coinMul: 1.5 },
+    dulce:      { coinMul: 1.55 },
+    volcano:    { speedMul: 1.1, spawnMul: 0.94, coinMul: 1.2 },
+    prehist:    { speedMul: 1.12, spawnMul: 0.92, coinMul: 1.2 },
+    tormenta:   { wind: true, speedMul: 1.06 },
+    prisma:     { coinMul: 1.3 },
+    desierto:   { speedMul: 1.04, gapMul: 0.98 },
+    primavera:  { coinMul: 1.15 },
+    ciudad:     { spawnMul: 0.95 },
+    aurora:     { gapMul: 1.05, coinMul: 1.2 },
+    premium:    { speedMul: 1.06, gravMul: 0.94, gapMul: 1.05, coinMul: 2, wind: true }
+  };
+  function mapCfg(id) { return Object.assign({}, MAP_CFG_DEF, MAP_CFG[id] || {}); }
 
   const TOOLS = [
     { id: 'tool-start',  key: 'start',     name: 'Arranque Estelar', icon: '✨', desc: 'Empieza con +5 pts (modo libre).',          price: 80 },
@@ -507,6 +577,9 @@ window.DAT = (function () {
     { id: 'tool-bala',    key: 'bala',    name: 'Bala de Jade',   icon: '🎯', desc: 'Cada 10 tubos, un golpe teledirigido a una moneda.',   price: 205, week: 47 },
     { id: 'tool-flot',    key: 'flot',    name: 'Flotador',       icon: '🎈', desc: 'Aguanta un choque adicional por partida.',              price: 220, week: 48 }
   ];
+  TOOLS.push(
+    { id: 'tool-legend', key: 'legend', name: 'Reliquia del Pase', icon: '🏆', desc: 'Exclusiva y permanente: +1 pt por tubo y monedas +25 % toda la partida.', price: 0, exclusive: true, rarity: 'mítica', permanent: true, repairValue: 600, dur: 14 }
+  );
 
   const ACH = [
     { id: 'a-first',      name: 'Primer Vuelo',      desc: 'Completa tu primera partida.',      check: s => s.get().stats.flights >= 1,                              reward: 50 },
@@ -644,6 +717,15 @@ window.DAT = (function () {
   function getMap(id) { return MAPS.find(m => m.id === id) || MAPS[0]; }
   function getDiff(id) { return DIFFS.find(d => d.id === id) || DIFFS[1]; }
   function getAch(id) { return ACH.find(a => a.id === id) || null; }
+  // Un artículo exclusivo solo puede obtenerse desde el Pase Prémium.
+  function isExclusive(o) { return !!(o && o.exclusive); }
+  const RARITY_BY_TIER = { common: 'Común', uncommon: 'Poco común', rare: 'Raro', special: 'Especial' };
+  function rarityOf(o) {
+    if (!o) return 'Común';
+    if (o.rarity) return o.rarity.charAt(0).toUpperCase() + o.rarity.slice(1);
+    if (isExclusive(o)) return 'Exclusiva';
+    return RARITY_BY_TIER[ECONOMY.tier(o.basePrice || o.price || 0)] || 'Común';
+  }
   // Acepta el id ('tool-magnet') o la clave interna ('magnet') indistintamente.
   function getTool(id) { return TOOLS.find(t => t.id === id) || TOOLS.find(t => t.key === id) || null; }
 
@@ -750,6 +832,35 @@ window.DAT = (function () {
   /* Pase de Vuelo base (referencia: primavera), se usa passTiers() en runtime */
   const PASS_TIERS = passTiers(new Date(2026, 2, 15));
 
+  /* ------------------------------------------------------------------
+   * PASE PRÉMIUM (segunda línea por temporada)
+   * Se desbloquea con monedas del juego, dura la temporada actual y sus
+   * recompensas son EXCLUSIVAS: no se venden en tienda ni salen en cajas.
+   * ------------------------------------------------------------------ */
+  const PASS_PREMIUM_PRICE = 3000;
+  function passPremiumTiers() {
+    return PASS_XP.map((xp, idx) => {
+      let reward;
+      switch (idx) {
+        case 1:  reward = { skin: 'p-aurora' }; break;
+        case 2:  reward = { hat: 'hat-corona-eterna' }; break;
+        case 3:  reward = { fx: 'fx-prisma' }; break;
+        case 4:  reward = { parts: 2 }; break;
+        case 5:  reward = { map: 'premium' }; break;
+        case 6:  reward = { item: 'legend', n: 1 }; break;
+        case 7:  reward = { hat: 'hat-sello-estelar' }; break;
+        case 8:  reward = { fx: 'fx-supernova' }; break;
+        case 9:  reward = { parts: 3 }; break;
+        case 10: reward = { skin: 'p-sombra' }; break;
+        case 12: reward = { skin: 'p-crono' }; break;
+        case 13: reward = { coins: 1000 }; break;
+        default: reward = { coins: idx === 0 ? 150 : 500 };
+      }
+      return { xp: xp, reward: reward };
+    });
+  }
+  const PASS_PREMIUM_TIERS = passPremiumTiers();
+
   /* Aplica el reequilibrio UNA vez a todo el catálogo de tienda.
    * Los precios 0 (iniciales/gratis) se conservan. */
   [SKINS, HATS, EFFECTS, MAPS, TOOLS, EGGS, DECOR].forEach(list => {
@@ -763,9 +874,11 @@ window.DAT = (function () {
 
   return {
     SKINS, HATS, EFFECTS, MAPS, ACH, DIFFS, TOOLS, MISSIONS, PASS_TIERS, SEASON_TIERS,
+    PASS_PREMIUM_TIERS, PASS_PREMIUM_PRICE, passPremiumTiers,
     SEASONS, SEASON_ORDER, seasonIndex, seasonKey, seasonInfo, passTiers,
     CONTENT_EPOCH, curWeek, isUnlocked, weekLabel,
     getSkin, getHat, getFx, getMap, getDiff, getAch, getTool,
+    isExclusive, rarityOf, mapCfg,
     skinStats, boxDef, evolveStage,
     ECONOMY, TOOL_DUR, toolMaxDur, toolWear,
     NEST_LEVELS, NEST_MAX_OBJ, nestInfo, nestObjPos,

@@ -297,7 +297,10 @@ window.UI = (function () {
     };
     const claim = DAT.MISSIONS.filter(m => SAVE.missionProgress(m) >= m.target && !SAVE.missionDoneToday(m)).length;
     set('badgeMissions', claim);
-    const passN = (SAVE.passReached ? SAVE.passReached() - SAVE.passClaimedCount() : 0) || 0;
+    let passN = (SAVE.passReached ? SAVE.passReached() - SAVE.passClaimedCount() : 0) || 0;
+    if (SAVE.passPremiumActive && SAVE.passPremiumActive()) {
+      passN += Math.max(0, SAVE.passPremiumReached() - SAVE.passPremiumClaimedCount());
+    }
     set('badgePass', Math.max(0, passN));
     const readyEggs = SAVE.eggIncubating().filter(e => e.done).length;
     set('badgeHome', readyEggs);
@@ -685,7 +688,7 @@ window.UI = (function () {
     const nm = el.querySelector('.ach-name');
     const sb = el.querySelector('.ach-sub');
     if (nm) nm.textContent = a.name;
-    if (sb) sb.textContent = '+' + a.reward + ' 🪙 por este logro';
+    if (sb) sb.textContent = (a.desc ? a.desc + ' · ' : '') + '+' + a.reward + ' 🪙';
     SND.sfx.achieve();
     el.classList.remove('hidden');
     el.classList.remove('pop-in');
@@ -991,8 +994,10 @@ window.UI = (function () {
     if (cat === 'tools') { drawToolsItems(); return; }
     if (cat === 'box') { drawBoxItems(); return; }
     const s = SAVE.get();
-    const list = cat === 'skins' ? DAT.SKINS : cat === 'hats' ? DAT.HATS : DAT.EFFECTS;
+    const fullList = cat === 'skins' ? DAT.SKINS : cat === 'hats' ? DAT.HATS : DAT.EFFECTS;
     const ownedList = cat === 'skins' ? s.skinsOwned : cat === 'hats' ? s.hatsOwned : s.fxOwned;
+    // Los exclusivos del Pase Prémium no se venden: solo aparecen si ya se poseen.
+    const list = fullList.filter(i => !DAT.isExclusive(i) || SAVE.owns(ownedList, i.id));
     const equals = cat === 'skins' ? s.skin : cat === 'hats' ? s.hat : s.fx;
 
     // Organización: colección (en uso primero) · disponibles para comprar · bloqueadas por semana
@@ -1017,7 +1022,7 @@ window.UI = (function () {
       const isEquipped = equals === item.id;
       const locked = lockedByWeek[item.week];
       const div = document.createElement('div');
-      div.className = 'item' + (isEquipped ? ' equipped' : '') + (locked ? ' locked-week' : '') + ((!SAVE.owns(ownedList, item.id) && s.coins < item.price) ? ' cant-afford' : '');
+      div.className = 'item' + (isEquipped ? ' equipped' : '') + (locked ? ' locked-week' : '') + (DAT.isExclusive(item) ? ' exclusive-item' : '') + ((!SAVE.owns(ownedList, item.id) && s.coins < item.price) ? ' cant-afford' : '');
       const art = document.createElement('div');
       art.className = 'i-art';
       const cv = document.createElement('canvas');
@@ -1036,6 +1041,10 @@ window.UI = (function () {
       const nm = document.createElement('div');
       nm.className = 'i-name'; nm.textContent = item.name + (cat === 'skins' && SAVE.owns(ownedList, item.id) && !item.golden && SAVE.skinStage(item.id) >= 2 ? ' ⭐' + SAVE.skinStage(item.id) : '');
       div.appendChild(nm);
+      const rar = document.createElement('div');
+      rar.className = 'i-rarity' + (DAT.isExclusive(item) ? ' excl' : '');
+      rar.textContent = DAT.rarityOf(item) + (DAT.isExclusive(item) ? ' · 🎫 Prémium' : '');
+      div.appendChild(rar);
       const pr = document.createElement('div');
       pr.className = 'i-price';
       if (locked) {
@@ -1198,7 +1207,8 @@ window.UI = (function () {
     const grid = $('shopGrid');
     grid.innerHTML = ''; // la grilla se rellena de cero (compra/mejora re-invocan esto)
     const s = SAVE.get();
-    DAT.TOOLS.forEach(tool => {
+    // Las herramientas exclusivas del Pase no se venden: solo se ven en el inventario.
+    DAT.TOOLS.filter(t => !DAT.isExclusive(t)).forEach(tool => {
       const div = document.createElement('div');
       div.className = 'item item-tool';
       const art = document.createElement('div');
@@ -1437,7 +1447,7 @@ window.UI = (function () {
     const s = SAVE.get();
     DAT.MAPS.forEach(m => {
       const div = document.createElement('div');
-      div.className = 'item';
+      div.className = 'item' + (DAT.isExclusive(m) ? ' exclusive-item' : '');
       const prev = document.createElement('div');
       prev.className = 'map-preview';
       prev.style.background = 'linear-gradient(180deg,' + m.sky[0] + ',' + m.sky[1] + ')';
@@ -1447,8 +1457,19 @@ window.UI = (function () {
       prev.appendChild(nm);
       div.appendChild(prev);
       const owned = SAVE.owns(s.mapsOwned, m.id);
+      const exclusiveLocked = !owned && DAT.isExclusive(m);
       const locked = !owned && m.week && !DAT.isUnlocked(m);
-      if (locked) {
+      if (exclusiveLocked) {
+        const lock = document.createElement('div');
+        lock.className = 'map-lock';
+        lock.innerHTML = '<div class="lock-ico">🎫</div><div class="ml-t">Pase Prémium</div>';
+        prev.appendChild(lock);
+        div.onclick = () => {
+          SND.sfx.deny();
+          toast(m.name + ' es exclusivo del Pase Prémium de esta temporada', 'info');
+          openGeneric('pass');
+        };
+      } else if (locked) {
         const lock = document.createElement('div');
         lock.className = 'map-lock';
         lock.innerHTML = '<div class="lock-ico">📅</div><div class="ml-t">Semana ' + m.week + '</div>';
@@ -1467,6 +1488,7 @@ window.UI = (function () {
         div.onclick = () => {
           SAVE.equip('map', m.id);
           BG.init(m.id); BG.reset();
+          if (SND.setMapTheme) SND.setMapTheme(m.id);
           SND.sfx.click();
           renderMaps();
           toast('Mapa: ' + m.name, 'info');
@@ -1491,6 +1513,7 @@ window.UI = (function () {
               if (res.ok) {
                 SAVE.equip('map', m.id);
                 BG.init(m.id); BG.reset();
+                if (SND.setMapTheme) SND.setMapTheme(m.id);
                 SND.sfx.buy();
                 renderMaps();
                 $('genCoins').textContent = SAVE.get().coins;
@@ -2021,7 +2044,7 @@ window.UI = (function () {
           const d = SAVE.toolDurInfo(t.key);
           const lv = SAVE.toolLevel(t.key);
           const sub = (d.broken ? '🔧 Rota · ' : '🔧 ' + Math.round(d.cur) + '/' + d.max + ' · ') +
-            'x' + count + (lv ? ' · ⭐' + lv : '') + ' · ' + (SAVE.toolModeVal(t.key) === 'manual' ? 'manual' : 'auto');
+            (t.permanent ? '♾ permanente' : 'x' + count) + (lv ? ' · ⭐' + lv : '') + ' · ' + (SAVE.toolModeVal(t.key) === 'manual' ? 'manual' : 'auto');
           const acts = [];
           if (d.missing > 0) {
             acts.push({
@@ -2036,9 +2059,40 @@ window.UI = (function () {
                 })
             });
           }
-          acts.push({ label: '⬆ Mejorar', cb: () => openGeneric('shop', 'tools') });
-          const c = card(t.icon, t.name, sub, false, acts);
-          const bar = document.createElement('div');
+          if (t.exclusive) {
+            // La Reliquia no se vende en la tienda: su mejora se gestiona aquí.
+            const tlv = SAVE.toolLevel(t.key);
+            if (tlv < 5) {
+              acts.push({
+                label: '⬆ Nv ' + tlv + '→' + (tlv + 1) + ' · ' + SAVE.toolUpPrice(t.key) + ' 🪙' +
+                  (SAVE.toolUpParts(t.key) ? ' + ' + SAVE.toolUpParts(t.key) + ' 🔩' : ''),
+                cb: () => {
+                  const st = SAVE.toolStats(t.key);
+                  confirmAction('Mejorar ' + t.name,
+                    'Nivel ' + st.now.level + ' → ' + st.next.level + '\n' +
+                    'Durabilidad máx: ' + st.now.max + ' → ' + st.next.max + '\n' +
+                    'Coste: ' + st.price + ' 🪙' + (st.parts ? ' + ' + st.parts + ' 🔩' : '') + '\n' +
+                    'Tienes: ' + SAVE.get().coins + ' 🪙 · ' + SAVE.partsCount() + ' 🔩',
+                    () => {
+                      const res = SAVE.upToolLevel(t.key);
+                      if (!res.ok) {
+                        SND.sfx.deny();
+                        if (res.msg === 'no_parts') toast('Faltan piezas 🔩 (' + res.parts + ' necesarias)', '');
+                        else toast('No tienes suficientes monedas 💤', '');
+                        return;
+                      }
+                      SND.sfx.buy();
+                      FX.confetti(400, 150);
+                      toast('⬆ ' + t.name + ' nivel ' + res.level + ' · durabilidad ' + res.max, 'good');
+                      renderInventory(active); refreshHome();
+                    });
+                }
+              });
+            }
+          } else {
+            acts.push({ label: '⬆ Mejorar', cb: () => openGeneric('shop', 'tools') });
+          }
+          const c = card(t.icon, t.name, sub, false, acts);          const bar = document.createElement('div');
           bar.className = 'td-bar inv-dur' + (d.broken ? ' broken' : d.pct <= 25 ? ' low' : '');
           bar.innerHTML = '<i style="width:' + d.pct + '%"></i>';
           c.appendChild(bar);
@@ -2522,7 +2576,7 @@ window.UI = (function () {
     const about = document.createElement('div');
     about.className = 'prog-card';
     about.style.textAlign = 'center';
-    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v2.9 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.0 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
     body.appendChild(about);
   }
 
@@ -2615,11 +2669,77 @@ window.UI = (function () {
       const tk = DAT.TOOLS.find(x => x.key === t.reward.item);
       return { icon: tk ? tk.icon : '🎒', name: tk ? tk.name : t.reward.item, n: t.reward.n };
     }
-    if (t.reward.hat) { const h = DAT.getHat(t.reward.hat); return { icon: '👒', name: h.name, n: 1 }; }
-    if (t.reward.fx) { const f = DAT.getFx(t.reward.fx); return { icon: '✨', name: f.name, n: 1 }; }
-    if (t.reward.map) { const m = DAT.getMap(t.reward.map); return { icon: '🗺', name: m.name, n: 1 }; }
-    if (t.reward.skin) { const sk = DAT.getSkin(t.reward.skin); return { icon: '🐤', name: sk.name, n: 1 }; }
+    if (t.reward.hat) { const h = DAT.getHat(t.reward.hat); return { icon: '👒', name: h ? h.name : 'Sombrero', n: 1 }; }
+    if (t.reward.fx) { const f = DAT.getFx(t.reward.fx); return { icon: '✨', name: f ? f.name : 'Estela', n: 1 }; }
+    if (t.reward.map) { const m = DAT.getMap(t.reward.map); return { icon: '🗺', name: m ? m.name : 'Mapa', n: 1 }; }
+    if (t.reward.skin) { const sk = DAT.getSkin(t.reward.skin); return { icon: '🐤', name: sk ? sk.name : 'Ave', n: 1 }; }
+    if (t.reward.parts) return { icon: '🔩', name: t.reward.parts + ' piezas', n: 1 };
+    if (t.reward.shields) return { icon: '🛡️', name: t.reward.shields + ' escudos', n: 1 };
     return { icon: '🪙', name: (t.reward.coins || 0) + ' monedas', n: 1 };
+  }
+
+  function passTrack(title, tiers, reached, claimedList, claimFn, premium, active) {
+    const wrap = document.createElement('div');
+    wrap.className = 'pass-block' + (premium ? ' premium' : '');
+    const head = document.createElement('div');
+    head.className = 'pass-block-head';
+    const claimable = tiers.reduce((n, t, idx) => n + (reached > idx && claimedList.indexOf(idx) === -1 ? 1 : 0), 0);
+    head.innerHTML = '<span class="pass-block-t">' + (premium ? '💎 ' : '🎫 ') + title + '</span>' +
+      '<span class="pass-block-sub">' + reached + '/' + tiers.length + (premium && !active ? ' · bloqueada' : '') + '</span>';
+    if (claimable > 0) {
+      const all = document.createElement('button');
+      all.className = 'btn btn-small pass-all';
+      all.textContent = 'Reclamar todo (' + claimable + ')';
+      all.onclick = () => {
+        let n = 0;
+        for (let idx = 0; idx < tiers.length; idx++) {
+          if (reached > idx && claimedList.indexOf(idx) === -1 && claimFn(idx)) n++;
+        }
+        if (n) { SND.sfx.level(); toast('+' + n + ' recompensas reclamadas', 'good'); renderPass(); refreshHome(); }
+        SAVE.checkAch().forEach(a => popAch(a));
+      };
+      head.appendChild(all);
+    }
+    wrap.appendChild(head);
+
+    const track = document.createElement('div');
+    track.className = 'pass-track';
+    const scroll = document.createElement('div');
+    scroll.className = 'pass-track-scroll';
+    const curI = reached - 1;
+    tiers.forEach((t, idx) => {
+      const claimed = claimedList.indexOf(idx) !== -1;
+      const can = active && !claimed && reached > idx;
+      const rw = passRewardIco(t);
+      const isExcl = !!(t.reward.skin || t.reward.hat || t.reward.fx || t.reward.map || t.reward.item === 'legend');
+      const cell = document.createElement('button');
+      cell.className = 'pass-cell' + (claimed ? ' claimed' : '') + (can ? ' avail' : '') + (idx === curI ? ' cur' : '') +
+        (premium ? ' prem' : '') + (isExcl ? ' excl' : '');
+      cell.disabled = claimed || !can;
+      cell.innerHTML =
+        '<div class="pass-cell-ico">' + rw.icon + (rw.n > 1 ? '<b>×' + rw.n + '</b>' : '') + '</div>' +
+        '<div class="pass-cell-xp">' + t.xp + ' XP</div>' +
+        '<div class="pass-cell-name">' + rw.name + '</div>' +
+        (claimed ? '<div class="pass-cell-st ok">✓</div>'
+          : (can ? '<div class="pass-cell-st">Reclamar</div>'
+            : (premium && !active ? '<div class="pass-cell-st lock">🎫</div>' : '<div class="pass-cell-st lock">🔒</div>')));
+      cell.onclick = () => {
+        if (premium && !active) { toast('Desbloquea el Pase Prémium para reclamar esta línea', 'info'); return; }
+        if (idx >= reached) { toast('Necesitas ' + t.xp + ' XP (te faltan ' + (t.xp - SAVE.totalXp()) + ')', 'info'); return; }
+        const r = claimFn(idx);
+        if (r) {
+          toast(r.converted ? 'Ya tenías esa recompensa: +250 🪙' : '¡Recompensa ' + (premium ? 'prémium' : 'del Pase') + '! 🎫', 'good');
+          SND.sfx.level();
+          renderPass();
+          refreshHome();
+        }
+        SAVE.checkAch().forEach(a => popAch(a));
+      };
+      scroll.appendChild(cell);
+    });
+    track.appendChild(scroll);
+    wrap.appendChild(track);
+    return wrap;
   }
 
   function renderPass() {
@@ -2627,9 +2747,13 @@ window.UI = (function () {
     body.innerHTML = '';
     const se = DAT.seasonInfo();
     const tiers = DAT.passTiers();
+    const ptiers = DAT.passPremiumTiers();
     const xp = SAVE.totalXp();
     const tier = SAVE.passReached();
     const pc = SAVE.passClaimedCount();
+    const active = SAVE.passPremiumActive();
+    const ptier = SAVE.passPremiumReached();
+    const ppc = SAVE.passPremiumClaimedCount();
 
     const head = document.createElement('div');
     head.className = 'prog-card';
@@ -2640,38 +2764,62 @@ window.UI = (function () {
       '<div><h3 style="margin:0;color:' + se.accent + '">' + se.pass.name.toUpperCase() + '</h3>' +
       '<div style="font-size:12px;color:#dbe7ff">' + se.name + ' ' + DAT.seasonKey() + ' · ' + se.months + '</div></div></div>' +
       '<div style="font-size:20px;font-weight:900;color:#ffe066;margin:8px 0 4px">' + xp + ' XP' +
-      '<span style="font-size:12px;color:#8aa0cc"> · Nv pase ' + tier + '/' + tiers.length + ' · ' + pc + ' recompensas</span></div>' +
+      '<span style="font-size:12px;color:#8aa0cc"> · Gratis nv ' + tier + '/' + tiers.length + ' · ' + pc + ' reclamadas</span></div>' +
       '<div class="pass-prog-bar"><div class="pass-prog-fill" style="width:' + Math.min(100, Math.round(tier / tiers.length * 100)) + '%"></div></div>' +
-      '<div style="font-size:11px;color:#8aa0cc;margin-top:6px">⚡ Cuando cambie la temporada, el Pase rota solo con nuevas recompensas.</div>';
+      '<div style="font-size:11px;color:#8aa0cc;margin-top:6px">⚡ El Pase y el Prémium rotan cada temporada real.</div>';
     body.appendChild(head);
 
-    const track = document.createElement('div');
-    track.className = 'pass-track';
-    const scroll = document.createElement('div');
-    scroll.className = 'pass-track-scroll';
-    const curI = tier - 1;
-    tiers.forEach((t, idx) => {
-      const claimed = SAVE.get().passClaimed.indexOf(idx) !== -1;
-      const can = !claimed && tier > idx;
-      const rw = passRewardIco(t);
-      const cell = document.createElement('button');
-      cell.className = 'pass-cell' + (claimed ? ' claimed' : '') + (can ? ' avail' : '') + (idx === curI ? ' cur' : '');
-      cell.disabled = claimed || !can;
-      cell.innerHTML =
-        '<div class="pass-cell-ico">' + rw.icon + (rw.n > 1 ? '<b>×' + rw.n + '</b>' : '') + '</div>' +
-        '<div class="pass-cell-xp">' + t.xp + ' XP</div>' +
-        '<div class="pass-cell-name">' + rw.name + '</div>' +
-        (claimed ? '<div class="pass-cell-st ok">✓</div>' : (can ? '<div class="pass-cell-st">Reclamar</div>' : '<div class="pass-cell-st lock">🔒</div>'));
-      cell.onclick = () => {
-        if (idx >= tier) { toast('Nivel de pase ' + (idx + 1) + ' (necesitas ' + t.xp + ' XP)', 'info'); return; }
-        const r = SAVE.claimPassTier(idx);
-        if (r) { toast('¡Recompensa del Pase! 🎫', 'good'); SND.sfx.level(); renderPass(); refreshHome(); }
-        SAVE.checkAch().forEach(a => popAch(a));
+    /* Tarjeta de compra / estado del Pase Prémium */
+    const prem = document.createElement('div');
+    prem.className = 'pass-premium-card' + (active ? ' active' : '');
+    if (active) {
+      prem.innerHTML =
+        '<div class="ppc-top"><span class="ppc-ico">💎</span><div>' +
+        '<div class="ppc-title">PASE PRÉMIUM ACTIVO</div>' +
+        '<div class="ppc-sub">' + ptier + '/' + ptiers.length + ' niveles · ' + ppc + ' recompensas exclusivas reclamadas</div></div></div>' +
+        '<div class="ppc-note">Las recompensas 💎 solo se consiguen aquí: no se venden en la tienda ni salen en cajas.</div>';
+    } else {
+      prem.innerHTML =
+        '<div class="ppc-top"><span class="ppc-ico">💎</span><div>' +
+        '<div class="ppc-title">PASE PRÉMIUM · ' + se.name + '</div>' +
+        '<div class="ppc-sub">Desbloquea ' + ptiers.length + ' recompensas exclusivas de esta temporada.</div></div></div>' +
+        '<div class="ppc-price"><span class="coin-ico"></span> ' + DAT.PASS_PREMIUM_PRICE + ' 🪙 · dura toda la temporada</div>' +
+        '<div class="ppc-note">Aves, sombreros, estelas, herramientas y un mapa exclusivos. Al cambiar de temporada se vuelve a comprar.</div>';
+      const buy = document.createElement('button');
+      buy.className = 'btn ppc-buy';
+      buy.textContent = '💎 DESBLOQUEAR PASE PRÉMIUM';
+      buy.onclick = () => {
+        const doBuy = () => {
+          const res = SAVE.buyPassPremium();
+          if (res.ok) {
+            SND.sfx.buy();
+            toast('¡Pase Prémium desbloqueado! 💎', 'good');
+            renderPass();
+            refreshHome();
+            $('genCoins').textContent = SAVE.get().coins;
+          } else if (res.msg === 'no_money') {
+            SND.sfx.deny();
+            toast('Necesitas ' + DAT.PASS_PREMIUM_PRICE + ' 🪙 (tienes ' + SAVE.get().coins + ')', '');
+          } else if (res.msg === 'active') {
+            toast('El Pase Prémium ya está activo esta temporada', 'info');
+          }
+        };
+        if (SAVE.get().set.confirmBuy) {
+          confirmAction('Pase Prémium ' + DAT.seasonKey(),
+            'Precio: ' + DAT.PASS_PREMIUM_PRICE + ' 🪙 · Saldo: ' + SAVE.get().coins + ' 🪙\nSe activa para toda la temporada actual.', doBuy);
+        } else doBuy();
       };
-      scroll.appendChild(cell);
-    });
-    track.appendChild(scroll);
-    body.appendChild(track);
+      prem.appendChild(buy);
+    }
+    body.appendChild(prem);
+
+    body.appendChild(passTrack('Línea Gratuita', tiers, tier, SAVE.get().passClaimed, SAVE.claimPassTier, false, true));
+    body.appendChild(passTrack('Línea Prémium', ptiers, ptier, SAVE.get().passPremiumClaimed, SAVE.claimPassPremiumTier, true, active));
+
+    const note = document.createElement('div');
+    note.className = 'panel-note';
+    note.textContent = '🎫 Sube de nivel jugador para avanzar en ambas líneas. El Prémium no caduca a mitad de temporada, pero sí al cambiar de estación.';
+    body.appendChild(note);
   }
 
   /* ---------- HOGAR: nido, incubadora y decoración ---------- */

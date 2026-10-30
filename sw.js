@@ -1,4 +1,4 @@
-var CACHE = 'piovuelo-v20';
+var CACHE = 'piovuelo-v21';
 var FILES = [
   './',
   './index.html',

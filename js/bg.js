@@ -34,6 +34,9 @@ window.BG = (function () {
       case 'ruinas': return { type: 'motes', n: 10, col: '#d4a017' };
       case 'pantano': return { type: 'motes', n: 10, col: '#9ccc65' };
       case 'cometa': return { type: 'motes', n: 14, col: '#b388ff' };
+      case 'premium': return { type: 'motes', n: 20, col: '#7de3ff', col2: '#c7a6ff' };
+      case 'prisma': return { type: 'motes', n: 16, col: '#b388ff', col2: '#7de3ff' };
+      case 'mitologia': return { type: 'motes', n: 14, col: '#18ffff', col2: '#ffd700' };
       default: return null;
     }
   }
@@ -122,8 +125,8 @@ window.BG = (function () {
       c.fillStyle = '#fff6d8'; c.beginPath(); c.arc(sx - r * 0.2, sy - r * 0.25, r * 0.4, 0, Math.PI * 2); c.fill();
     }
 
-    // Nebulosa para el espacio/mapa nebula
-    if (map.id === 'space' || map.id === 'neon') {
+    // Nebulosa para el espacio, neón y el Cielo Prémium
+    if (map.id === 'space' || map.id === 'neon' || map.id === 'premium') {
       for (let i = 0; i < 3; i++) {
         const nx = Math.random() * skyCanvas.width, ny = Math.random() * skyCanvas.height;
         const gr = c.createRadialGradient(nx, ny, 4, nx, ny, skyCanvas.height * 0.28);
@@ -208,8 +211,8 @@ window.BG = (function () {
     // Cielo (estirar, con ligero parallax vertical 0)
     ctx.drawImage(skyCanvas, 0, 0, W, H);
 
-    // Auroras boreales (Noche Polar / Aurora)
-    if (map.id === 'aurora' || map.id === 'nevadoM') drawAurora(ctx);
+    // Auroras boreales (Noche Polar / Aurora / Cielo Prémium)
+    if (map.id === 'aurora' || map.id === 'nevadoM' || map.id === 'premium') drawAurora(ctx);
 
     // Estrellas
     if (map.stars) {
@@ -235,6 +238,9 @@ window.BG = (function () {
     // Colinas lejanas
     drawHills(ctx, 1, map.hill1, 0.4);
     drawHills(ctx, 0.65, map.hill2, 0.7);
+
+    // Estructuras características del escenario (siluetas con parallax)
+    drawStructures(ctx);
 
     // Partículas ambientales del mapa (lluvia, nieve, brasas, pétalos, motas)
     const st = ambStyle(map.id);
@@ -268,6 +274,106 @@ window.BG = (function () {
 
     // Suelo
     drawGround(ctx);
+  }
+
+  /* Estructuras de fondo propias de cada familia de mapas. No son decorativas
+   * del todo: refuerzan la identidad del escenario (ciudad, bosque, volcán,
+   * desierto, hielo, cielo prémium) sin tapar los tubos ni al ave. */
+  function drawStructures(ctx) {
+    const id = map.id;
+    const h = H - Math.max(64, H * 0.11);
+    ctx.save();
+    if (id === 'premium') {
+      // Agujas de cristal flotantes con brillo prémium
+      const off = (scroll * 300) % 240;
+      for (let i = -1; i < Math.ceil(W / 240) + 1; i++) {
+        const x = i * 240 - off + 60;
+        const hh = 70 + ((i * 53) % 70);
+        const gr = ctx.createLinearGradient(x, h, x, h - hh);
+        gr.addColorStop(0, 'rgba(45,60,130,0.85)');
+        gr.addColorStop(1, 'rgba(125,227,255,0.15)');
+        ctx.fillStyle = gr;
+        ctx.beginPath();
+        ctx.moveTo(x - 26, h); ctx.lineTo(x - 6, h - hh);
+        ctx.lineTo(x + 8, h - hh - 26); ctx.lineTo(x + 22, h - hh * 0.6);
+        ctx.lineTo(x + 30, h); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(199,166,255,0.45)'; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+    } else if (['ciudad', 'cyber', 'neon', 'arcade', 'volt', 'glitch', 'prisma'].indexOf(id) !== -1) {
+      // Skyline con ventanas encendidas
+      const off = (scroll * 260) % 110;
+      for (let i = -1; i < Math.ceil(W / 110) + 2; i++) {
+        const x = i * 110 - off;
+        const bh = 40 + ((i * 37) % 90);
+        ctx.fillStyle = 'rgba(18,22,52,0.78)';
+        ctx.fillRect(x, h - bh, 74, bh);
+        ctx.fillStyle = 'rgba(255,224,102,0.35)';
+        for (let wy = h - bh + 10; wy < h - 8; wy += 16) {
+          for (let wx = x + 8; wx < x + 64; wx += 16) {
+            if ((wx + wy) % 3 === 0) ctx.fillRect(wx, wy, 5, 7);
+          }
+        }
+      }
+    } else if (['forest', 'selva', 'selva2', 'pantano'].indexOf(id) !== -1) {
+      // Línea de árboles
+      const off = (scroll * 220) % 90;
+      ctx.fillStyle = 'rgba(20,60,32,0.55)';
+      for (let i = -1; i < Math.ceil(W / 90) + 1; i++) {
+        const x = i * 90 - off;
+        const th = 60 + ((i * 41) % 46);
+        ctx.beginPath();
+        ctx.moveTo(x, h); ctx.lineTo(x + 26, h - th); ctx.lineTo(x + 52, h);
+        ctx.closePath(); ctx.fill();
+        ctx.fillRect(x + 20, h - 10, 12, 14);
+      }
+    } else if (['volcano', 'prehist', 'rubi'].indexOf(id) !== -1) {
+      // Conos volcánicos con lava
+      const off = (scroll * 240) % 320;
+      for (let i = -1; i < Math.ceil(W / 320) + 1; i++) {
+        const x = i * 320 - off + 40;
+        ctx.fillStyle = 'rgba(60,26,30,0.8)';
+        ctx.beginPath();
+        ctx.moveTo(x - 110, h); ctx.lineTo(x, h - 150); ctx.lineTo(x + 110, h);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,110,64,0.65)'; ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x - 14, h - 136);
+        ctx.quadraticCurveTo(x + 18, h - 90, x - 8, h);
+        ctx.stroke();
+      }
+    } else if (['desierto', 'playa'].indexOf(id) !== -1) {
+      // Dunas y cactus lejanos
+      const off = (scroll * 180) % 220;
+      ctx.fillStyle = 'rgba(255,214,140,0.28)';
+      for (let i = -1; i < Math.ceil(W / 220) + 1; i++) {
+        const x = i * 220 - off;
+        ctx.beginPath();
+        ctx.ellipse(x + 60, h, 150, 34, 0, Math.PI, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(60,90,50,0.6)';
+      for (let i = -1; i < Math.ceil(W / 220) + 1; i++) {
+        const x = i * 220 - off + 150;
+        ctx.fillRect(x, h - 40, 7, 42);
+        ctx.fillRect(x - 9, h - 30, 9, 6);
+        ctx.fillRect(x + 7, h - 24, 8, 6);
+      }
+    } else if (['tundra', 'nevadoM', 'cristal'].indexOf(id) !== -1) {
+      // Picos de hielo
+      const off = (scroll * 200) % 260;
+      for (let i = -1; i < Math.ceil(W / 260) + 1; i++) {
+        const x = i * 260 - off + 40;
+        ctx.fillStyle = 'rgba(205,240,255,0.38)';
+        ctx.beginPath();
+        ctx.moveTo(x - 90, h); ctx.lineTo(x, h - 120); ctx.lineTo(x + 90, h);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.beginPath();
+        ctx.moveTo(x - 22, h - 90); ctx.lineTo(x, h - 120); ctx.lineTo(x + 22, h - 90);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   function drawCloud(ctx, x, y, s) {

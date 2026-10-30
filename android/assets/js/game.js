@@ -40,7 +40,7 @@ window.G = (function () {
   let runShields = 0;   // escudos recogidos en ESTA partida (acumulativos, no persisten)
   let usedStockShield = false; // ya se gastó el máximo de 1 escudo guardado en esta partida
   let clockFreeze = -1;    // dificultad congelada por el Reloj Estelar (puntuación congelada)
-  let rt = { slow: false, magnet: false, coins: false, boost: false, luck: false, hype: false, oasis: false, doble: false, para: false, zoom: false, mirilla: false, amuleto: false, rescate: false, ticket: false, radar: false, bala: false, flot: false }; // herramientas de la bolsa activas esta partida
+  let rt = { slow: false, magnet: false, coins: false, boost: false, luck: false, hype: false, oasis: false, doble: false, para: false, zoom: false, mirilla: false, amuleto: false, rescate: false, ticket: false, radar: false, bala: false, flot: false, legend: false }; // herramientas de la bolsa activas esta partida
   let runSpawnWorth = 0;   // valor ponderado de las monedas que han salido esta partida (ticket)
   let runColWorth = 0;     // valor ponderado de las monedas recogidas esta partida (ticket)
   let worldSpeed = 0;
@@ -52,6 +52,7 @@ window.G = (function () {
   let airborne = false;
 
   let diff = null;
+  let mapCfgCur = { speedMul: 1, gravMul: 1, gapMul: 1, spawnMul: 1, coinMul: 1, wind: false }; // mecánicas del mapa activo
   let lvl = 1;
   let mode = 'free';       // free | challenge | duel | zen | boss | wind | replay
   let clearedFlag = false; // evita disparar la superación de un modo 2 veces
@@ -169,15 +170,16 @@ function difficultyFor(sc, diffc) {
     // Suavizado: crece más lento, tope más bajo
     // Las tuberías alcanzan su nivel de dificultad máximo en el nivel 50 y ahí se quedan
     const scTubo = Math.min(sc, (TUBO_MAX_LEVEL - 1) * LEVEL_STEP);
-    const speed = (150 + scTubo * 6.2) * d.speedMul;
-    const gapMin = Math.max(108 * d.gapMul, 118 - scTubo * 0.75);
-    const gapVar = H * 0.45 * d.gapMul - scTubo * 2.2;
+    const mcfg = mapCfgCur || {};
+    const speed = (150 + scTubo * 6.2) * d.speedMul * (mcfg.speedMul || 1);
+    const gapMin = Math.max(108 * d.gapMul, 118 - scTubo * 0.75) * (mcfg.gapMul || 1);
+    const gapVar = (H * 0.45 * d.gapMul - scTubo * 2.2) * (mcfg.gapMul || 1);
     const gap = Math.max(gapMin, gapVar);
     return {
-      speed: Math.min(speed, 370 * d.speedMul),
+      speed: Math.min(speed, 370 * d.speedMul * (mcfg.speedMul || 1)),
       gap: gap,
-      spawnEvery: Math.max(180, ip.width * 4.1) * d.spawnMul - Math.min(scTubo * 1.0, 100),
-      enemyEvery: Math.max(1050, 1900 - sc * 32) * d.spawnMul,
+      spawnEvery: Math.max(180, ip.width * 4.1) * d.spawnMul * (mcfg.spawnMul || 1) - Math.min(scTubo * 1.0, 100),
+      enemyEvery: Math.max(1050, 1900 - sc * 32) * d.spawnMul * (mcfg.spawnMul || 1),
       powerEvery: Math.max(1400, 3000 - sc * 15),
       megaEvery: Math.max(300, 430 - sc * 3),
       chainEvery: Math.max(900, 2200 - sc * 9),
@@ -213,7 +215,7 @@ function difficultyFor(sc, diffc) {
     runShields = 0;
     usedStockShield = false;
     clockFreeze = -1;
-    rt.slow = false; rt.magnet = false; rt.coins = false; rt.boost = false; rt.luck = false; rt.score = false; rt.sprint = false; rt.hype = false; rt.oasis = false; rt.doble = false; rt.titan = false; rt.fenix = false; rt.para = false; rt.zoom = false; rt.mirilla = false; rt.amuleto = false; rt.rescate = false; rt.ticket = false; rt.radar = false; rt.bala = false; rt.flot = false;
+    rt.slow = false; rt.magnet = false; rt.coins = false; rt.boost = false; rt.luck = false; rt.score = false; rt.sprint = false; rt.hype = false; rt.oasis = false; rt.doble = false; rt.titan = false; rt.fenix = false; rt.para = false; rt.zoom = false; rt.mirilla = false; rt.amuleto = false; rt.rescate = false; rt.ticket = false; rt.radar = false; rt.bala = false; rt.flot = false; rt.legend = false;
     oasisLast = 0;
     clearedFlag = false;
     readyTap = true; airborne = false;
@@ -236,12 +238,15 @@ function difficultyFor(sc, diffc) {
     rival = mode === 'duel'
       ? { prog: 0, strength: clamp(0.6 + SAVE.get().level * 0.02, 0.55, 1.3) }
       : null;
+    const mapId = mode === 'challenge' ? challengeMap : (mode === 'replay' && replayMode && rp ? rp.map : SAVE.get().map);
+    mapCfgCur = DAT.mapCfg(mapId); // cada mapa altera velocidad, gravedad, huecos, monedas y viento
     diff = DAT.getDiff(mode === 'challenge' ? 'normal' : SAVE.get().set.diff);
     ENTS.setHC(!!SAVE.get().set.hc);
     skinStats = DAT.skinStats(SAVE.get().skin);
     worldSpeed = 0;
     FX.clear(); FX.shake(0);
-    BG.init(mode === 'challenge' ? challengeMap : (mode === 'replay' && replayMode && rp ? rp.map : SAVE.get().map)); BG.reset();
+    BG.init(mapId); BG.reset();
+    if (SND.setMapTheme) SND.setMapTheme(mapId); // música propia del escenario
     if (mode !== 'zen') preSpawnPipes(); // Zen: sin tubos, solo vuelo libre
   }
 
@@ -311,12 +316,16 @@ function difficultyFor(sc, diffc) {
     // Las monedas son escasas: solo ~1 de cada 3 tubos trae un par.
     // Se validan contra TODOS los tubos y objetos antes de crearse.
     if (rng() < 0.35) {
-      const cx = x + w + 40;
+      // Se colocan entre este tubo y el siguiente (que empieza en +64):
+      // 16 + 26 + radio 10 = 52 < 64, así nunca quedan dentro del siguiente tubo.
+      const cx = x + w + 16;
       for (let i = 0; i < 2; i++) {
         const cyv = clamp(cy + (i % 2 === 0 ? -18 : 18), 20, H - groundH - 20);
         if (addCoinSafe(cx + i * 26, cyv, 10, { ph: i * 1.7 })) runSpawnWorth++;
       }
     }
+    // Los tubos nuevos pueden invadir objetos ya generados: se reubican o retiran.
+    revalidateCollectibles();
   }
 
   // JEFE 👹: tubería gigante con 3 huecos que se abren y cierran. Cada hueco cruzado
@@ -350,6 +359,7 @@ function difficultyFor(sc, diffc) {
       lastPipeX = gx;
     }
     giantsMade++;
+    revalidateCollectibles();
     FX.text(W * 0.5, H * 0.28, '👹 ¡Boss! Cruza sus 3 huecos', 20, '#ff7043');
     SND.sfx.level();
   }
@@ -397,6 +407,28 @@ function difficultyFor(sc, diffc) {
     if (pipeBlockedAt(x, y, r + 2)) return false;
     if (overlapsEntity(x, y, r)) return false;
     return true;
+  }
+
+  // Reubica (o retira) monedas/power-ups que un tubo nuevo haya dejado dentro
+  // de su cuerpo. Se ejecuta al crear cada tubo, no cada frame.
+  function revalidateCollectibles() {
+    [coins, powers].forEach(list => {
+      for (let i = list.length - 1; i >= 0; i--) {
+        const o = list[i];
+        if (!pipeBlockedAt(o.x, o.y, o.r + 2)) continue;
+        const band = freeBand(o.x, 0, o.r);
+        let moved = false;
+        if (band) {
+          for (let k = 0; k < 12; k++) {
+            const y = band.a + rng() * (band.b - band.a);
+            if (!pipeBlockedAt(o.x, y, o.r + 2) && y - o.r >= 0 && y + o.r <= H - groundH) {
+              o.y = y; moved = true; break;
+            }
+          }
+        }
+        if (!moved) list.splice(i, 1);
+      }
+    });
   }
 
   // Banda vertical libre para un objeto que ocupa [x, x+span].
@@ -599,9 +631,10 @@ function difficultyFor(sc, diffc) {
           SAVE.get().stats.chainGot = (SAVE.get().stats.chainGot || 0) + 1;
           SAVE.save();
         }
-        let val = c.big ? 10 : Math.max(1, Math.round((1 + Math.floor(lvl / 5)) * (diff && diff.coinMul ? diff.coinMul : 1))) + (rt.luck ? (1 + toolLv('luck')) : 0);
+        let val = c.big ? 10 : Math.max(1, Math.round((1 + Math.floor(lvl / 5)) * (diff && diff.coinMul ? diff.coinMul : 1) * (mapCfgCur.coinMul || 1))) + (rt.luck ? (1 + toolLv('luck')) : 0);
         if (!c.big && (eff.xc > t || rt.coins)) val = val * 2 + toolLv('coins');
         if (eff.ferro > t) val += 2;
+        if (rt.legend) val = Math.ceil(val * 1.25);
         SAVE.addCoins(val);
         if (eff.bomb > t) { score += 1; FX.text(c.x, c.y - 34, '🧨 +1', 11, '#ffab91'); }
         if (c.big) {
@@ -689,12 +722,14 @@ function difficultyFor(sc, diffc) {
       // Tramo de viento lateral (cada 420 m; en modo Viento cada 260 m y más intenso)
       // (totalDist está en píxeles y 30 px = 1 m)
       if (mode !== 'zen') {
-        const wz = Math.floor(totalDist / (30 * (mode === 'wind' ? 260 : 420)));
+        // El mapa puede activar viento propio (p. ej. Tormenta o Cielo Prémium).
+        const windSpan = mode === 'wind' ? 260 : (mapCfgCur.wind ? 300 : 99999);
+        const wz = Math.floor(totalDist / (30 * windSpan));
         if (wz > windZoneLast) {
           windZoneLast = wz;
           SAVE.get().stats.windZones = (SAVE.get().stats.windZones || 0) + 1;
           SAVE.save();
-          wind.on = true; wind.t0 = t; wind.dur = mode === 'wind' ? 6.5 : 4.5; wind.dir = rng() < 0.5 ? -1 : 1;
+          wind.on = true; wind.t0 = t; wind.dur = mode === 'wind' ? 6.5 : 5; wind.dir = rng() < 0.5 ? -1 : 1;
           FX.text(bird.x, bird.y - bird.r - 70, '💨 ¡Viento lateral!', 15, '#81d4fa');
           UI.toast('💨 ¡Tramo de viento lateral!', 'warning');
         }
@@ -727,7 +762,7 @@ function difficultyFor(sc, diffc) {
       BG.update(dt, spd);
 
       // física de cada pajarito
-      const gravMul = diff.gravityMul * (SAVE.get().set.moon ? 0.72 : 1) * (rt.sprint ? 0.85 : 1) * (rt.para ? 0.6 : 1);
+      const gravMul = diff.gravityMul * (mapCfgCur.gravMul || 1) * (SAVE.get().set.moon ? 0.72 : 1) * (rt.sprint ? 0.85 : 1) * (rt.para ? 0.6 : 1);
       birds.forEach(b => {
         b.vy = Math.min(b.vy + PHYS.gravity * skinStats.grav * gravMul * dt, PHYS.maxFall);
         b.y += b.vy * dt;
@@ -759,7 +794,7 @@ function difficultyFor(sc, diffc) {
           p.gap = clamp(p.mv.base + Math.sin(t * p.mv.spd + p.mv.ph) * p.mv.amp, 80 + p.gapHalf, H - groundH - p.gapHalf - 4);
         }
         if (!p.passed && p.x + p.w < bird.x - bird.r) {
-          p.passed = true; pipesDone++; score += (eff.x2 > t ? 2 : 1) + (rt.score ? 1 : 0) + (eff.combo > t ? 2 : 0) + (eff.aura > t ? 1 : 0) + (rt.doble ? 1 : 0) + (rt.titan ? 2 : 0); combo++;
+          p.passed = true; pipesDone++; score += (eff.x2 > t ? 2 : 1) + (rt.score ? 1 : 0) + (eff.combo > t ? 2 : 0) + (eff.aura > t ? 1 : 0) + (rt.doble ? 1 : 0) + (rt.titan ? 2 : 0) + (rt.legend ? 1 : 0); combo++;
           if (rt.bala && pipesDone % 10 === 0) balaShot();
           if (mode === 'duel' && !clearedFlag && !bird.dead && pipesDone >= DUEL_PIPES) {
             clearedFlag = true;
@@ -1221,7 +1256,7 @@ function difficultyFor(sc, diffc) {
 
   // Herramientas en modo 'auto' se consumen al empezar la partida
   function consumeTools() {
-    rt.slow = false; rt.magnet = false; rt.coins = false; rt.boost = false; rt.luck = false; rt.score = false; rt.sprint = false; rt.hype = false; rt.oasis = false; rt.doble = false; rt.titan = false; rt.fenix = false; rt.para = false; rt.zoom = false; rt.mirilla = false; rt.amuleto = false; rt.rescate = false; rt.ticket = false; rt.radar = false; rt.bala = false; rt.flot = false;
+    rt.slow = false; rt.magnet = false; rt.coins = false; rt.boost = false; rt.luck = false; rt.score = false; rt.sprint = false; rt.hype = false; rt.oasis = false; rt.doble = false; rt.titan = false; rt.fenix = false; rt.para = false; rt.zoom = false; rt.mirilla = false; rt.amuleto = false; rt.rescate = false; rt.ticket = false; rt.radar = false; rt.bala = false; rt.flot = false; rt.legend = false;
     oasisLast = 0;
     const s = SAVE.get();
     const used = [];
@@ -1231,7 +1266,9 @@ function difficultyFor(sc, diffc) {
       if ((s.items[tool.key] || 0) <= 0) return;
       // Una herramienta rota no se gasta ni se pierde: hay que repararla.
       if (!SAVE.toolUsable(tool.key)) { broken.push(tool.icon); return; }
-      s.items[tool.key]--;
+      // Las herramientas permanentes (Reliquia del Pase) no gastan stock:
+      // solo se desgastan y se reparan.
+      if (!tool.permanent) s.items[tool.key]--;
       applyToolEffect(tool.key, mode);
       SAVE.noteToolUse(tool.key);
       const left = SAVE.wearTool(tool.key);
@@ -1256,9 +1293,10 @@ function difficultyFor(sc, diffc) {
     coins.splice(coins.indexOf(c), 1);
     coinCount++;
     runColWorth += c.big ? 10 : 1;
-    let val = c.big ? 10 : Math.max(1, Math.round((1 + Math.floor(lvl / 5)) * (diff && diff.coinMul ? diff.coinMul : 1))) + (rt.luck ? (1 + toolLv('luck')) : 0);
+    let val = c.big ? 10 : Math.max(1, Math.round((1 + Math.floor(lvl / 5)) * (diff && diff.coinMul ? diff.coinMul : 1) * (mapCfgCur.coinMul || 1))) + (rt.luck ? (1 + toolLv('luck')) : 0);
     if (!c.big && (eff.xc > t || rt.coins)) val = val * 2 + toolLv('coins');
     if (eff.ferro > t) val += 2;
+    if (rt.legend) val = Math.ceil(val * 1.25); // la Reliquia también mejora el botín de la Bala
     SAVE.addCoins(val);
     if (c.big) SND.sfx.power(); else SND.sfx.coin();
     if (mode === 'zen') {
@@ -1417,10 +1455,14 @@ function difficultyFor(sc, diffc) {
       rt.flot = true;
       FX.text(bird.x, bird.y - bird.r - 60, '🎈 ¡Flotador! +1 choque', 14, '#ffcc80');
       updateHUD();
+    } else if (key === 'legend') {
+      rt.legend = true;
+      FX.text(bird.x, bird.y - bird.r - 60, '🏆 ¡Reliquia del Pase! +1 por tubo y +25% monedas', 14, '#ffe066');
+      updateHUD();
     }
   }
 
-  const MANUAL_ORDER = ['magnet', 'coins', 'slow', 'luck', 'boost', 'score', 'sprint', 'start', 'treasure', 'clock', 'turbo', 'combo', 'shield', 'ghost', 'frenzy', 'eco', 'hype', 'bomb', 'aura', 'twin', 'oasis', 'doble', 'runa', 'titan', 'fenix', 'bateria', 'cris', 'ferro', 'para', 'zoom', 'mirilla', 'amuleto', 'rescate', 'ticket', 'radar', 'bala', 'flot'];
+  const MANUAL_ORDER = ['magnet', 'coins', 'slow', 'luck', 'boost', 'score', 'sprint', 'start', 'treasure', 'clock', 'turbo', 'combo', 'shield', 'ghost', 'frenzy', 'eco', 'hype', 'bomb', 'aura', 'twin', 'oasis', 'doble', 'runa', 'titan', 'fenix', 'bateria', 'cris', 'ferro', 'para', 'zoom', 'mirilla', 'amuleto', 'rescate', 'ticket', 'radar', 'bala', 'flot', 'legend'];
 
   // Herramientas armadas como 'manual': disponibles en la barra de vuelo
   function manualToolList() {
@@ -1442,7 +1484,7 @@ function difficultyFor(sc, diffc) {
       UI.toast('🔧 ' + tool.name + ' está rota · repárala en la tienda', 'warning');
       return;
     }
-    SAVE.get().items[key]--;
+    if (!tool.permanent) SAVE.get().items[key]--; // la Reliquia no consume stock
     applyToolEffect(key, mode);
     SAVE.noteToolUse(key);
     SAVE.get().stats.manualUses = (SAVE.get().stats.manualUses || 0) + 1;
@@ -1536,6 +1578,7 @@ function difficultyFor(sc, diffc) {
     enemies = [];
     BG.init(SAVE.get().map);
     BG.reset();
+    if (SND.setMapTheme) SND.setMapTheme(SAVE.get().map);
     UI.showHome();
     SND.startMusic();
   }
@@ -1892,6 +1935,8 @@ function difficultyFor(sc, diffc) {
       spawnPipe: spawnPipe,
       getEff: () => Object.assign({}, eff),
       getEffDur: () => Object.assign({}, effDur),
+      getRt: () => Object.assign({}, rt),
+      getMapCfg: () => Object.assign({}, mapCfgCur),
       setT: v => { t = v; },
       getT: () => t,
       tickResume: updateResumeCountdown,

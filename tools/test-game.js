@@ -980,6 +980,275 @@ section('18. COPIA DE SEGURIDAD Y SENSIBILIDAD REAL');
   ok(vMid > vSoft && vMid < vHard, 'el valor intermedio queda entre ambos extremos', vSoft + ' < ' + vMid + ' < ' + vHard);
 }
 
+/* ---------------- 19. Pase Prémium ---------------- */
+section('19. PASE PRÉMIUM: compra, reclamo, temporada y repetidos');
+{
+  SAVE.reset(); SAVE.load();
+  const premiumSkins = DAT.SKINS.filter(x => DAT.isExclusive(x));
+  const premiumHats = DAT.HATS.filter(x => DAT.isExclusive(x));
+  const premiumFx = DAT.EFFECTS.filter(x => DAT.isExclusive(x));
+  const premiumMaps = DAT.MAPS.filter(x => DAT.isExclusive(x));
+  const premiumTools = DAT.TOOLS.filter(x => DAT.isExclusive(x));
+  ok(premiumSkins.length >= 3 && premiumHats.length >= 2 && premiumFx.length >= 2 &&
+    premiumMaps.length >= 1 && premiumTools.length >= 1,
+    'el catálogo exclusivo incluye aves, sombreros, estelas, mapa y herramienta',
+    [premiumSkins.length, premiumHats.length, premiumFx.length, premiumMaps.length, premiumTools.length].join('/'));
+  ok([].concat(premiumSkins, premiumHats, premiumFx, premiumMaps, premiumTools).every(x => x.price === 0),
+    'los artículos exclusivos no tienen precio de venta');
+
+  ok(DAT.PASS_PREMIUM_PRICE === 3000, 'el Pase Prémium cuesta 3000 🪙 por temporada');
+  ok(DAT.passPremiumTiers().length === DAT.passTiers().length,
+    'la línea prémium tiene los mismos niveles que la gratuita');
+  const rewards = DAT.passPremiumTiers().map(t => t.reward);
+  ok(rewards.some(r => r.skin === 'p-aurora') && rewards.some(r => r.map === 'premium') &&
+    rewards.some(r => r.item === 'legend') && rewards.some(r => r.parts > 0),
+    'la línea prémium reparte aves, mapa, herramienta y piezas');
+
+  SAVE.spendCoins(SAVE.get().coins);
+  const poor = SAVE.buyPassPremium();
+  ok(!poor.ok && poor.msg === 'no_money' && SAVE.get().coins >= 0,
+    'sin monedas no se puede comprar y el saldo no queda negativo');
+  ok(!SAVE.passPremiumActive(), 'el Pase Prémium sigue bloqueado tras el intento fallido');
+
+  SAVE.addCoins(DAT.PASS_PREMIUM_PRICE);
+  const buy = SAVE.buyPassPremium();
+  ok(buy.ok && buy.price === DAT.PASS_PREMIUM_PRICE, 'se compra el Pase Prémium');
+  ok(SAVE.get().coins === 0, 'se cobra exactamente una vez (3000 🪙)');
+  ok(SAVE.passPremiumActive(), 'el Pase Prémium queda activo en la temporada actual');
+  const again = SAVE.buyPassPremium();
+  ok(!again.ok && again.msg === 'active' && SAVE.get().coins === 0,
+    'no se puede volver a cobrar el Pase Prémium activo');
+
+  SAVE.setLevel(20);
+  ok(SAVE.passPremiumReached() === DAT.passPremiumTiers().length,
+    'con nivel alto se alcanzan todos los niveles prémium');
+  const t1 = SAVE.claimPassPremiumTier(1);
+  ok(t1 && SAVE.owns(SAVE.get().skinsOwned, 'p-aurora'), 'reclamar el nivel 2 entrega el ave exclusiva');
+  ok(SAVE.claimPassPremiumTier(1) === null, 'una recompensa prémium no se puede reclamar dos veces');
+  const claimedNow = SAVE.claimPassPremiumAll();
+  ok(claimedNow === DAT.passPremiumTiers().length - 1, 'reclamar todo entrega el resto de niveles', claimedNow);
+  ok(SAVE.passPremiumClaimedCount() === DAT.passPremiumTiers().length, 'quedan todos los niveles reclamados');
+  const s = SAVE.get();
+  ok(SAVE.owns(s.skinsOwned, 'p-crono') && SAVE.owns(s.skinsOwned, 'p-sombra'),
+    'las tres aves prémium se entregan');
+  ok(SAVE.owns(s.hatsOwned, 'hat-corona-eterna') && SAVE.owns(s.hatsOwned, 'hat-sello-estelar'),
+    'los sombreros prémium se entregan');
+  ok(SAVE.owns(s.fxOwned, 'fx-prisma') && SAVE.owns(s.fxOwned, 'fx-supernova'),
+    'las estelas prémium se entregan');
+  ok(SAVE.owns(s.mapsOwned, 'premium'), 'el mapa Cielo Prémium se entrega');
+  ok(SAVE.itemCount('legend') >= 1, 'la Reliquia del Pase se entrega como herramienta');
+  ok(SAVE.partsCount() >= 5, 'las piezas prémium se suman al material', SAVE.partsCount());
+
+  // Repetido: se convierte en 250 🪙 en lugar de duplicar el artículo
+  const coinsPre = SAVE.get().coins;
+  SAVE.get().passPremiumClaimed = SAVE.get().passPremiumClaimed.filter(i => i !== 1);
+  SAVE.save();
+  const dup = SAVE.claimPassPremiumTier(1);
+  ok(dup && dup.converted === true, 'reclamar una recompensa ya poseída se convierte en monedas');
+  ok(SAVE.get().coins === coinsPre + 250, 'la conversión paga 250 🪙 exactas', SAVE.get().coins - coinsPre);
+  ok(SAVE.get().skinsOwned.filter(x => x.id === 'p-aurora').length === 1,
+    'la conversión no duplica el ave en el inventario');
+
+  // Cambio de temporada: el Pase Prémium se reinicia
+  const d = SAVE.get();
+  d.passSeason = '2000-winter';
+  d.passPremiumSeason = '2000-winter';
+  SAVE.save();
+  ok(!SAVE.passPremiumActive(), 'al cambiar de temporada el Pase Prémium deja de estar activo');
+  ok(d.passPremiumClaimed.length === 0 && d.passSeason === DAT.seasonKey(),
+    'la nueva temporada empieza sin reclamaciones prémium');
+  ok(d.passPremiumSeason === '', 'la compra prémium queda invalidada para la nueva temporada');
+}
+
+/* ---------------- 20. Exclusividad en tienda y cajas ---------------- */
+section('20. EXCLUSIVIDAD: no se vende ni sale en cajas');
+{
+  SAVE.reset(); SAVE.load();
+  SAVE.addCoins(400000);
+  const excl = [].concat(
+    DAT.SKINS.filter(x => DAT.isExclusive(x)).map(x => ['skin', x]),
+    DAT.HATS.filter(x => DAT.isExclusive(x)).map(x => ['hat', x]),
+    DAT.EFFECTS.filter(x => DAT.isExclusive(x)).map(x => ['fx', x]),
+    DAT.MAPS.filter(x => DAT.isExclusive(x)).map(x => ['map', x])
+  );
+  const coinsPre = SAVE.get().coins;
+  const sold = excl.filter(([cat, item]) => SAVE.buy(cat, item.id).ok);
+  ok(sold.length === 0, 'ningún artículo exclusivo se puede comprar en la tienda', sold.map(x => x[1].id).join(','));
+  ok(SAVE.get().coins === coinsPre, 'los intentos de compra exclusiva no cobran nada');
+
+  const toolsSold = DAT.TOOLS.filter(x => DAT.isExclusive(x)).filter(t => SAVE.buyTool(t.id).ok);
+  ok(toolsSold.length === 0, 'la herramienta exclusiva tampoco se vende suelta', toolsSold.map(t => t.id).join(','));
+  ok(SAVE.get().coins === coinsPre, 'comprar la herramienta exclusiva no altera el saldo');
+
+  const origRandom = Math.random;
+  Math.random = () => 0.5; // fuerza un camino estable: nunca dorado y siempre un índice válido
+  try {
+    for (let i = 0; i < 400; i++) SAVE.openBox();
+  } finally {
+    Math.random = origRandom;
+  }
+  const s = SAVE.get();
+  const leaked = [].concat(
+    DAT.SKINS.filter(x => DAT.isExclusive(x)).filter(x => SAVE.owns(s.skinsOwned, x.id)).map(x => x.id),
+    DAT.HATS.filter(x => DAT.isExclusive(x)).filter(x => SAVE.owns(s.hatsOwned, x.id)).map(x => x.id),
+    DAT.EFFECTS.filter(x => DAT.isExclusive(x)).filter(x => SAVE.owns(s.fxOwned, x.id)).map(x => x.id)
+  );
+  ok(leaked.length === 0, '400 cajas seguidas no entregan ningún exclusivo', leaked.join(','));
+  ok(s.stats.boxesBought === 400, 'las cajas se cobran y cuentan una a una', s.stats.boxesBought);
+}
+
+/* ---------------- 21. Mapas con mecánicas reales ---------------- */
+section('21. MAPAS: mecánicas, viento y monedas');
+{
+  SAVE.reset(); SAVE.load();
+  ok(DAT.mapCfg('inexistente').coinMul === 1 && DAT.mapCfg('inexistente').wind === false,
+    'un mapa sin configuración usa los valores por defecto');
+  const prem = DAT.mapCfg('premium');
+  ok(prem.coinMul === 2 && prem.wind === true && prem.gapMul > 1,
+    'Cielo Prémium duplica monedas, activa viento y amplía huecos', JSON.stringify(prem));
+  const glitch = DAT.mapCfg('glitch');
+  ok(glitch.gapMul < 1 && glitch.speedMul > 1, 'Glitch reduce huecos y acelera el mundo');
+  const candy = DAT.mapCfg('candy');
+  ok(candy.coinMul >= 1.5, 'Dulcelandia multiplica las monedas por 1,5 o más');
+
+  G.setMode('free');
+  G.resize();
+  SAVE.equip('map', 'day');
+  G.startPlay('free');
+  const dayD = G.getEnv().D;
+  const dayCfg = T.getMapCfg();
+
+  SAVE.get().mapsOwned.push({ id: 'glitch' });
+  SAVE.equip('map', 'glitch');
+  G.startPlay('free');
+  const glitchD = G.getEnv().D;
+  const glitchCfg = T.getMapCfg();
+  ok(glitchCfg.speedMul > dayCfg.speedMul, 'el mapa equipado aplica su multiplicador de velocidad');
+  ok(glitchD.speed > dayD.speed, 'la velocidad real de la partida cambia con el mapa',
+    dayD.speed.toFixed(1) + ' → ' + glitchD.speed.toFixed(1));
+  ok(glitchD.gap < dayD.gap, 'el tamaño del hueco cambia con el mapa',
+    dayD.gap.toFixed(1) + ' → ' + glitchD.gap.toFixed(1));
+
+  // Cielo Prémium: se puede equipar al poseerlo y genera objetos seguros
+  SAVE.get().mapsOwned.push({ id: 'premium' });
+  SAVE.equip('map', 'premium');
+  G.startPlay('free');
+  ok(T.getMapCfg().wind === true && T.getMapCfg().coinMul === 2,
+    'la partida en Cielo Prémium usa viento y monedas dobles');
+  const premD = G.getEnv().D;
+  for (let i = 0; i < 70; i++) T.mkPipe(1500 + i * 240, premD);
+  for (let i = 0; i < 25; i++) {
+    T.spawnPower(); T.spawnMega(); T.spawnChain(); T.spawnEnemy();
+  }
+  const pipes = checkPipes('Cielo Prémium 1024x768');
+  checkCollectibles('Cielo Prémium 1024x768', pipes);
+
+  sandbox.innerWidth = 360; sandbox.innerHeight = 640;
+  G.resize();
+  G.forceRestart();
+  const premD2 = G.getEnv().D;
+  for (let i = 0; i < 70; i++) T.mkPipe(300 + i * 200, premD2);
+  for (let i = 0; i < 12; i++) {
+    T.spawnPower(); T.spawnMega(); T.spawnChain(); T.spawnEnemy();
+  }
+  const pipes2 = checkPipes('Cielo Prémium 360x640');
+  checkCollectibles('Cielo Prémium 360x640', pipes2);
+  sandbox.innerWidth = 1024; sandbox.innerHeight = 768;
+  G.resize();
+}
+
+/* ---------------- 22. Logros y audio por mapa ---------------- */
+section('22. LOGROS EN COLA Y AUDIO POR MAPA');
+{
+  SAVE.reset(); SAVE.load();
+  ok(DAT.ACH.length > 100, 'hay un catálogo amplio de logros', DAT.ACH.length);
+  ok(DAT.ACH.every(a => a.name && a.desc && a.reward > 0), 'todos los logros tienen nombre, descripción y recompensa');
+  ok(new Set(DAT.ACH.map(a => a.id)).size === DAT.ACH.length, 'no hay identificadores de logro repetidos');
+
+  SAVE.get().stats.pipes = 500;
+  SAVE.get().stats.best = 40;
+  SAVE.save();
+  const got = SAVE.checkAch();
+  ok(got.length > 0, 'completar objetivos desbloquea logros', got.length);
+  ok(got.every(a => a.desc && a.reward > 0), 'los logros desbloqueados llevan descripción para la notificación');
+  ok(SAVE.get().coins > 0, 'los logros pagan su recompensa al desbloquearse');
+  const again = SAVE.checkAch();
+  ok(again.length === 0, 'un logro ya conseguido no se vuelve a pagar ni a encolar');
+
+  // Audio: temas musicales distintos por mapa (sin AudioContext no debe fallar)
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/audio.js'), 'utf8'), sandbox, { filename: 'js/audio.js' });
+  const SND = sandbox.SND;
+  ok(typeof SND.setMapTheme === 'function' && typeof SND.themeFor === 'function',
+    'el motor de audio expone temas por mapa');
+  SND.setMapTheme('premium');
+  ok(SND.getMapTheme() === 'premium', 'Cielo Prémium tiene tema musical propio');
+  SND.setMapTheme('oceano');
+  ok(SND.getMapTheme() === 'water', 'los mapas marinos comparten el tema de agua');
+  SND.setMapTheme('no-existe');
+  ok(SND.getMapTheme() === 'day', 'un mapa desconocido vuelve al tema base');
+  const themeIds = ['day', 'night', 'space', 'water', 'fire', 'ice', 'candy', 'forest', 'synth', 'premium'];
+  const covered = DAT.MAPS.filter(m => themeIds.indexOf(SND.themeFor(m.id)) === -1);
+  ok(covered.length === 0, 'todos los mapas del catálogo tienen una familia sonora', covered.map(m => m.id).join(','));
+  SND.sfx.flap();
+  SND.startMusic();
+  ok(true, 'reproducir sin AudioContext no lanza errores');
+}
+
+/* ---------------- 23. Reliquia del Pase permanente ---------------- */
+section('23. RELIQUIA DEL PASE: permanente, desgaste y reparación');
+{
+  SAVE.reset(); SAVE.load();
+  SAVE.addCoins(DAT.PASS_PREMIUM_PRICE);
+  SAVE.buyPassPremium();
+  SAVE.setLevel(20);
+  SAVE.claimPassPremiumAll();
+  const legend = DAT.getTool('legend');
+  ok(legend && legend.permanent === true, 'la Reliquia está marcada como permanente');
+  ok(SAVE.itemCount('legend') === 1, 'la Reliquia llega como una unidad permanente');
+
+  // Uso automático: no consume stock, pero sí se desgasta.
+  SAVE.setToolMode('legend', 'auto');
+  G.setMode('free');
+  G.resize();
+  const durBefore = SAVE.toolDur('legend');
+  G.startPlay('free');
+  ok(T.getRt().legend === true, 'el uso automático activa el efecto de la Reliquia');
+  ok(SAVE.itemCount('legend') === 1, 'el uso automático no gasta la Reliquia');
+  ok(SAVE.toolDur('legend') < durBefore, 'el uso automático desgasta la Reliquia',
+    SAVE.toolDur('legend') + ' < ' + durBefore);
+
+  // Uso manual: tampoco consume stock.
+  SAVE.setToolMode('legend', 'manual');
+  G.startPlay('free');
+  const durMid = SAVE.toolDur('legend');
+  G.useBagTool('legend');
+  ok(SAVE.itemCount('legend') === 1, 'el uso manual no gasta la Reliquia');
+  ok(SAVE.toolDur('legend') < durMid, 'el uso manual desgasta la Reliquia',
+    SAVE.toolDur('legend') + ' < ' + durMid);
+  ok(T.getRt().legend === true, 'la Reliquia activa su efecto al usarla a mano');
+
+  // Reparación con coste real (la Reliquia no tiene precio de venta).
+  G.goMenu();
+  const cost = SAVE.toolRepairCost('legend');
+  ok(cost > 0, 'reparar la Reliquia cuesta monedas de verdad', cost);
+  SAVE.addCoins(cost);
+  const rep = SAVE.repairTool('legend');
+  ok(rep.ok && rep.price === cost && SAVE.toolDur('legend') === SAVE.toolMaxDur('legend'),
+    'la Reliquia se repara y recupera toda su durabilidad');
+
+  // Reclamar de nuevo su recompensa paga monedas, no añade stock infinito.
+  const tiers = DAT.passPremiumTiers();
+  const li = tiers.findIndex(t => t.reward && t.reward.item === 'legend');
+  ok(li >= 0, 'la línea prémium incluye la Reliquia');
+  const coinsPre = SAVE.get().coins;
+  SAVE.get().passPremiumClaimed = SAVE.get().passPremiumClaimed.filter(i => i !== li);
+  SAVE.save();
+  const dup = SAVE.claimPassPremiumTier(li);
+  ok(dup && dup.converted === true, 'reclamar otra vez la Reliquia se convierte en monedas');
+  ok(SAVE.get().coins === coinsPre + 250, 'la Reliquia repetida paga 250 🪙', SAVE.get().coins - coinsPre);
+  ok(SAVE.itemCount('legend') === 1, 'la Reliquia repetida no suma stock infinito');
+}
+
 /* ---------------- Resumen ---------------- */
 console.log('\n────────────────────────────────────────');
 console.log('Pruebas superadas: ' + pass + ' · fallidas: ' + fail);

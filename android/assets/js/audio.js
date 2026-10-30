@@ -101,22 +101,53 @@ window.SND = (function () {
     medal: () => { [523, 784, 1046].forEach((f, i) => tone(f, 0.13, 'sine', 0.26, i * 0.1)); }
   };
 
-  /* --- Música procedural ligera (loop de acordes arpegiados) --- */
+  /* --- Música procedural ligera (loop de acordes arpegiados por ambiente) ---
+   * Cada familia de mapas tiene su propia progresión, timbre y bajo, de modo
+   * que el escenario suena distinto de verdad al empezar la partida. */
   const CHORDS = [
     [220, 261.6, 329.6, 392],   // Am
     [174.6, 220, 261.6, 329.6], // F
     [196, 246.9, 293.7, 392],   // G
     [174.6, 220, 261.6, 329.6]  // F
   ];
+  const THEMES = {
+    day:     { chords: CHORDS, wave: 'triangle', bass: 'sine',     lead: 1,    spark: true },
+    night:   { chords: [[196, 233.1, 293.7, 349.2], [174.6, 220, 261.6, 329.6], [164.8, 207.7, 246.9, 311.1], [146.8, 185, 220, 277.2]], wave: 'sine', bass: 'sine', lead: 0.85, spark: true },
+    space:   { chords: [[130.8, 164.8, 196, 246.9], [146.8, 185, 220, 277.2], [110, 138.6, 164.8, 220], [123.5, 155.6, 185, 233.1]], wave: 'sine', bass: 'triangle', lead: 0.75, spark: true },
+    water:   { chords: [[174.6, 220, 261.6, 329.6], [196, 246.9, 293.7, 392], [155.6, 196, 233.1, 293.7], [174.6, 220, 277.2, 349.2]], wave: 'triangle', bass: 'sine', lead: 0.9, spark: false },
+    fire:    { chords: [[164.8, 196, 246.9, 293.7], [146.8, 174.6, 220, 261.6], [130.8, 164.8, 196, 246.9], [123.5, 155.6, 185, 233.1]], wave: 'sawtooth', bass: 'square', lead: 0.65, spark: false },
+    ice:     { chords: [[261.6, 329.6, 392, 523.3], [233.1, 293.7, 349.2, 466.2], [220, 277.2, 329.6, 440], [246.9, 311.1, 370, 493.9]], wave: 'sine', bass: 'sine', lead: 0.8, spark: true },
+    candy:   { chords: [[261.6, 329.6, 392, 493.9], [293.7, 370, 440, 554.4], [246.9, 311.1, 370, 466.2], [220, 277.2, 329.6, 415.3]], wave: 'triangle', bass: 'triangle', lead: 1.05, spark: true },
+    forest:  { chords: [[196, 246.9, 293.7, 349.2], [174.6, 220, 261.6, 329.6], [185, 233.1, 277.2, 349.2], [164.8, 207.7, 246.9, 311.1]], wave: 'triangle', bass: 'sine', lead: 0.9, spark: false },
+    synth:   { chords: [[110, 164.8, 220, 277.2], [123.5, 185, 246.9, 311.1], [98, 146.8, 196, 246.9], [110, 164.8, 220, 329.6]], wave: 'square', bass: 'sawtooth', lead: 0.8, spark: true },
+    premium: { chords: [[174.6, 220, 261.6, 349.2], [196, 246.9, 311.1, 392], [155.6, 196, 246.9, 311.1], [185, 233.1, 293.7, 370]], wave: 'sine', bass: 'triangle', lead: 1.0, spark: true }
+  };
+  /* Familia sonora de cada mapa (los mapas nuevos heredan un ambiente). */
+  const THEME_FOR = {
+    day: 'day', sunset: 'day', primavera: 'day', cafe: 'day', playa: 'day', cometa: 'space',
+    night: 'night', luna: 'night', magia: 'night', aurora: 'night', ruinas: 'night',
+    space: 'space', premium: 'premium',
+    water: 'water', oceano: 'water', abismo: 'water', esmeralda: 'water', pantano: 'forest',
+    volcano: 'fire', tormenta: 'fire', rubi: 'fire', desierto: 'fire', prehist: 'fire',
+    tundra: 'ice', nevadoM: 'ice', cristal: 'ice',
+    candy: 'candy', dulce: 'candy',
+    forest: 'forest', selva: 'forest', selva2: 'forest',
+    cyber: 'synth', neon: 'synth', arcade: 'synth', volt: 'synth', glitch: 'synth', ciudad: 'synth', prisma: 'synth', mitologia: 'synth'
+  };
+  let themeId = 'day';
+  let theme = THEMES.day;
+  function themeFor(mapId) { return THEME_FOR[mapId] || 'day'; }
+  function setMapTheme(mapId) { themeId = themeFor(mapId); theme = THEMES[themeId] || THEMES.day; return themeId; }
+  function getMapTheme() { return themeId; }
   const STEP_LEN = 0.12;
 
   function musicTick() {
     if (!ctx || !musicOn) return;
-    const chord = CHORDS[step % CHORDS.length];
+    const chord = theme.chords[step % theme.chords.length];
     const idx = Math.floor(step / 2) % 4;
-    tone(chord[idx] * (step % 4 === 3 ? 2 : 1), 0.16, 'triangle', (idx === 0 ? 0.09 : 0.06), 0, null, musicGain);
-    if (step % 4 === 0) tone(chord[0] / 2, 0.4, 'sine', 0.07, 0, null, musicGain);
-    if (step % 8 === 7) tone(chord[1] * 4, 0.08, 'sine', 0.03, 0, null, musicGain);
+    tone(chord[idx] * (step % 4 === 3 ? 2 : 1), 0.16, theme.wave, (idx === 0 ? 0.09 : 0.06) * theme.lead, 0, null, musicGain);
+    if (step % 4 === 0) tone(chord[0] / 2, 0.4, theme.bass, 0.07, 0, null, musicGain);
+    if (theme.spark && step % 8 === 7) tone(chord[1] * 4, 0.08, 'sine', 0.03, 0, null, musicGain);
     step++;
     nextStep += STEP_LEN;
   }
@@ -174,6 +205,7 @@ window.SND = (function () {
   return {
     unlock, ensure, setSfx, setMusic, isMusicOn, startMusic, stopMusic,
     setVolumes, setSfxVol, setMusicVol, setMasterVol,
+    setMapTheme, getMapTheme, themeFor,
     sfx: S,
     hotkeys: null
   };

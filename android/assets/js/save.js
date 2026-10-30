@@ -15,7 +15,7 @@ window.SAVE = (function () {
       xp: 0,
       stats: { best: 0, flights: 0, pipes: 0, timePlayed: 0, coinsGot: 0, dist: 0, powersGot: 0, spent: 0, megaGot: 0, dailyClaimed: 0, enemiesGot: 0, xcGot: 0, toolsUsed: 0, toolsBought: 0, shared: 0, batsGot: 0, chainGot: 0, gemsGot: 0, challengePlayed: 0, manualUses: 0, upgs: 0, missionsDone: 0, toolTypes: [], shieldAbsorbed: 0, ghostPassed: 0, weekendRuns: 0, fenixUsed: 0, maxDistNoHit: 0, zeroCoinRuns: 0, duelWins: 0, windZones: 0, giantPassed: 0, replaysWatched: 0, seedDays: 0, zenBest: 0, bossDefeated: 0, partsEarned: 0, toolsRepaired: 0 },
       best3: [],
-      items: { start: 0, magnet: 0, slow: 0, coins: 0, boost: 0, luck: 0, score: 0, sprint: 0, treasure: 0, clock: 0, turbo: 0, combo: 0, shield: 0, ghost: 0, frenzy: 0, eco: 0, hype: 0, bomb: 0, aura: 0, twin: 0, oasis: 0, doble: 0, runa: 0, titan: 0, fenix: 0, bateria: 0, cris: 0, ferro: 0, para: 0, zoom: 0, mirilla: 0, amuleto: 0, rescate: 0, ticket: 0, radar: 0, bala: 0, flot: 0 },
+      items: { start: 0, magnet: 0, slow: 0, coins: 0, boost: 0, luck: 0, score: 0, sprint: 0, treasure: 0, clock: 0, turbo: 0, combo: 0, shield: 0, ghost: 0, frenzy: 0, eco: 0, hype: 0, bomb: 0, aura: 0, twin: 0, oasis: 0, doble: 0, runa: 0, titan: 0, fenix: 0, bateria: 0, cris: 0, ferro: 0, para: 0, zoom: 0, mirilla: 0, amuleto: 0, rescate: 0, ticket: 0, radar: 0, bala: 0, flot: 0, legend: 0 },
       toolUp: {},           // nivel de mejora por herramienta (0..5)
       toolMode: {},         // 'auto' | 'manual' por herramienta (default auto)
       toolDur: {},          // durabilidad actual por herramienta
@@ -37,6 +37,8 @@ window.SAVE = (function () {
       weeklyBase: {},       // progreso de 0 para las misiones semanales de esta semana
       passClaimed: [],
       passSeason: '',
+      passPremiumSeason: '',   // temporada en la que se compró el Pase Prémium
+      passPremiumClaimed: [],
       seasonClaimed: [],
       lastDaily: '',
       dailyStreak: 0,
@@ -300,6 +302,8 @@ window.SAVE = (function () {
         if (!Array.isArray(data.weeklyM.claimed)) data.weeklyM.claimed = [];
         if (!Array.isArray(data.passClaimed)) data.passClaimed = [];
         if (typeof data.passSeason !== 'string') data.passSeason = '';
+        if (typeof data.passPremiumSeason !== 'string') data.passPremiumSeason = '';
+        if (!Array.isArray(data.passPremiumClaimed)) data.passPremiumClaimed = [];
         if (!Array.isArray(data.seasonClaimed)) data.seasonClaimed = [];
         if (!data.achieved) data.achieved = [];
         if (!data.nest || typeof data.nest !== 'object') data.nest = defaults().nest;
@@ -554,6 +558,7 @@ window.SAVE = (function () {
     if (owns(data[cat.list], id)) return { ok: false, msg: 'Ya lo tienes' };
     const item = cat.DAT.find(i => i.id === id);
     if (!item) return { ok: false, msg: 'No existe' };
+    if (DAT.isExclusive && DAT.isExclusive(item)) return { ok: false, msg: 'exclusivo' };
     if (item.week && !DAT.isUnlocked(item)) return { ok: false, msg: 'Se habilitará en la ' + DAT.weekLabel(item) };
     if (data.coins < item.price) return { ok: false, msg: 'no_money' };
     data.coins -= item.price;
@@ -584,7 +589,9 @@ window.SAVE = (function () {
     data.stats.boxesBought = (data.stats.boxesBought || 0) + 1;
     // 5% → variante dorada de una skin cualquiera (el patrón rng de spawnMega)
     if (Math.random() < 0.05) {
-      const base = DAT.SKINS[Math.floor(Math.random() * DAT.SKINS.length)];
+      // Las skins exclusivas del Pase no pueden salir en dorado ni en la caja.
+      const goldPool = DAT.SKINS.filter(s => !DAT.isExclusive(s));
+      const base = goldPool[Math.floor(Math.random() * goldPool.length)];
       const gold = DAT.getSkin(base.id + '-gold');
       if (!owns(data.skinsOwned, gold.id)) data.skinsOwned.push({ id: gold.id });
       pushHistory('compra', def.name, 'Variante dorada: ' + gold.name);
@@ -592,9 +599,9 @@ window.SAVE = (function () {
       return { ok: true, kind: 'gold', item: gold };
     }
     const pool = [];
-    DAT.SKINS.forEach(s => { if (!owns(data.skinsOwned, s.id)) pool.push({ kind: 'skin', item: s }); });
-    DAT.HATS.forEach(h => { if (!owns(data.hatsOwned, h.id)) pool.push({ kind: 'hat', item: h }); });
-    DAT.EFFECTS.forEach(f => { if (!owns(data.fxOwned, f.id)) pool.push({ kind: 'fx', item: f }); });
+    DAT.SKINS.forEach(s => { if (!DAT.isExclusive(s) && !owns(data.skinsOwned, s.id)) pool.push({ kind: 'skin', item: s }); });
+    DAT.HATS.forEach(h => { if (!DAT.isExclusive(h) && !owns(data.hatsOwned, h.id)) pool.push({ kind: 'hat', item: h }); });
+    DAT.EFFECTS.forEach(f => { if (!DAT.isExclusive(f) && !owns(data.fxOwned, f.id)) pool.push({ kind: 'fx', item: f }); });
     if (pool.length === 0) {
       data.coins += 100; // consolación: ya lo tienes todo
       pushHistory('compra', def.name, 'Consolación: 100 🪙');
@@ -622,6 +629,7 @@ window.SAVE = (function () {
   function buyTool(id) {
     const tool = DAT.getTool(id);
     if (!tool) return { ok: false, msg: 'No existe' };
+    if (DAT.isExclusive && DAT.isExclusive(tool)) return { ok: false, msg: 'exclusivo' };
     if (tool.week && !DAT.isUnlocked(tool)) return { ok: false, msg: 'Se habilitará en la ' + DAT.weekLabel(tool) };
     if (data.coins < tool.price) return { ok: false, msg: 'no_money' };
     if (!spendCoins(tool.price)) return { ok: false, msg: 'no_money' };
@@ -935,6 +943,7 @@ window.SAVE = (function () {
   function grantReward(r) {
     if (typeof r === 'number') { addCoins(r); return; }
     if (r && r.coins) addCoins(r.coins);
+    if (r && r.parts) addParts(r.parts);
     if (r && r.item) data.items[r.item] = (data.items[r.item] || 0) + r.n;
     if (r && r.shields) data.shields = shieldCount() + Math.max(0, Math.floor(num(r.shields)));
     if (r && r.hat && !owns(data.hatsOwned, r.hat)) {
@@ -960,6 +969,9 @@ window.SAVE = (function () {
     if (data.passSeason !== k) {
       data.passSeason = k;
       data.passClaimed = [];
+      // El Pase Prémium es por temporada: al rotar hay que comprarlo de nuevo.
+      data.passPremiumSeason = '';
+      data.passPremiumClaimed = [];
       save();
     }
   }
@@ -992,6 +1004,71 @@ window.SAVE = (function () {
     const si = DAT.seasonIndex();
     const s = DAT.SEASONS[si];
     return (s.icon + ' ' + s.pass.name + ' · ' + DAT.seasonKey());
+  }
+
+  /* --- Pase Prémium: compra por temporada y recompensas exclusivas --- */
+  function passPremiumActive() {
+    ensurePassSeason();
+    return data.passPremiumSeason === DAT.seasonKey();
+  }
+  function passPremiumReached() {
+    return passPremiumActive() ? passReached() : 0;
+  }
+  function passPremiumClaimedCount() { return (data.passPremiumClaimed || []).length; }
+  function buyPassPremium() {
+    ensurePassSeason();
+    if (passPremiumActive()) return { ok: false, msg: 'active' };
+    const price = DAT.PASS_PREMIUM_PRICE;
+    if (data.coins < price) return { ok: false, msg: 'no_money' };
+    data.coins -= price;
+    data.stats.spent = (data.stats.spent || 0) + price;
+    data.passPremiumSeason = DAT.seasonKey();
+    data.passPremiumClaimed = [];
+    pushHistory('pase', 'Pase Prémium ' + DAT.seasonKey(), price + ' 🪙');
+    save();
+    return { ok: true, price };
+  }
+  function premiumRewardOwned(r) {
+    if (!r) return false;
+    if (r.skin) return owns(data.skinsOwned, r.skin);
+    if (r.hat) return owns(data.hatsOwned, r.hat);
+    if (r.fx) return owns(data.fxOwned, r.fx);
+    if (r.map) return owns(data.mapsOwned, r.map);
+    // La Reliquia del Pase es permanente: si ya se tiene, reclamarla de nuevo
+    // se convierte en monedas en lugar de sumar stock infinito. Los objetos
+    // consumibles (si alguna vez se añaden) sí deben acumularse.
+    if (r.item) {
+      const tool = DAT.getTool(r.item);
+      return !!(tool && tool.permanent && (data.items && data.items[r.item] || 0) > 0);
+    }
+    return false;
+  }
+  function claimPassPremiumTier(idx) {
+    ensurePassSeason();
+    if (!passPremiumActive()) return null;
+    const tiers = DAT.passPremiumTiers();
+    if (idx < 0 || idx >= tiers.length) return null;
+    if (data.passPremiumClaimed.indexOf(idx) !== -1) return null;
+    if (totalXp() < tiers[idx].xp) return null;
+    const rw = tiers[idx].reward;
+    let converted = false;
+    if (premiumRewardOwned(rw)) { addCoins(250); converted = true; } // repetido → 250 🪙
+    else grantReward(rw);
+    data.passPremiumClaimed.push(idx);
+    save();
+    return { reward: converted ? { coins: 250 } : rw, converted: converted, tier: tiers[idx] };
+  }
+  function claimPassPremiumAll() {
+    ensurePassSeason();
+    if (!passPremiumActive()) return 0;
+    const tiers = DAT.passPremiumTiers();
+    let n = 0;
+    tiers.forEach((t, idx) => {
+      if (data.passPremiumClaimed.indexOf(idx) === -1 && totalXp() >= t.xp) {
+        if (claimPassPremiumTier(idx)) n++;
+      }
+    });
+    return n;
   }
 
   /* --- Temporada 2026 🗓 (misma XP del jugador) --- */
@@ -1175,6 +1252,8 @@ window.SAVE = (function () {
     storeReplay, getReplay, markReplayWatched,
     missionProgress, missionDoneToday, claimMission,
     totalXp, passReached, passClaimedCount, claimPassTier, passSeasonName,
+    passPremiumActive, passPremiumReached, passPremiumClaimedCount,
+    buyPassPremium, claimPassPremiumTier, claimPassPremiumAll, premiumRewardOwned,
     seasonReached, seasonClaimCount, claimSeasonTier,
     setLevel, claimPassAll, claimSeasonAll,
     nestDecor, isDecorOwned, buyDecor, equipDecor,
