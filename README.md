@@ -111,8 +111,8 @@ Arranca el servidor local, juega una partida, pausa, compra el Pase Prémium, re
 
 ## Limitaciones conocidas
 
-- El APK Android **no se puede recompilar** en este entorno porque faltan JDK 17 y Android SDK configurados. `android/assets` se mantiene sincronizado con los assets web, pero el binario `dist/PioVuelo.apk` seguirá siendo el anterior hasta compilarlo en una máquina con esos requisitos.
-- La verificación visual e interactiva se ha hecho con pruebas headless, comprobaciones de HTTP y servidor local. No se ha podido usar un navegador real en esta sesión, así que conviene revisar la portada, el Pase Prémium y los mapas nuevos en un dispositivo antes de darlas por cerradas.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.0 (versionCode 30)** con el código actual.
+- La verificación incluye pruebas headless, comprobaciones HTTP y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 24/24). Aun así, conviene revisar la portada, el Pase Prémium y los mapas nuevos en un dispositivo Android real antes de darlos por cerrados.
 - La música es procedural (WebAudio) y no usa archivos externos: suena distinta por familia de mapa, pero no son pistas grabadas. El audio requiere un gesto del usuario para desbloquearse en móvil.
 - El Pase Prémium se paga con monedas del juego, no con dinero real; no hay pasarela de pago ni compras externas.
 - El idioma está fijado en español y se muestra deshabilitado como “Español (único)”: no se simula un selector que no existe.
@@ -132,6 +132,19 @@ Requisitos en la máquina de compilación:
 - JDK 17 o superior.
 - Android SDK con `platforms;android-34` y `build-tools;34.0.0`.
 - Ejecutar antes `powershell -File android\fetch-libs.ps1` para descargar las librerías de `android/libs` y `android/tools/r8.jar`.
+
+Variables de entorno necesarias (defínelas en la consola antes de compilar):
+
+```powershell
+$env:JAVA_HOME    = 'C:\Program Files\Java\jdk-17'
+$env:ANDROID_HOME = 'C:\AndroidSDK'
+```
+
+El SDK se instala en `C:\AndroidSDK` y no bajo el perfil de usuario porque la ruta del perfil contiene paréntesis (`C:\Users\PC-3 (ABANICO)`) y eso rompe los `.bat` de `sdkmanager`/`d8`. Para reinstalar paquetes del SDK:
+
+```powershell
+sdkmanager "platform-tools" "platforms/android-34" "build-tools/34.0.0"
+```
 
 Esos binarios, los APK y las claves locales están excluidos del repositorio mediante `.gitignore`.
 

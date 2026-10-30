@@ -258,11 +258,21 @@ function Add-ZipEntry([string]$entryName, [string]$filePath) {
   } finally { $es.Dispose() }
 }
 foreach ($dex in $dexFiles) { Add-ZipEntry $dex.Name $dex.FullName }
+$assetsRoot = (Get-Item $assets).FullName
 Get-ChildItem $assets -Recurse -File | ForEach-Object {
-  $rel = $_.FullName.Substring($assets.Length + 1).Replace('\', '/')
+  $rel = $_.FullName.Substring($assetsRoot.Length + 1).Replace('\', '/')
   Add-ZipEntry ("assets/" + $rel) $_.FullName
 }
 $zip.Dispose()
+
+# Verificación: los assets deben quedar en assets/ (no en rutas duplicadas tipo
+# assets/ssets). Sin esto el APK se firma igual pero la app arranca en blanco.
+$check = [System.IO.Compression.ZipFile]::OpenRead((Join-Path $work 'base.apk'))
+try {
+  if (-not $check.GetEntry('assets/index.html')) { throw 'Empaquetado incorrecto: falta assets/index.html dentro del APK' }
+  $dup = @($check.Entries | Where-Object { $_.FullName -like 'assets/ssets/*' })
+  if ($dup.Count -gt 0) { throw 'Empaquetado incorrecto: assets duplicados en assets/ssets' }
+} finally { $check.Dispose() }
 
 Write-Host '== 8/8 Alineando y firmando =='
 $aligned = Join-Path $work 'aligned.apk'
