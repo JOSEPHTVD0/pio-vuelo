@@ -1,0 +1,114 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "presence": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['name', 'level', 'online', 'lastSeen'])",
+        "name": {
+          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 16"
+        },
+        "level": {
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 999"
+        },
+        "online": {
+          ".validate": "newData.isBoolean()"
+        },
+        "lastSeen": {
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+        "board": {
+          ".validate": "newData.isString() && newData.val().length <= 32"
+        },
+        "best": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+
+    "leaderboard_live": {
+      "$board": {
+        ".read": true,
+        ".indexOn": ["best"],
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['name', 'best', 'updatedAt'])",
+          "name": {
+            ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 16"
+          },
+          "best": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000"
+          },
+          "updatedAt": {
+            ".validate": "newData.isNumber() && newData.val() > 0"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
+
+    "duels": {
+      "$code": {
+        ".read": true,
+        ".write": "auth != null && ((!data.exists() && newData.child('host/uid').val() === auth.uid) || (data.exists() && newData.exists() && (data.child('host/uid').val() === auth.uid || data.child('guest/uid').val() === auth.uid)) || (data.exists() && newData.exists() && !data.child('guest').exists() && newData.child('guest/uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('host/uid').val() === auth.uid))",
+        ".validate": "newData.val() === null || (newData.hasChildren(['code', 'host', 'state', 'seed', 'createdAt', 'updatedAt']) && (!data.exists() || ((data.child('host/uid').val() === newData.child('host/uid').val() && data.child('host/name').val() === newData.child('host/name').val() && data.child('host/score').val() === newData.child('host/score').val()) || data.child('host/uid').val() === auth.uid) && (data.child('seed').val() === newData.child('seed').val() || data.child('host/uid').val() === auth.uid)))",
+        "code": {
+          ".validate": "newData.isString() && newData.val() === $code && newData.val().length === 6"
+        },
+        "seed": {
+          ".validate": "newData.isNumber()"
+        },
+        "state": {
+          ".validate": "newData.isString() && (newData.val() === 'waiting' || newData.val() === 'playing' || newData.val() === 'finished')"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+        "updatedAt": {
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+        "host": {
+          ".validate": "newData.hasChildren(['uid', 'name', 'score'])",
+          "uid": {
+            ".validate": "newData.isString() && newData.val().length >= 1"
+          },
+          "name": {
+            ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 16"
+          },
+          "score": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "guest": {
+          ".validate": "newData.hasChildren(['uid', 'name', 'score'])",
+          "uid": {
+            ".validate": "newData.isString() && newData.val().length >= 1"
+          },
+          "name": {
+            ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 16"
+          },
+          "score": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    }
+  }
+}

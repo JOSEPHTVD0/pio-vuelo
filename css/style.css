@@ -403,6 +403,28 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .lb-error { border-color:rgba(255,112,67,.55); }
 .lb-note { line-height:1.5; }
 
+/* Ranking online (Firebase) */
+.lb-cloud { background:linear-gradient(135deg,rgba(41,182,246,.16),rgba(124,77,255,.18)); border:1px solid rgba(126,200,255,.35); border-radius:18px; padding:12px; margin-bottom:12px; }
+.lb-cloud-head { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+.lb-cloud-title { display:flex; align-items:center; gap:8px; min-width:0; }
+.lb-cloud-title > span { font-size:25px; line-height:1; }
+.lb-cloud-title b { display:block; font-size:14px; font-weight:900; letter-spacing:1px; color:#cdefff; }
+.lb-cloud-title small { display:block; font-size:10px; color:#9fb4d8; margin-top:2px; }
+.lb-cloud-state { flex:0 0 auto; font-size:9px; font-weight:900; letter-spacing:.4px; text-transform:uppercase; border-radius:999px; padding:4px 8px; background:rgba(255,255,255,.12); color:#dbe7ff; white-space:nowrap; }
+.lb-cloud-state[data-state="loading"] { background:rgba(41,182,246,.18); color:#90caf9; }
+.lb-cloud-state[data-state="ok"] { background:rgba(105,240,174,.16); color:#69f0ae; }
+.lb-cloud-state[data-state="offline"] { background:rgba(255,213,79,.18); color:#ffe066; }
+.lb-cloud-state[data-state="error"] { background:rgba(255,112,67,.2); color:#ffab91; }
+.lb-cloud-me { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:11px; color:#dbe7ff; background:rgba(0,0,0,.18); border-radius:10px; padding:6px 8px; margin-top:10px; }
+.lb-cloud-me b { color:#ffe066; font-size:13px; }
+.lb-cloud-me span { color:#9fb4d8; margin-left:auto; max-width:48%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lb-cloud-list { margin-top:8px; }
+.lb-cloud-actions { display:flex; justify-content:flex-end; margin-top:8px; }
+.lb-cloud-actions .btn { font-size:11px; padding:7px 12px; border-radius:11px; }
+.lb-retry { background:#ffe066; color:#1b2433; box-shadow:0 3px 0 rgba(90,60,0,.35); }
+.lb-retry:disabled { opacity:.65; cursor:default; }
+.lb-banner-local { margin-top:14px; }
+
 .profile-card { display:flex; align-items:center; gap:14px; background:linear-gradient(135deg,rgba(41,182,246,.2),rgba(124,77,255,.2)); border:1px solid rgba(255,255,255,.22); border-radius:18px; padding:14px; margin-bottom:10px; }
 .profile-avatar { width:54px; height:54px; flex:0 0 auto; border-radius:50%; background:rgba(255,255,255,.14); display:flex; align-items:center; justify-content:center; font-size:30px; }
 .profile-id { min-width:0; }

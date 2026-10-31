@@ -1,4 +1,4 @@
-# Pío Vuelo 2.5.0
+# Pío Vuelo 3.1
 
 Juego arcade de un pájaro que vuela entre tubos, con monedas, power-ups, tienda, misiones, récords y progresión. Funciona como aplicación web instalable (PWA) y también como APK Android mediante WebView.
 
@@ -8,6 +8,44 @@ Juego arcade de un pájaro que vuela entre tubos, con monedas, power-ups, tienda
 
 El juego se publica automáticamente con GitHub Pages desde la rama `main`.
 
+## 🏆 Récords online
+
+La pantalla **Récords** muestra primero el ranking online real y debajo la tabla
+local del dispositivo:
+
+- El ranking global usa **Firestore** (`leaderboards/global/entries`) con una
+  sesión anónima de Firebase. Solo se publican **nombre, nivel y mejor marca**;
+  el progreso completo sigue guardado en `localStorage`.
+- Solo aparecen marcas con **más de 0 puntos**, para que la tabla no se llene de
+  entradas vacías al abrir el juego.
+- Si no hay red, el juego sigue funcionando y muestra la **última tabla
+  guardada** en caché. El botón **Reintentar** vuelve a conectar de verdad.
+- Los vuelos que no se pueden subir se guardan en una cola local y se reintentan
+  al recuperar la conexión.
+- Si Firebase no está configurado o se pone `enabled: false`, la pantalla sigue
+  mostrando el ranking local sin hacer ninguna petición de red.
+
+## ☁️ Nube opcional (Firebase)
+
+El juego sigue funcionando **sin conexión y sin cuentas** por defecto. Si quieres
+ranking global, presencia, historial en la nube y duelos por código, hay una
+capa opcional de Firebase (Firestore + Realtime Database) ya preparada:
+
+- `firebase.json`, `.firebaserc`, `firestore.rules`, `firestore.indexes.json` y
+  `database.rules.json`: configuración, seguridad e índices.
+- `js/firebase-config.js`: credenciales del cliente. En este proyecto está
+  **activado**; con `enabled: false` el juego vuelve a ser 100 % local.
+- `js/cloud.js`: sesión anónima, sincronización del perfil, vuelos, ranking,
+  presencia y duelos. Si algo falla, el juego continúa offline.
+- `firebase/seed.js`: carga el catálogo real de `js/data.js`, la temporada, la
+  semilla diaria y récords de ejemplo.
+- `docs/FIREBASE.md`: guía paso a paso (crear proyecto, reglas, emuladores,
+  modelo de datos, solución de problemas).
+
+Para activarla: crea el proyecto, pega la configuración en
+`js/firebase-config.js`, pon `enabled: true` y despliega las reglas. La guía
+completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
+
 ## Características
 
 - Vuelo con física de aleteo y dificultad progresiva.
@@ -16,9 +54,17 @@ El juego se publica automáticamente con GitHub Pages desde la rama `main`.
 - Tienda de aves, sombreros, estelas, herramientas y cajas.
 - Misiones, pase de temporada, mapas y progreso.
 - Perfil local con nombre editable y récord persistente.
-- Clasificación local por dispositivo (no requiere conexión ni cuentas).
+- Clasificación local por dispositivo y ranking online opcional con Firebase.
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
+
+## Novedades de la versión 3.1
+
+- **Récords online reales:** ranking global con Firebase, sesión anónima y lectura pública. Solo se publican nombre, nivel y mejor marca; las entradas con 0 puntos se filtran.
+- **Modo offline que no rompe el juego:** si falla la red se muestra la última tabla guardada, un estado claro de “Sin conexión” y un botón **Reintentar** que vuelve a conectar de verdad.
+- **Caché y cola local:** el top del ranking se guarda en el dispositivo y los vuelos pendientes se reintentan al recuperar la conexión.
+- **Service worker más seguro:** solo cachea archivos estáticos del propio juego; Firebase, gstatic y APIs externas van siempre a la red para no servir un ranking congelado.
+- **Acceso directo:** **Récords** ocupa el acceso rápido de la portada y Estadísticas pasa a “Más”.
 
 ## Novedades de la versión 3.0
 
@@ -101,22 +147,46 @@ node tools/test-game.js
 
 La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos, Pase Prémium, exclusividad en tienda y cajas, mecánicas de mapas, logros y temas de audio. Actualmente hay **369 pruebas** y todas deben pasar antes de publicar.
 
+La configuración de Firebase también se valida sin red:
+
+```powershell
+npm run test:firebase
+```
+
+Comprueba que `firebase.json`, reglas, índices y la configuración del cliente
+sean válidos, que `cloud.js` no tenga errores de sintaxis y que las credenciales
+sean coherentes con el estado de `enabled`.
+
+Las reglas de seguridad se prueban contra los emuladores (sin tocar la nube):
+
+```powershell
+npm run test:rules
+```
+
 También hay una prueba de humo en un navegador real (Chrome o Edge headless, sin dependencias npm):
 
 ```powershell
 node tools/browser-smoke.js
 ```
 
-Arranca el servidor local, juega una partida, pausa, compra el Pase Prémium, reclama sus 14 recompensas y revisa tienda, mapas e inventario buscando errores de JavaScript. Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con `CHROME_PATH`.
+Arranca el servidor local, juega una partida, pausa, compra el Pase Prémium,
+reclama sus 14 recompensas y revisa tienda, mapas e inventario. Además comprueba
+la conexión real con Firebase, la pantalla de récords online, un **corte de red
+real** (sin conexión, caché y reintento) y que el juego sigue funcionando offline.
+Actualmente son **35 comprobaciones** y no debe haber errores de JavaScript.
+Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con
+`CHROME_PATH`. En un entorno sin red, `SKIP_ONLINE=1` omite solo el bloque online.
 
 ## Limitaciones conocidas
 
-- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.0 (versionCode 30)** con el código actual.
-- La verificación incluye pruebas headless, comprobaciones HTTP y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 24/24). Aun así, conviene revisar la portada, el Pase Prémium y los mapas nuevos en un dispositivo Android real antes de darlos por cerrados.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.1 (versionCode 31)** con el código actual: **7.022.958 bytes** y SHA-256 `B1479C4E5C87C57DD10768DDD0CCED9C14447C408121C8763E63732150460820`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
+- La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (26/26) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 35/35, incluido el modo offline). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos y el ranking online en un dispositivo Android real antes de darlos por cerrados.
+- El ranking global solo muestra marcas con más de 0 puntos. Las entradas antiguas con 0 puntos que ya existan en Firestore no se muestran y no se pueden borrar desde el cliente porque las reglas lo impiden; para limpiarlas hace falta la consola de Firebase o el Admin SDK.
+- La primera carga del ranking online necesita red. Si se abre sin conexión y nunca se ha visto la tabla, se muestra un aviso y se puede reintentar; el juego local no se bloquea.
 - La música es procedural (WebAudio) y no usa archivos externos: suena distinta por familia de mapa, pero no son pistas grabadas. El audio requiere un gesto del usuario para desbloquearse en móvil.
 - El Pase Prémium se paga con monedas del juego, no con dinero real; no hay pasarela de pago ni compras externas.
 - El idioma está fijado en español y se muestra deshabilitado como “Español (único)”: no se simula un selector que no existe.
-- El guardado es local al navegador o dispositivo; no hay cuentas, servidores ni sincronización entre dispositivos.
+- El guardado es local al navegador o dispositivo. La nube es un espejo opcional: no hay cuentas con correo ni contraseña, y borrar los datos del sitio pierde el vínculo con el UID anónimo de Firebase.
 - El autoguardado está siempre activo para evitar pérdidas: no se ofrece un interruptor que pudiera desactivarlo por accidente. La sincronización vertical y la resolución las controla el navegador o el dispositivo; el límite de FPS sí se aplica y se documenta esa limitación en Ajustes.
 
 ## Android
@@ -150,20 +220,27 @@ Esos binarios, los APK y las claves locales están excluidos del repositorio med
 
 ## Datos y privacidad
 
-- El progreso se guarda en `localStorage` bajo la clave `piovuelo_v1`.
-- No hay cuentas, servidor de perfiles ni clasificación online: los récords son locales al navegador o dispositivo.
-- Borrar los datos del sitio elimina el progreso y los récords.
+- Por defecto el progreso se guarda solo en `localStorage` bajo la clave `piovuelo_v1`.
+- No hay cuentas con correo ni contraseña. Con Firebase activo se usa una **sesión anónima** para sincronizar perfil, vuelos, ranking global, presencia y duelos. El progreso local sigue siendo la fuente de verdad y solo se publica el nombre, nivel y mejor marca en el ranking.
+- Borrar los datos del sitio elimina el progreso local y el vínculo con el UID anónimo de Firebase.
 - Los anuncios son opcionales y tolerantes a fallos; si el proveedor no carga, el juego sigue funcionando.
+- La `apiKey` web de Firebase no es un secreto; la protección real son las reglas de `firestore.rules` y `database.rules.json`. Las cuentas de servicio nunca se incluyen en el cliente.
 
 ## Estructura
 
 ```text
 index.html              Interfaz principal
 css/                    Estilos
-js/                     Lógica del juego, datos, guardado, UI y audio
+js/                     Lógica del juego, datos, guardado, UI, audio y nube
 icons/                  Iconos de la PWA
 tools/                  Pruebas, servidor local y utilidades
 android/                Proyecto Android (WebView) y script de compilación
+docs/FIREBASE.md        Guía de la base de datos en Firebase
+firebase/seed.js        Semilla del catálogo y datos de Firebase
+firestore.rules         Reglas de Firestore
+firestore.indexes.json  Índices de Firestore
+database.rules.json     Reglas de Realtime Database
+firebase.json           Configuración de la CLI de Firebase
 sw.js                   Service worker y caché offline
 manifest.webmanifest    Manifiesto PWA
 ```

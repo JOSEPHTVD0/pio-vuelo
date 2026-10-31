@@ -1,0 +1,161 @@
+rules_version = '2';
+
+/* ==========================================================================
+   PÍO VUELO · REGLAS DE FIRESTORE
+   --------------------------------------------------------------------------
+   Modelo:
+     players/{uid}                         perfil y resumen de progreso (privado)
+     players/{uid}/runs/{runId}            historial de vuelos (privado, inmutable)
+     leaderboards/{boardId}/entries/{uid}  ranking público (solo tu entrada)
+     catalog/{type}/items/{itemId}         catálogo del juego (solo lectura)
+     seasons/{seasonKey}                   pase y recompensas (solo lectura)
+     dailyChallenges/{YYYY-MM-DD}          semilla diaria (solo lectura)
+     config/{docId}                        versión y banderas (solo lectura)
+
+   Todo lo que no esté permitido explícitamente queda denegado por la regla
+   final. Los catálogos y temporadas se escriben con firebase/seed.js usando
+   el Admin SDK, que ignora estas reglas.
+   ========================================================================== */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ---------- Utilidades ---------- */
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validName(name) {
+      return name is string && name.size() >= 2 && name.size() <= 16;
+    }
+
+    function intIn(value, min, max) {
+      return value is int && value >= min && value <= max;
+    }
+
+    function validMode(mode) {
+      return mode in ['free', 'zen', 'boss', 'wind', 'challenge', 'duel', 'replay'];
+    }
+
+    /* ---------- Perfil del jugador ---------- */
+    match /players/{uid} {
+      allow read: if isSelf(uid);
+      allow delete: if false;
+
+      allow create: if isSelf(uid)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'name', 'createdAt', 'updatedAt', 'level', 'xp', 'coins',
+          'parts', 'shields', 'best', 'flights', 'pipes', 'distance',
+          'coinsGot', 'timePlayed', 'equipped', 'schema', 'app'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid', 'name', 'createdAt', 'updatedAt', 'level', 'best', 'schema'
+        ])
+        && request.resource.data.uid == uid
+        && validName(request.resource.data.name)
+        && intIn(request.resource.data.level, 1, 999)
+        && intIn(request.resource.data.best, 0, 10000000)
+        && request.resource.data.schema == 1;
+
+      allow update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'name', 'createdAt', 'updatedAt', 'level', 'xp', 'coins',
+          'parts', 'shields', 'best', 'flights', 'pipes', 'distance',
+          'coinsGot', 'timePlayed', 'equipped', 'schema', 'app'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validName(request.resource.data.name)
+        && intIn(request.resource.data.level, 1, 999)
+        && intIn(request.resource.data.best, 0, 10000000)
+        && request.resource.data.best >= resource.data.best
+        && request.resource.data.schema == 1;
+
+      /* Historial de vuelos: se crea una vez y nunca se modifica ni se borra. */
+      match /runs/{runId} {
+        allow read: if isSelf(uid);
+        allow update, delete: if false;
+
+        allow create: if isSelf(uid)
+          && request.resource.data.keys().hasOnly([
+            'score', 'pipes', 'coins', 'dist', 'mode', 'seed', 'createdAt', 'verified'
+          ])
+          && request.resource.data.keys().hasAll([
+            'score', 'pipes', 'coins', 'dist', 'mode', 'createdAt'
+          ])
+          && intIn(request.resource.data.score, 0, 10000000)
+          && intIn(request.resource.data.pipes, 0, 10000000)
+          && intIn(request.resource.data.coins, 0, 10000000)
+          && intIn(request.resource.data.dist, 0, 100000000)
+          && validMode(request.resource.data.mode)
+          && request.resource.data.createdAt == request.time
+          && (!('verified' in request.resource.data) || request.resource.data.verified is bool);
+      }
+    }
+
+    /* ---------- Ranking público ---------- */
+    match /leaderboards/{boardId}/entries/{uid} {
+      allow read: if true;
+      allow delete: if false;
+
+      allow create: if isSelf(uid)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'name', 'best', 'last', 'games', 'level', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid', 'name', 'best', 'last', 'games', 'level', 'updatedAt'
+        ])
+        && request.resource.data.uid == uid
+        && validName(request.resource.data.name)
+        && intIn(request.resource.data.best, 0, 10000000)
+        && intIn(request.resource.data.last, 0, 10000000)
+        && intIn(request.resource.data.games, 0, 100000000)
+        && intIn(request.resource.data.level, 1, 999)
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'name', 'best', 'last', 'games', 'level', 'updatedAt'
+        ])
+        && request.resource.data.uid == uid
+        && validName(request.resource.data.name)
+        && intIn(request.resource.data.best, 0, 10000000)
+        && intIn(request.resource.data.last, 0, 10000000)
+        && intIn(request.resource.data.games, 0, 100000000)
+        && intIn(request.resource.data.level, 1, 999)
+        && request.resource.data.best >= resource.data.best
+        && request.resource.data.games >= resource.data.games
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    /* ---------- Catálogo, temporadas y configuración (solo lectura) ---------- */
+    match /catalog/{type}/items/{itemId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /seasons/{seasonKey} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /dailyChallenges/{date} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    /* ---------- Denegar todo lo demás ---------- */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

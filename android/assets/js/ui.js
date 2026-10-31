@@ -754,6 +754,10 @@ window.UI = (function () {
 
   /* ---------- Navegación genérica ---------- */
   function openGeneric(kind, tab) {
+    if (currentGeneric === 'records') {
+      const oldCloud = $('genBody').querySelector('.lb-cloud');
+      if (oldCloud && oldCloud.__stopCloud) oldCloud.__stopCloud();
+    }
     currentGeneric = kind;
     $('screen-generic').classList.remove('hidden');
     $('genBody').innerHTML = '';
@@ -780,6 +784,10 @@ window.UI = (function () {
 
   function closeGeneric() {
     const inGame = G.getState() === 'play';
+    if (currentGeneric === 'records') {
+      const oldCloud = $('genBody').querySelector('.lb-cloud');
+      if (oldCloud && oldCloud.__stopCloud) oldCloud.__stopCloud();
+    }
     currentGeneric = null;
     hideAllScreens();
     if (inGame) {
@@ -1717,11 +1725,16 @@ window.UI = (function () {
     const prof = SAVE.getProfile();
     const players = lb.players || [];
     const runs = lb.runs || [];
+    const cloudOn = !!(window.CLOUD && typeof CLOUD.configured === 'function' && CLOUD.configured());
+
+    /* El ranking online va primero: es la respuesta a "quién tiene la mejor
+       marca". Si Firebase falla, la parte local sigue funcionando igual. */
+    if (cloudOn) renderCloudBoard(body, prof);
 
     const head = document.createElement('div');
-    head.className = 'lb-banner';
+    head.className = 'lb-banner' + (cloudOn ? ' lb-banner-local' : '');
     head.innerHTML = '<div class="lb-banner-ico">🏆</div><div class="lb-banner-txt">' +
-      '<div class="lb-banner-title">RÉCORDS LOCALES</div>' +
+      '<div class="lb-banner-title">' + (cloudOn ? 'TU TABLA LOCAL' : 'RÉCORDS LOCALES') + '</div>' +
       '<div class="lb-banner-sub">Se guardan <b>solo en este dispositivo</b>. Tu nombre: <b>' + esc(prof.name) + '</b></div>' +
       '</div>';
     body.appendChild(head);
@@ -1738,12 +1751,12 @@ window.UI = (function () {
     if (!hasData) {
       const empty = document.createElement('div');
       empty.className = 'lb-empty';
-      empty.innerHTML = '<div class="lb-empty-ico">🪁</div><div>Aún no hay récords.<br><span class="lb-empty-sub">Termina tu primer vuelo y aparecerá aquí automáticamente.</span></div>';
+      empty.innerHTML = '<div class="lb-empty-ico">🪁</div><div>Aún no hay récords en este dispositivo.<br><span class="lb-empty-sub">Termina tu primer vuelo y aparecerá aquí automáticamente.</span></div>';
       body.appendChild(empty);
     } else {
       const title = document.createElement('h3');
       title.className = 'lb-title';
-      title.textContent = '🏅 CLASIFICACIÓN';
+      title.textContent = '🏅 CLASIFICACIÓN LOCAL';
       body.appendChild(title);
 
       const list = document.createElement('div');
@@ -1790,8 +1803,149 @@ window.UI = (function () {
 
     const note = document.createElement('div');
     note.className = 'panel-note lb-note';
-    note.innerHTML = 'ℹ️ Sin servidor ni cuentas: el ranking es de este navegador. Si borras los datos del sitio o usas otro dispositivo, la tabla no se comparte.';
+    note.innerHTML = cloudOn
+      ? '☁️ Solo se publica tu nombre, nivel y mejor marca. El progreso completo sigue guardado en este dispositivo y se sincroniza cuando hay conexión.'
+      : 'ℹ️ Sin servidor ni cuentas: el ranking es de este navegador. Si borras los datos del sitio o usas otro dispositivo, la tabla no se comparte.';
     body.appendChild(note);
+  }
+
+  /* Ranking global opcional (Firebase Firestore). Si la nube está apagada,
+     esta sección no se dibuja y la pantalla sigue siendo 100 % local. */
+  function renderCloudBoard(body, prof) {
+    const s = SAVE.get();
+    const localBest = (s.stats && s.stats.best) || 0;
+    const section = document.createElement('section');
+    section.className = 'lb-cloud';
+    section.innerHTML =
+      '<div class="lb-cloud-head">' +
+        '<div class="lb-cloud-title"><span aria-hidden="true">🌍</span><div><b>RÉCORDS ONLINE</b><small>Quién tiene la mejor marca</small></div></div>' +
+        '<span class="lb-cloud-state" data-state="loading">Conectando…</span>' +
+      '</div>' +
+      '<div class="lb-cloud-me">Tu mejor marca: <b>' + localBest + ' pts</b><span>' + esc(prof.name) + '</span></div>' +
+      '<div class="lb-list lb-cloud-list" aria-live="polite"></div>' +
+      '<div class="lb-cloud-actions"><button class="btn btn-small lb-retry" type="button">Actualizar</button></div>';
+    body.appendChild(section);
+
+    const stateEl = section.querySelector('.lb-cloud-state');
+    const list = section.querySelector('.lb-cloud-list');
+    const retryBtn = section.querySelector('.lb-retry');
+    let stopped = false;
+
+    function setState(kind, text) {
+      stateEl.setAttribute('data-state', kind);
+      stateEl.textContent = text;
+    }
+
+    function empty(text, sub) {
+      list.innerHTML = '<div class="lb-empty"><div class="lb-empty-ico">☁️</div><div>' + text +
+        '<br><span class="lb-empty-sub">' + sub + '</span></div></div>';
+    }
+
+    function paint(rows, cached) {
+      if (stopped) return;
+      const noNet = (typeof navigator !== 'undefined' && navigator.onLine === false);
+      const stale = cached || noNet;
+      list.innerHTML = '';
+      if (!rows || !rows.length) {
+        empty('Aún no hay marcas online.', noNet ? 'Recupera la conexión y pulsa Reintentar.' : 'Termina un vuelo con puntos y aparecerás aquí.');
+        setState(stale ? 'offline' : 'ok', noNet ? 'Sin conexión' : (cached ? 'Sin conexión · caché' : 'En vivo'));
+        return;
+      }
+      rows.forEach(function (p, i) {
+        const rank = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+        const row = document.createElement('div');
+        row.className = 'lb-row' + (i < 3 ? ' lb-top lb-top' + (i + 1) : '') + (p.me ? ' lb-me' : '');
+        row.innerHTML =
+          '<div class="lb-rank">' + rank + '</div>' +
+          '<div class="lb-who">' +
+            '<div class="lb-name">' + esc(p.name || 'Jugador') + (p.me ? ' <span class="lb-you">TÚ</span>' : '') + '</div>' +
+            '<div class="lb-meta">Nivel ' + (p.level || 1) + ' · ' + (p.games || 0) + ' vuelo' + ((p.games || 0) === 1 ? '' : 's') + '</div>' +
+          '</div>' +
+          '<div class="lb-nums">' +
+            '<div class="lb-best">' + (p.best || 0) + '<small>pts</small></div>' +
+            '<div class="lb-last">último ' + (p.last || 0) + '</div>' +
+          '</div>';
+        list.appendChild(row);
+      });
+      setState(stale ? 'offline' : 'ok', noNet ? 'Sin conexión · última tabla' : (cached ? 'Sin conexión · última tabla' : 'En vivo'));
+    }
+
+    function onError(err, cachedRows) {
+      if (stopped) return;
+      const rows = cachedRows || (window.CLOUD && CLOUD.cachedLeaderboard ? CLOUD.cachedLeaderboard('global') : []);
+      const offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+      retryBtn.textContent = 'Reintentar';
+      retryBtn.disabled = false;
+      if (rows.length) {
+        paint(rows, true);
+        setState('offline', offline ? 'Sin conexión' : 'Error de red · caché');
+      } else {
+        list.innerHTML = '';
+        empty(
+          offline ? 'No hay conexión.' : 'No se pudo cargar el ranking.',
+          offline ? 'Puedes seguir jugando; tu marca se subirá al recuperar la red.' : 'Revisa tu conexión y pulsa Reintentar.'
+        );
+        setState(offline ? 'offline' : 'error', offline ? 'Sin conexión' : 'Error');
+      }
+    }
+
+    function load() {
+      if (stopped) return;
+      retryBtn.disabled = true;
+      retryBtn.textContent = 'Actualizando…';
+      setState('loading', 'Conectando…');
+      /* Si el navegador ya sabe que no hay red, no se lanza una consulta
+         condenada a esperar: se muestra la última tabla y se deja reintentar. */
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        onError(new Error('Sin conexión'),
+          (window.CLOUD && CLOUD.cachedLeaderboard) ? CLOUD.cachedLeaderboard('global') : []);
+        return;
+      }
+      try {
+        if (typeof CLOUD.watchLeaderboard === 'function') {
+          CLOUD.watchLeaderboard('global', function (rows) {
+            retryBtn.disabled = false;
+            retryBtn.textContent = 'Actualizar';
+            paint(rows, false);
+          }, 25, onError);
+        } else {
+          CLOUD.leaderboard('global', 25).then(function (rows) {
+            retryBtn.disabled = false;
+            retryBtn.textContent = 'Actualizar';
+            paint(rows, false);
+          }).catch(onError);
+        }
+      } catch (e) {
+        onError(e);
+      }
+    }
+
+    retryBtn.onclick = function () {
+      SND.sfx.click();
+      retryBtn.disabled = true;
+      retryBtn.textContent = 'Reintentando…';
+      const done = function () { if (!stopped) load(); };
+      try {
+        if (window.CLOUD && typeof CLOUD.retry === 'function') CLOUD.retry().then(done).catch(function (e) { onError(e); });
+        else done();
+      } catch (e) {
+        onError(e);
+      }
+    };
+
+    /* Muestra de inmediato la última tabla guardada, luego intenta la red. */
+    let cachedRows = [];
+    try {
+      if (window.CLOUD && typeof CLOUD.cachedLeaderboard === 'function') cachedRows = CLOUD.cachedLeaderboard('global') || [];
+    } catch (e) { cachedRows = []; }
+    if (cachedRows.length) paint(cachedRows, true);
+    load();
+
+    /* Se detiene al salir de la pantalla para no dejar listeners vivos. */
+    section.__stopCloud = function () {
+      stopped = true;
+      try { if (window.CLOUD && CLOUD.stopWatchLeaderboard) CLOUD.stopWatchLeaderboard(); } catch (e) { }
+    };
   }
 
   /* ---------- Perfil / identidad local ---------- */
@@ -1898,7 +2052,10 @@ window.UI = (function () {
 
     const note = document.createElement('div');
     note.className = 'panel-note';
-    note.innerHTML = '🔒 Perfil local sin cuentas ni contraseñas. El nombre y el récord viven en este navegador; si borras los datos del sitio, se pierden. No se envía nada a ningún servidor.';
+    const cloudProfile = !!(window.CLOUD && typeof CLOUD.configured === 'function' && CLOUD.configured());
+    note.innerHTML = cloudProfile
+      ? '☁️ Perfil con Firebase opcional: se usa una sesión anónima (sin correo ni contraseña). El progreso local sigue guardándose en este dispositivo y se sincroniza cuando hay conexión.'
+      : '🔒 Perfil local sin cuentas ni contraseñas. El nombre y el récord viven en este navegador; si borras los datos del sitio, se pierden. No se envía nada a ningún servidor.';
     body.appendChild(note);
   }
 
@@ -2576,7 +2733,7 @@ window.UI = (function () {
     const about = document.createElement('div');
     about.className = 'prog-card';
     about.style.textAlign = 'center';
-    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.0 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.1 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
     body.appendChild(about);
   }
 

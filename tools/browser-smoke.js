@@ -187,6 +187,71 @@ function makeClient(ws) {
     await evalJs("G.goMenu()");
     await sleep(300);
 
+    // Ranking online real. Se puede omitir con SKIP_ONLINE=1 en entornos sin red.
+    if (process.env.SKIP_ONLINE !== '1') {
+      const cloudStatus = await evalJs("CLOUD.init().then(function(s){return {status:s.status, ready:s.ready, error:s.error, configured:s.configured}}).catch(function(e){return {status:'error', ready:false, error:String(e)}})");
+      ok(cloudStatus && cloudStatus.configured, 'la nube de Firebase está configurada');
+      ok(cloudStatus && cloudStatus.ready && cloudStatus.status === 'online', 'Firebase conecta con sesión anónima', cloudStatus && (cloudStatus.status + (cloudStatus.error ? ' · ' + cloudStatus.error : '')));
+      await evalJs("UI.openGeneric('records')");
+      await sleep(1500);
+      const board = await evalJs("(function(){var s=document.querySelector('.lb-cloud');return s?{panel:true,state:s.querySelector('.lb-cloud-state').getAttribute('data-state'),text:s.querySelector('.lb-cloud-state').textContent,rows:s.querySelectorAll('.lb-row').length,hasMe:!!s.querySelector('.lb-me'),retry:!!s.querySelector('.lb-retry')}:{panel:false}})()");
+      ok(board.panel, 'la pantalla de récords muestra el bloque online');
+      ok(board.state === 'ok' || board.state === 'offline', 'el ranking online termina en un estado real', board.state + ' · ' + board.text);
+      ok(board.retry, 'el ranking online tiene un botón de reintento/actualización real');
+      await evalJs("UI.closeGeneric()");
+      await sleep(300);
+
+      // Corte de red REAL a nivel de navegador: el juego debe seguir vivo,
+      // la pantalla debe avisar y el reintento debe recuperar el ranking.
+      const cacheKey = 'piovuelo_cloud_board_v1';
+      const cacheBackup = await evalJs("localStorage.getItem('" + cacheKey + "')");
+      await evalJs("localStorage.setItem('" + cacheKey + "', JSON.stringify({board:'global',at:Date.now(),rows:[{uid:'cache-test',name:'Tabla guardada',best:99,last:12,games:3,level:2,updatedAt:Date.now(),me:false}]}))");
+      await c.send('Network.enable');
+      await c.send('Network.emulateNetworkConditions', {
+        offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0
+      });
+      await evalJs("window.dispatchEvent(new Event('offline'))");
+      await sleep(300);
+      await evalJs("UI.openGeneric('records')");
+      await sleep(1500);
+      const offBoard = await evalJs("(function(){var s=document.querySelector('.lb-cloud');if(!s)return{panel:false};var b=s.querySelector('.lb-retry');return{panel:true,state:s.querySelector('.lb-cloud-state').getAttribute('data-state'),text:s.querySelector('.lb-cloud-state').textContent,rows:s.querySelectorAll('.lb-row').length,retry:!!b,disabled:!!(b&&b.disabled)}})()");
+      ok(offBoard.panel && offBoard.state === 'offline', 'sin red el ranking online avisa de que está offline', offBoard.state + ' · ' + offBoard.text);
+      ok(offBoard.retry && !offBoard.disabled, 'sin red se puede pulsar Reintentar');
+      ok(offBoard.rows > 0, 'sin red se conserva la última tabla guardada', String(offBoard.rows));
+
+      await evalJs("document.querySelector('.lb-cloud .lb-retry').click()");
+      await sleep(1200);
+      const retryOff = await evalJs("(function(){var s=document.querySelector('.lb-cloud');if(!s)return{panel:false};return{panel:true,state:s.querySelector('.lb-cloud-state').getAttribute('data-state'),text:s.querySelector('.lb-cloud-state').textContent}})()");
+      ok(retryOff.panel && retryOff.state === 'offline', 'Reintentar sin red no rompe la pantalla', retryOff.state + ' · ' + retryOff.text);
+
+      await evalJs("UI.closeGeneric()");
+      await sleep(200);
+      await evalJs("G.startPlay('free')");
+      await sleep(900);
+      ok((await evalJs("G.getState()")) === 'play', 'sin red el juego sigue funcionando');
+      await evalJs("G.goMenu()");
+      await sleep(300);
+
+      await c.send('Network.emulateNetworkConditions', {
+        offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1
+      });
+      await evalJs("window.dispatchEvent(new Event('online')); UI.openGeneric('records')");
+      await sleep(1500);
+      await evalJs("(function(){var b=document.querySelector('.lb-cloud .lb-retry'); if(b && !b.disabled) b.click();})()");
+      await sleep(3000);
+      const backBoard = await evalJs("(function(){var s=document.querySelector('.lb-cloud');if(!s)return{panel:false};var b=s.querySelector('.lb-retry');return{panel:true,state:s.querySelector('.lb-cloud-state').getAttribute('data-state'),text:s.querySelector('.lb-cloud-state').textContent,disabled:!!(b&&b.disabled)}})()");
+      ok(backBoard.panel && (backBoard.state === 'ok' || backBoard.state === 'offline'), 'al volver la red el ranking se recupera', backBoard.state + ' · ' + backBoard.text);
+      await evalJs("UI.closeGeneric()");
+      await sleep(300);
+
+      // Se restaura la caché real del navegador tras la prueba.
+      if (cacheBackup === null) {
+        await evalJs("localStorage.removeItem('" + cacheKey + "')");
+      } else {
+        await evalJs("localStorage.setItem('" + cacheKey + "', " + JSON.stringify(cacheBackup) + ")");
+      }
+    }
+
     // Errores reales de la consola
     const errors = c.events.filter(e =>
       (e.method === 'Runtime.exceptionThrown') ||
@@ -196,7 +261,11 @@ function makeClient(ws) {
       if (e.method === 'Runtime.exceptionThrown') return e.params.exceptionDetails.text + ' ' + ((e.params.exceptionDetails.exception && e.params.exceptionDetails.exception.description) || '');
       if (e.method === 'Log.entryAdded') return e.params.entry.text;
       return e.params.args.map(a => a.value || a.description).join(' ');
-    });
+    }).filter(msg =>
+      /* La prueba apaga la red a propósito: esos fallos de red no son errores
+         de JavaScript del juego. Cualquier otra excepción sí se reporta. */
+      !/net::ERR_INTERNET_DISCONNECTED|Error in connection establishment|net::ERR_NETWORK_CHANGED/i.test(msg)
+    );
     ok(errors.length === 0, 'no hay errores de JavaScript en la sesión', errors.slice(0, 3).join(' | '));
 
     const shot = await c.send('Page.captureScreenshot', { format: 'png' });
