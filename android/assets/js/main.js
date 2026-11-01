@@ -76,6 +76,7 @@ window.APP = (function () {
     ENTS.setHC(!!st.hc);
     document.body.classList.toggle('no-ui-anim', st.uiAnim === false);
     G.setMode(st.mode || 'free');
+    if (window.EXPUI && EXPUI.init) EXPUI.init();
     G.resize();
     G.goMenu();
     if (first) {

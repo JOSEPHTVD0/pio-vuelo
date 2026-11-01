@@ -45,6 +45,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
         </div>
       </div>
       <div class="hud-side">
+        <button id="hudLegend" class="hud-btn hud-legend hidden" aria-label="Herramienta legendaria">🗡️</button>
         <span id="hudDist">0 m</span>
         <span class="hud-coins"><span id="hudCoins">0</span></span>
         <span id="hudShield" class="hud-shield">🛡️ 0</span>
@@ -155,6 +156,41 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
       </section>
 
       <section class="hm-sec">
+        <h2 class="hm-sec-title">&#127775; MUNDO P&#205;O</h2>
+        <div class="home-quick exp-home-quick">
+          <button class="q-nav" data-nav="characters">
+            <span class="qn-ico">&#129489;</span><span class="qn-t">Personajes</span>
+          </button>
+          <button class="q-nav" data-nav="pets">
+            <span class="qn-ico">&#128062;</span><span class="qn-t">Mascotas</span>
+          </button>
+          <button class="q-nav" data-nav="skills">
+            <span class="qn-ico">&#127795;</span><span class="qn-t">Habilidades</span>
+            <span class="q-badge hidden" id="badgeSkills">0</span>
+          </button>
+          <button class="q-nav" data-nav="events">
+            <span class="qn-ico">&#127881;</span><span class="qn-t">Eventos</span>
+            <span class="q-badge hidden" id="badgeEvents">0</span>
+          </button>
+          <button class="q-nav" data-nav="badges">
+            <span class="qn-ico">&#127942;</span><span class="qn-t">Trofeos</span>
+          </button>
+          <button class="q-nav" data-nav="legendary">
+            <span class="qn-ico">&#128481;</span><span class="qn-t">Legendarias</span>
+          </button>
+          <button class="q-nav" data-nav="custom">
+            <span class="qn-ico">&#127912;</span><span class="qn-t">Personalizar</span>
+          </button>
+          <button class="q-nav" data-nav="league">
+            <span class="qn-ico">&#128081;</span><span class="qn-t">Liga</span>
+          </button>
+          <button class="q-nav" data-nav="modes">
+            <span class="qn-ico">&#127918;</span><span class="qn-t">Modos</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="hm-sec">
         <h2 class="hm-sec-title">&#128197; ACTIVIDADES</h2>
         <div class="home-dailies">
           <button class="daily-run-pill" id="dailyRunPill" aria-label="Desafío diario"></button>
@@ -205,6 +241,8 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
         <button class="mode-btn" id="mpBoss"><span class="mb-ico">&#128121;</span><span class="mb-txt">Jefe</span><span id="mpBossSub" class="md-tag"></span></button>
         <button class="mode-btn" id="mpWind"><span class="mb-ico">&#127786;</span><span class="mb-txt">Viento</span><span id="mpWindSub" class="md-tag"></span></button>
       </div>
+      <div class="mode-sec-title">M&#193;S MODOS</div>
+      <div id="mpExpModes" class="mode-list exp-mode-list"></div>
       <button class="btn btn-ghost" id="btnModeBack">VOLVER</button>
     </div>
   </div>
@@ -219,7 +257,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
       <button class="btn" data-nav="settings">&#9881; Ajustes</button>
       <button class="btn" data-nav="records">&#127942; Récords</button>
       <button class="btn btn-danger" id="btnExit">&#8962; Salir</button>
-      <div class="panel-note">P&#237;o Vuelo v3.1 · Temporada 2026 🌍</div>
+      <div class="panel-note">P&#237;o Vuelo v3.2 · Temporada 2026 🌍</div>
     </div>
   </div>
 
@@ -293,6 +331,9 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
   <!-- Toasts -->
   <div id="toastWrap"></div>
 
+  <!-- PRESENTACIÓN CINEMATOGRÁFICA AL EMPEZAR UN MODO -->
+  <div id="cineOverlay" class="cine-overlay hidden" aria-hidden="true"></div>
+
   <!-- Si el jugador escucha, mensaje de arranque -->
   <div id="start-hint" class="hidden">Toca la pantalla para volar</div>
 
@@ -338,6 +379,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
 
 <script src="js/firebase-config.js"></script>
 <script src="js/data.js"></script>
+<script src="js/expansion.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/save.js"></script>
 <script src="js/cloud.js"></script>
@@ -347,6 +389,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
 <script src="js/entities.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/expansion-ui.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

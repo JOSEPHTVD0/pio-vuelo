@@ -1,4 +1,4 @@
-# Pío Vuelo 3.1
+# Pío Vuelo 3.2
 
 Juego arcade de un pájaro que vuela entre tubos, con monedas, power-ups, tienda, misiones, récords y progresión. Funciona como aplicación web instalable (PWA) y también como APK Android mediante WebView.
 
@@ -50,13 +50,36 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 
 - Vuelo con física de aleteo y dificultad progresiva.
 - Modos libre, diario, duelo, zen, boss, viento y replay.
+- Nueve modos de la expansión: supervivencia, contrarreloj, extremo, obstáculos, fiebre de monedas, jefe final, infinito, competitivo y evento.
 - Monedas, combos, power-ups, jefes y obstáculos.
+- Doce personajes con ventajas acotadas, mascotas y accesorios cosméticos.
+- Árbol de habilidades, insignias, títulos, colecciones y maestría por mapa.
+- Herramientas legendarias, temas de interfaz, presets de rendimiento y conjuntos guardados.
+- Liga semanal local con datos reales del dispositivo.
 - Tienda de aves, sombreros, estelas, herramientas y cajas.
 - Misiones, pase de temporada, mapas y progreso.
 - Perfil local con nombre editable y récord persistente.
 - Clasificación local por dispositivo y ranking online opcional con Firebase.
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
+
+## Novedades de la versión 3.2
+
+- **Doce personajes jugables:** Pío, Chispa, Brisa, Trueno, Nebula, Titán, Fénix, Guardián, Cronos, Aurora, Espectro y Dorado. Cada uno tiene su aspecto, su requisito real de desbloqueo y, cuando corresponde, una ventaja pequeña y acotada (monedas, vuelo lento inicial, escudo, XP…). Se compran o desbloquean con progreso, no con dinero real.
+- **Mascotas cosméticas:** nueve compañeros que acompañan al ave y suben de nivel con XP de mascota. No dan ventajas de juego ni modifican la dificultad.
+- **Accesorios por ranura:** marcos, fondos y emotes para el perfil, todos cosméticos. Se compran con monedas y se equipan por separado.
+- **Árbol de habilidades:** ocho habilidades permanentes con hasta cinco niveles. Los puntos se ganan al subir de nivel y las habilidades afectan de verdad a monedas, escudos, imán, puntuación y rescates.
+- **Nueve modos nuevos:** Supervivencia, Contrarreloj, Desafío extremo, Carrera de obstáculos, Fiebre de monedas, Jefe final, Infinito, Competitivo y Modo evento. Cada uno tiene su configuración, objetivo, recompensa y mejor marca propia.
+- **Jefes y ataques:** jefes por mapa, jefe final Cronos y patrones de ataque con proyectiles. Los jefes ocupan varios segmentos reales y se pueden derrotar.
+- **Mapas dinámicos:** meteoros, puertas secretas, tramos de velocidad, viento y modificadores por evento. Todo se puede desactivar o reducir desde Ajustes.
+- **Eventos de temporada:** calendario real (Halloween, Navidad, Carnaval y otros) con mapa, bonus y recompensas por tramos. Fuera de temporada el modo evento queda bloqueado.
+- **Insignias, títulos, colecciones y maestría:** doce insignias, diez títulos, seis colecciones y tres tramos de maestría por mapa. Cada recompensa se reclama una sola vez y queda registrada.
+- **Herramientas legendarias:** siete herramientas permanentes, con requisito de nivel, compra y un uso manual por vuelo. Se muestran en el HUD y no se pueden repetir en la misma partida.
+- **Personalización avanzada:** siete temas de interfaz, cinco presets (equilibrado, rendimiento, accesibilidad, competitivo y cinematográfico) y hasta doce conjuntos guardados.
+- **Liga semanal real:** puntos calculados con tus vuelos y los perfiles del dispositivo. Los rivales fantasma se etiquetan como tales; no se simula multijugador online inexistente.
+- **Clasificaciones reales:** la nube publica y ordena por los campos reales del guardado (`xp`, `coinsGot`, `wins`, `challenges`) además del récord. Las tablas filtran valores a cero y mantienen caché por tabla y cola offline.
+- **Guardado v4 compatible:** los guardados v1–v3 se migran sin perder progreso; los datos nuevos se sanean (personajes, mascotas, habilidades, maestría, eventos, temas y conjuntos) y los valores inválidos vuelven a un estado seguro.
+- **Presentación cinematográfica:** pantalla de inicio de modo con resumen de objetivo, recompensa y jefe, reducible o desactivable desde Ajustes.
 
 ## Novedades de la versión 3.1
 
@@ -145,7 +168,7 @@ No hay dependencias de npm para jugar. Node solo se usa para las pruebas y el se
 node tools/test-game.js
 ```
 
-La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos, Pase Prémium, exclusividad en tienda y cajas, mecánicas de mapas, logros y temas de audio. Actualmente hay **369 pruebas** y todas deben pasar antes de publicar.
+La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos, Pase Prémium, exclusividad en tienda y cajas, mecánicas de mapas, logros, temas de audio y toda la expansión v3.2 (personajes, mascotas, habilidades, insignias, títulos, colecciones, maestría, eventos, legendarias, temas, presets, conjuntos, liga, modos, jefes, meteoros, puertas y rankings reales). Actualmente hay **488 pruebas** y todas deben pasar antes de publicar.
 
 La configuración de Firebase también se valida sin red:
 
@@ -179,8 +202,8 @@ Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con
 
 ## Limitaciones conocidas
 
-- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.1 (versionCode 31)** con el código actual: **7.022.958 bytes** y SHA-256 `B1479C4E5C87C57DD10768DDD0CCED9C14447C408121C8763E63732150460820`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
-- La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (26/26) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 35/35, incluido el modo offline). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos y el ranking online en un dispositivo Android real antes de darlos por cerrados.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.2 (versionCode 32)** con el código actual: **7.064.057 bytes** y SHA-256 `B11F95EC967F7B5A8F2F0ABBBAB4FEFE6B6ACEAB1126830134B38570A8BA9D87`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
+- La verificación incluye pruebas headless (488/488), comprobaciones HTTP, reglas con emuladores (30/30), validación estática de Firebase (55/55) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 35/35, incluido el modo offline). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos, los modos de la expansión y el ranking online en un dispositivo Android real antes de darlos por cerrados.
 - El ranking global solo muestra marcas con más de 0 puntos. Las entradas antiguas con 0 puntos que ya existan en Firestore no se muestran y no se pueden borrar desde el cliente porque las reglas lo impiden; para limpiarlas hace falta la consola de Firebase o el Admin SDK.
 - La primera carga del ranking online necesita red. Si se abre sin conexión y nunca se ha visto la tabla, se muestra un aviso y se puede reintentar; el juego local no se bloquea.
 - La música es procedural (WebAudio) y no usa archivos externos: suena distinta por familia de mapa, pero no son pistas grabadas. El audio requiere un gesto del usuario para desbloquearse en móvil.

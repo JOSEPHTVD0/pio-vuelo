@@ -7,7 +7,7 @@ window.SAVE = (function () {
 
   function defaults() {
     return {
-      v: 1,
+      v: 4,
       coins: DEFAULT_PERKS.coins,
       coinsEarned: 0,
       parts: 0,             // 🔩 piezas: material para mejoras de nivel alto
@@ -28,7 +28,7 @@ window.SAVE = (function () {
       hat: null, hatsOwned: [],
       fx: 'fx-none', fxOwned: [{ id: 'fx-none' }],
       map: 'day', mapsOwned: [{ id: 'day' }],
-      set: { sfx: true, music: true, vib: true, diff: 'normal', gfx: 'high', mode: 'free', hc: false, moon: false, volS: 1, volM: 1, volG: 1, reduced: false, shake: true, lift: false, fps: 0, sens: 1, notif: true, uiAnim: true, confirmBuy: false },
+      set: { sfx: true, music: true, vib: true, diff: 'normal', gfx: 'high', mode: 'free', hc: false, moon: false, volS: 1, volM: 1, volG: 1, reduced: false, shake: true, lift: false, fps: 0, sens: 1, notif: true, uiAnim: true, confirmBuy: false, theme: 'theme-default', cine: 'full' },
       tutorialDone: false,
       history: [],          // últimas compras/mejoras/reparaciones (máx. 30)
       dailyM: { date: '', claimed: [] },
@@ -53,7 +53,29 @@ window.SAVE = (function () {
         decor: { bg: 'bg-cielo', floor: 'fl-pasto', poster: 'po-estrella', rug: 'rug-nada' },
         decorOwned: ['bg-cielo', 'fl-pasto', 'po-estrella', 'rug-nada'],
         eggs: []
-      }
+      },
+      /* --- Expansión v4 --- */
+      charsOwned: ['pio'],       // personajes reclamados
+      char: 'pio',               // personaje equipado
+      accessoryOwned: ['fr-madera', 'bn-cielo', 'em-hola'],
+      accessories: { frame: 'fr-madera', banner: 'bn-cielo', emote: 'em-hola' },
+      petsOwned: [],             // las mascotas gratuitas no necesitan estar aquí
+      pet: '',                   // mascota equipada ('' = ninguna)
+      petXp: {},                 // XP cosmética por mascota
+      skills: {},                // niveles del árbol de habilidades
+      skillPoints: 1,            // 1 punto de regalo para empezar
+      badges: [],                // insignias reclamadas
+      title: '',                 // título equipado
+      collections: [],           // colecciones reclamadas
+      masteryClaimed: [],        // "mapa:tier" reclamados
+      mapBest: {},               // mejor marca por mapa (maestría real)
+      bestByMode: {},            // mejor marca por modo (fantasma del competitivo)
+      events: {},                // progreso y recompensas por evento y año
+      legendaryOwned: [],        // herramientas legendarias compradas
+      legendary: '',             // herramienta legendaria equipada
+      league: { week: '', claimed: '' },
+      presetsUsed: [],
+      loadouts: []          // conjuntos de personalización guardados
     };
   }
 
@@ -154,6 +176,125 @@ window.SAVE = (function () {
     data.shields = Math.max(0, Math.floor(data.shields));
   }
 
+  /* Completa y valida todos los datos de la expansión (migración v4).
+     Compatible con guardados v1-v3: añade lo que falta sin borrar nada. */
+  function ensureExpansion() {
+    data.v = 4;                               // versión de guardado con expansión
+    if (typeof EXP === 'undefined' || !EXP) return;
+    const known = list => (Array.isArray(list) ? list : []).filter(x => typeof x === 'string');
+    const uniq = list => known(list).filter((x, i) => known(list).indexOf(x) === i);
+
+    // Personajes
+    data.charsOwned = uniq(data.charsOwned).filter(id => EXP.CHARACTERS.some(c => c.id === id));
+    if (data.charsOwned.indexOf('pio') === -1) data.charsOwned.unshift('pio');
+    if (!EXP.charOwned(data, data.char)) data.char = 'pio';
+
+    // Accesorios
+    data.accessoryOwned = uniq(data.accessoryOwned).filter(id => !!EXP.getAccessory(id));
+    ['fr-madera', 'bn-cielo', 'em-hola'].forEach(id => {
+      if (data.accessoryOwned.indexOf(id) === -1) data.accessoryOwned.push(id);
+    });
+    if (!data.accessories || typeof data.accessories !== 'object') data.accessories = {};
+    EXP.ACCESSORY_SLOTS.forEach(slot => {
+      const id = data.accessories[slot.id];
+      const acc = EXP.getAccessory(id);
+      if (!acc || acc.slot !== slot.id || data.accessoryOwned.indexOf(id) === -1) {
+        const free = EXP.accessoriesBySlot(slot.id).find(a => a.price === 0) || EXP.accessoriesBySlot(slot.id)[0];
+        data.accessories[slot.id] = free ? free.id : '';
+      }
+    });
+
+    // Mascotas y su XP cosmética
+    data.petsOwned = uniq(data.petsOwned).filter(id => EXP.PETS.some(p => p.id === id));
+    if (!data.petXp || typeof data.petXp !== 'object') data.petXp = {};
+    Object.keys(data.petXp).forEach(id => {
+      if (!EXP.PETS.some(p => p.id === id)) { delete data.petXp[id]; return; }
+      data.petXp[id] = Math.max(0, Math.floor(num(data.petXp[id])));
+    });
+    if (data.pet && !EXP.petOwned(data, data.pet)) data.pet = '';
+
+    // Árbol de habilidades
+    if (!data.skills || typeof data.skills !== 'object') data.skills = {};
+    Object.keys(data.skills).forEach(id => {
+      if (!EXP.SKILLS.some(sk => sk.id === id)) delete data.skills[id];
+    });
+    EXP.SKILLS.forEach(sk => {
+      const v = Math.floor(num(data.skills[sk.id]));
+      data.skills[sk.id] = Math.max(0, Math.min(sk.max, v));
+    });
+    data.skillPoints = Math.max(0, Math.floor(num(data.skillPoints)));
+
+    // Insignias, títulos y colecciones
+    data.badges = uniq(data.badges).filter(id => EXP.BADGES.some(b => b.id === id));
+    data.collections = uniq(data.collections).filter(id => EXP.COLLECTIONS.some(c => c.id === id));
+    if (data.title) {
+      const t = EXP.TITLES.find(x => x.id === data.title);
+      if (!t || !EXP.titleUnlocked(data, t)) data.title = '';
+    }
+    const mapIds = DAT.MAPS.map(m => m.id);
+    const tierIds = EXP.MASTERY_TIERS.map(t => t.id);
+    data.masteryClaimed = uniq(data.masteryClaimed).filter(k => {
+      const parts = k.split(':');
+      return parts.length === 2 && mapIds.indexOf(parts[0]) !== -1 && tierIds.indexOf(parts[1]) !== -1;
+    });
+
+    // Maestría y mejores marcas por modo
+    if (!data.mapBest || typeof data.mapBest !== 'object') data.mapBest = {};
+    Object.keys(data.mapBest).forEach(id => {
+      if (mapIds.indexOf(id) === -1) { delete data.mapBest[id]; return; }
+      data.mapBest[id] = Math.max(0, Math.floor(num(data.mapBest[id])));
+    });
+    const validModes = ['free', 'zen', 'boss', 'wind', 'challenge', 'duel', 'replay'].concat(EXP.MODES.map(m => m.id));
+    if (!data.bestByMode || typeof data.bestByMode !== 'object') data.bestByMode = {};
+    Object.keys(data.bestByMode).forEach(k => {
+      if (validModes.indexOf(k) === -1) { delete data.bestByMode[k]; return; }
+      data.bestByMode[k] = Math.max(0, Math.floor(num(data.bestByMode[k])));
+    });
+
+    // Eventos: caja por "evento-año", progreso y recompensas reclamadas
+    if (!data.events || typeof data.events !== 'object') data.events = {};
+    Object.keys(data.events).forEach(k => {
+      if (!/^[a-z]+-\d{4}$/.test(k)) { delete data.events[k]; return; }
+      const box = data.events[k];
+      if (!box || typeof box !== 'object') { delete data.events[k]; return; }
+      box.progress = Math.max(0, Math.floor(num(box.progress)));
+      box.claimed = uniq(box.claimed);
+    });
+
+    // Herramientas legendarias
+    data.legendaryOwned = uniq(data.legendaryOwned).filter(k => !!EXP.getLegendary(k));
+    if (data.legendary && data.legendaryOwned.indexOf(data.legendary) === -1) data.legendary = '';
+
+    // Liga semanal local
+    if (!data.league || typeof data.league !== 'object') data.league = { week: '', claimed: '' };
+    if (typeof data.league.week !== 'string') data.league.week = '';
+    if (typeof data.league.claimed !== 'string') data.league.claimed = '';
+
+    // Ajustes nuevos
+    if (!data.set) data.set = defaults().set;
+    if (!EXP.getTheme(data.set.theme) || !EXP.themeUnlocked(data, EXP.getTheme(data.set.theme))) {
+      data.set.theme = 'theme-default';
+    }
+    if (['full', 'reduced', 'off'].indexOf(data.set.cine) === -1) data.set.cine = 'full';
+    if (!Array.isArray(data.presetsUsed)) data.presetsUsed = [];
+
+    // Conjuntos de personalización guardados (máx. 12)
+    data.loadouts = (Array.isArray(data.loadouts) ? data.loadouts : []).filter(l => l && typeof l === 'object' && typeof l.name === 'string').slice(-12);
+    data.loadouts.forEach(l => {
+      l.char = EXP.charOwned(data, l.char) ? l.char : 'pio';
+      if (l.pet && !EXP.petOwned(data, l.pet)) l.pet = '';
+      l.accessories = (l.accessories && typeof l.accessories === 'object') ? l.accessories : {};
+      EXP.ACCESSORY_SLOTS.forEach(slot => {
+        const acc = EXP.getAccessory(l.accessories[slot.id]);
+        if (!acc || acc.slot !== slot.id || data.accessoryOwned.indexOf(acc.id) === -1) l.accessories[slot.id] = data.accessories[slot.id];
+      });
+      l.theme = EXP.getTheme(l.theme).id;
+    });
+
+    // Aplica el tema guardado a la interfaz (si hay DOM).
+    try { EXP.applyTheme(data, typeof document !== 'undefined' ? document : null); } catch (e) { }
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
@@ -164,11 +305,11 @@ window.SAVE = (function () {
         } catch (e) {
           // save corrupto: se respalda y se parte de cero (no se pierde silenciosamente)
           try { localStorage.setItem(KEY + '_bak', raw); } catch (e2) { }
-          data = defaults(); ensureIdentity(); ensurePassSeason(); return true;
+          data = defaults(); ensureIdentity(); ensurePassSeason(); ensureExpansion(); return true;
         }
         if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
           try { localStorage.setItem(KEY + '_bak', raw); } catch (e2) { }
-          data = defaults(); ensureIdentity(); ensurePassSeason(); return true;
+          data = defaults(); ensureIdentity(); ensurePassSeason(); ensureExpansion(); return true;
         }
         data = Object.assign(defaults(), parsed);
         // los stats se fusionan en profundidad: si el save viejo no traía los
@@ -321,12 +462,14 @@ window.SAVE = (function () {
         }
         ensureIdentity();   // perfil, ranking local y escudos (migración)
         ensurePassSeason(); // rota el Pase si cambió la temporada real
+        ensureExpansion();  // personajes, mascotas, habilidades, eventos, liga (v4)
         return false;
       }
     } catch (e) { loadError = true; }
     data = defaults();
     ensureIdentity();
     ensurePassSeason();
+    ensureExpansion();
     return true; // primera vez
   }
 
@@ -406,6 +549,7 @@ window.SAVE = (function () {
       data.level += 1; ups++;
       addCoins(75 + data.level * 10); // recompensa de subir de nivel
     }
+    if (ups > 0) data.skillPoints = (data.skillPoints || 0) + ups; // 1 punto de habilidad por nivel
     save();
     return ups; // niveles subidos
   }
@@ -431,7 +575,7 @@ window.SAVE = (function () {
   function skinStage(id) { return DAT.evolveStage(skinXp(id)); }
 
   /* --- Stats --- */
-  function endRun(score, pipesPassed, coinsGot, timeSec, distMeters, modeName) {
+  function endRun(score, pipesPassed, coinsGot, timeSec, distMeters, modeName, meta) {
     data.stats.flights += 1;
     data.stats.pipes += pipesPassed;
     data.stats.timePlayed += Math.floor(timeSec);
@@ -445,6 +589,35 @@ window.SAVE = (function () {
     // 🔩 Piezas: 1 por vuelo + 1 por buena marca + 1 si es récord personal
     const gotParts = 1 + (score >= 20 ? 1 : 0) + (isRecord ? 1 : 0);
     addParts(gotParts);
+
+    /* --- Expansión v4: maestría, eventos, mascota y fantasma por modo --- */
+    if (typeof EXP !== 'undefined' && EXP) {
+      const mapId = (meta && meta.mapId) || data.map;
+      if (DAT.getMap(mapId)) {
+        data.mapBest[mapId] = Math.max(data.mapBest[mapId] || 0, Math.max(0, Math.floor(num(score))));
+      }
+      const modeId = typeof modeName === 'string' ? modeName : 'free';
+      data.bestByMode[modeId] = Math.max(data.bestByMode[modeId] || 0, Math.max(0, Math.floor(num(score))));
+      const ev = EXP.activeEvent();
+      if (ev) {
+        const key = EXP.eventKey(ev);
+        if (!data.events[key]) data.events[key] = { progress: 0, claimed: [] };
+        const bossKills = Math.max(0, Math.floor(num(meta && meta.bossKills)));
+        let add = 0;
+        if (ev.metric === 'runs') add = 1;
+        else if (ev.metric === 'coins') add = Math.max(0, Math.floor(num(coinsGot)));
+        else if (ev.metric === 'pipes') add = Math.max(0, Math.floor(num(pipesPassed)));
+        else if (ev.metric === 'score') add = Math.max(0, Math.floor(num(score)));
+        else if (ev.metric === 'boss') add = bossKills;
+        data.events[key].progress += add;
+      }
+      // La mascota equipada sube de nivel con cada vuelo (solo aspecto).
+      if (data.pet && EXP.petOwned(data, data.pet)) {
+        const gain = 4 + (score >= 20 ? 2 : 0) + (isRecord ? 4 : 0);
+        data.petXp[data.pet] = Math.max(0, Math.floor(num(data.petXp[data.pet]))) + gain;
+      }
+      save();
+    }
     return isRecord;
   }
 
@@ -745,6 +918,14 @@ window.SAVE = (function () {
     DAT.HATS.forEach(h => { if (!owns(data.hatsOwned, h.id)) data.hatsOwned.push({ id: h.id }); });
     DAT.EFFECTS.forEach(f => { if (!owns(data.fxOwned, f.id)) data.fxOwned.push({ id: f.id }); });
     DAT.MAPS.forEach(m => { if (!owns(data.mapsOwned, m.id)) data.mapsOwned.push({ id: m.id }); });
+    /* Expansión: personajes, mascotas, accesorios y herramientas legendarias */
+    if (typeof EXP !== 'undefined' && EXP) {
+      EXP.CHARACTERS.forEach(c => { if (data.charsOwned.indexOf(c.id) === -1) data.charsOwned.push(c.id); });
+      EXP.PETS.forEach(p => { if (data.petsOwned.indexOf(p.id) === -1) data.petsOwned.push(p.id); });
+      EXP.ACCESSORIES.forEach(a => { if (data.accessoryOwned.indexOf(a.id) === -1) data.accessoryOwned.push(a.id); });
+      EXP.LEGENDARY_TOOLS.forEach(t => { if (data.legendaryOwned.indexOf(t.key) === -1) data.legendaryOwned.push(t.key); });
+      EXP.SKILLS.forEach(sk => { data.skills[sk.id] = sk.max; });
+    }
     save();
     return true;
   }
@@ -961,6 +1142,14 @@ window.SAVE = (function () {
     if (r && r.skin && !owns(data.skinsOwned, r.skin)) {
       data.skinsOwned.push({ id: r.skin });
     }
+    /* Expansión: recompensas de insignias, colecciones, eventos y liga. */
+    if (r && r.skill) data.skillPoints = Math.max(0, Math.floor(num(data.skillPoints))) + Math.max(0, Math.floor(num(r.skill)));
+    if (r && r.petXp) {
+      const petId = (data.pet && EXP && EXP.petOwned(data, data.pet)) ? data.pet : 'pet-pollito';
+      data.petXp[petId] = Math.max(0, Math.floor(num(data.petXp[petId]))) + Math.max(0, Math.floor(num(r.petXp)));
+    }
+    if (r && r.char && EXP && EXP.getChar(r.char) && data.charsOwned.indexOf(r.char) === -1) data.charsOwned.push(r.char);
+    if (r && r.pet && EXP && EXP.getPet(r.pet) && data.petsOwned.indexOf(r.pet) === -1) data.petsOwned.push(r.pet);
   }
 
   /* --- Pase de Vuelo 🎫 (rota automáticamente por temporada real) --- */
@@ -1213,11 +1402,323 @@ window.SAVE = (function () {
     return { kind: r.kind, item: item };
   }
 
+  /* ==================================================================
+   * EXPANSIÓN v4 · API pública
+   * ================================================================== */
+
+  /* --- Personajes --- */
+  function buyChar(id) {
+    const c = EXP.getChar(id);
+    if (!c || c.id !== id) return { ok: false, msg: 'No existe' };
+    if (EXP.charOwned(data, id)) return { ok: false, msg: 'Ya lo tienes' };
+    if (!EXP.charUnlocked(data, id)) return { ok: false, msg: 'Bloqueado: ' + EXP.reqText(c.req) };
+    const price = Math.max(0, Math.floor(num(c.price)));
+    if (price > 0 && data.coins < price) return { ok: false, msg: 'no_money' };
+    if (price > 0) {
+      data.coins -= price;
+      data.stats.spent = (data.stats.spent || 0) + price;
+    }
+    data.charsOwned.push(id);
+    data.char = id;
+    pushHistory('personaje', c.name, price > 0 ? price + ' 🪙' : 'Desbloqueado');
+    save();
+    return { ok: true, item: c };
+  }
+  function equipChar(id) {
+    if (!EXP.charOwned(data, id)) return false;
+    data.char = id;
+    save();
+    return true;
+  }
+  function charPerk() { return EXP.charPerk(data.char); }
+
+  /* --- Accesorios --- */
+  function buyAccessory(id) {
+    const a = EXP.getAccessory(id);
+    if (!a) return { ok: false, msg: 'No existe' };
+    if (data.accessoryOwned.indexOf(id) !== -1) return { ok: false, msg: 'Ya lo tienes' };
+    const price = Math.max(0, Math.floor(num(a.price)));
+    if (price > 0 && data.coins < price) return { ok: false, msg: 'no_money' };
+    if (price > 0) {
+      data.coins -= price;
+      data.stats.spent = (data.stats.spent || 0) + price;
+    }
+    data.accessoryOwned.push(id);
+    data.accessories[a.slot] = id;
+    pushHistory('accesorio', a.name, price > 0 ? price + ' 🪙' : 'Gratis');
+    save();
+    return { ok: true, item: a };
+  }
+  function equipAccessory(slot, id) {
+    const a = EXP.getAccessory(id);
+    if (!a || a.slot !== slot) return false;
+    if (data.accessoryOwned.indexOf(id) === -1) return false;
+    data.accessories[slot] = id;
+    save();
+    return true;
+  }
+
+  /* --- Mascotas --- */
+  function petXpOf(id) { return Math.max(0, Math.floor(num(data.petXp && data.petXp[id]))); }
+  function petLevelOf(id) { return EXP.petLevel(petXpOf(id)); }
+  function addPetXp(id, n) {
+    const p = EXP.getPet(id);
+    if (!p || p.id !== id || !(n > 0)) return 0;
+    const before = petLevelOf(id);
+    data.petXp[id] = petXpOf(id) + Math.floor(n);
+    save();
+    return petLevelOf(id) - before;
+  }
+  function buyPet(id) {
+    const p = EXP.getPet(id);
+    if (!p || p.id !== id) return { ok: false, msg: 'No existe' };
+    if (EXP.petOwned(data, id)) { data.pet = id; save(); return { ok: true, item: p, equipped: true }; }
+    if (!EXP.petUnlocked(data, id)) return { ok: false, msg: 'Bloqueado: ' + EXP.reqText(p.req) };
+    const price = Math.max(0, Math.floor(num(p.price)));
+    if (price > 0 && data.coins < price) return { ok: false, msg: 'no_money' };
+    if (price > 0) {
+      data.coins -= price;
+      data.stats.spent = (data.stats.spent || 0) + price;
+    }
+    data.petsOwned.push(id);
+    data.pet = id;
+    pushHistory('mascota', p.name, price > 0 ? price + ' 🪙' : 'Gratis');
+    save();
+    return { ok: true, item: p };
+  }
+  function equipPet(id) {
+    if (id === '') { data.pet = ''; save(); return true; }
+    if (!EXP.petOwned(data, id)) return false;
+    data.pet = id;
+    save();
+    return true;
+  }
+
+  /* --- Habilidades --- */
+  function skillLevel(id) { return EXP.skillLv(data, id); }
+  function addSkillPoint(n) {
+    data.skillPoints = Math.max(0, Math.floor(num(data.skillPoints))) + Math.max(0, Math.floor(num(n)));
+    save();
+    return data.skillPoints;
+  }
+  function learnSkill(id) {
+    const sk = EXP.getSkill(id);
+    if (!sk) return { ok: false, msg: 'No existe' };
+    const lv = EXP.skillLv(data, id);
+    if (lv >= sk.max) return { ok: false, msg: 'Nivel máximo' };
+    if (!EXP.skillReqMet(data, id)) return { ok: false, msg: 'Requiere ' + sk.req.level + ' niveles de ' + (EXP.getSkill(sk.req.skill) || {}).name };
+    const cost = EXP.skillCost(data, id);
+    if (data.skillPoints < cost) return { ok: false, msg: 'Sin puntos' };
+    data.skillPoints -= cost;
+    data.skills[id] = lv + 1;
+    data.stats.upgs = (data.stats.upgs || 0) + 1;
+    save();
+    return { ok: true, skill: sk, level: lv + 1, cost: cost };
+  }
+  function resetSkills() {
+    let refund = 0;
+    Object.keys(data.skills || {}).forEach(id => { refund += Math.max(0, Math.floor(num(data.skills[id]))); data.skills[id] = 0; });
+    data.skillPoints = Math.max(0, Math.floor(num(data.skillPoints))) + refund;
+    save();
+    return refund;
+  }
+  function skillBuffs() { return EXP.skillBuffs(data); }
+
+  /* --- Insignias, títulos, colecciones y maestría --- */
+  function claimBadge(id) {
+    const b = EXP.BADGES.find(x => x.id === id);
+    if (!b) return null;
+    if (data.badges.indexOf(id) !== -1) return null;
+    if (!EXP.badgeReady(data, b)) return null;
+    data.badges.push(id);
+    grantReward(b.reward);
+    save();
+    return b;
+  }
+  function equipTitle(id) {
+    if (id === '') { data.title = ''; save(); return true; }
+    const t = EXP.TITLES.find(x => x.id === id);
+    if (!t || !EXP.titleUnlocked(data, t)) return false;
+    data.title = id;
+    save();
+    return true;
+  }
+  function claimCollection(id) {
+    const c = EXP.COLLECTIONS.find(x => x.id === id);
+    if (!c) return null;
+    if (data.collections.indexOf(id) !== -1) return null;
+    if (!EXP.collectionMet(data, c)) return null;
+    data.collections.push(id);
+    grantReward(c.reward);
+    save();
+    return c;
+  }
+  function claimMastery(mapId, tierId) {
+    const tier = EXP.MASTERY_TIERS.find(t => t.id === tierId);
+    if (!tier || !DAT.getMap(mapId)) return null;
+    const key = EXP.masteryKey(mapId, tierId);
+    if (data.masteryClaimed.indexOf(key) !== -1) return null;
+    if ((data.mapBest[mapId] || 0) < tier.need) return null;
+    data.masteryClaimed.push(key);
+    grantReward(tier.reward);
+    save();
+    return tier;
+  }
+
+  /* --- Eventos --- */
+  function eventBoxFor(evId) {
+    const now = new Date();
+    const keys = [evId + '-' + now.getFullYear(), evId + '-' + (now.getFullYear() - 1), evId + '-' + (now.getFullYear() + 1)];
+    for (const k of keys) if (data.events[k]) return { key: k, box: data.events[k] };
+    return { key: keys[0], box: { progress: 0, claimed: [] } };
+  }
+  function eventState(evId) {
+    const ev = evId ? EXP.getEvent(evId) : EXP.activeEvent();
+    if (!ev) return null;
+    const found = eventBoxFor(ev.id);
+    return {
+      event: ev,
+      key: found.key,
+      progress: Math.max(0, Math.floor(num(found.box.progress))),
+      claimed: Array.isArray(found.box.claimed) ? found.box.claimed.slice() : []
+    };
+  }
+  function claimEventReward(evId, rid) {
+    const st = eventState(evId);
+    if (!st) return null;
+    const r = (st.event.rewards || []).find(x => x.id === rid);
+    if (!r || st.claimed.indexOf(rid) !== -1 || st.progress < r.need) return null;
+    const found = eventBoxFor(st.event.id);
+    if (!data.events[found.key]) data.events[found.key] = { progress: 0, claimed: [] };
+    data.events[found.key].claimed.push(rid);
+    grantReward(r);
+    save();
+    return r;
+  }
+
+  /* --- Herramientas legendarias --- */
+  function buyLegendary(key) {
+    const t = EXP.getLegendary(key);
+    if (!t) return { ok: false, msg: 'No existe' };
+    if (data.legendaryOwned.indexOf(key) !== -1) { data.legendary = key; save(); return { ok: true, item: t, equipped: true }; }
+    if (!EXP.legendaryUnlocked(data, t)) return { ok: false, msg: 'Bloqueado: ' + EXP.reqText(t.req) };
+    const price = Math.max(0, Math.floor(num(t.price)));
+    if (data.coins < price) return { ok: false, msg: 'no_money' };
+    data.coins -= price;
+    data.stats.spent = (data.stats.spent || 0) + price;
+    data.legendaryOwned.push(key);
+    data.legendary = key;
+    pushHistory('legendaria', t.name, price + ' 🪙');
+    save();
+    return { ok: true, item: t };
+  }
+  function equipLegendary(key) {
+    if (key === '') { data.legendary = ''; save(); return true; }
+    if (data.legendaryOwned.indexOf(key) === -1) return false;
+    data.legendary = key;
+    save();
+    return true;
+  }
+
+  /* --- Temas y presets --- */
+  function setTheme(id) {
+    const t = EXP.getTheme(id);
+    if (!t || t.id !== id || !EXP.themeUnlocked(data, t)) return false;
+    data.set.theme = id;
+    save();
+    try { EXP.applyTheme(data, typeof document !== 'undefined' ? document : null); } catch (e) { }
+    return true;
+  }
+  function applyPreset(id) {
+    const p = EXP.getPreset(id);
+    if (!p) return false;
+    Object.assign(data.set, p.set);
+    if (data.presetsUsed.indexOf(id) === -1) data.presetsUsed.push(id);
+    save();
+    try { EXP.applyTheme(data, typeof document !== 'undefined' ? document : null); } catch (e) { }
+    return true;
+  }
+
+  /* --- Conjuntos de personalización (favoritos) --- */
+  function saveLoadout(name) {
+    const nm = cleanName(name) || ('Conjunto ' + ((data.loadouts || []).length + 1));
+    const l = {
+      id: 'ld_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5),
+      name: nm,
+      char: data.char,
+      pet: data.pet || '',
+      accessories: Object.assign({}, data.accessories),
+      theme: data.set.theme,
+      skin: data.skin,
+      hat: data.hat || null,
+      fx: data.fx,
+      created: Date.now()
+    };
+    if (!Array.isArray(data.loadouts)) data.loadouts = [];
+    data.loadouts.push(l);
+    if (data.loadouts.length > 12) data.loadouts.shift();
+    pushHistory('conjunto', nm, 'Guardado');
+    save();
+    return l;
+  }
+  function applyLoadout(id) {
+    const l = (data.loadouts || []).find(x => x.id === id);
+    if (!l) return false;
+    if (EXP.charOwned(data, l.char)) data.char = l.char;
+    if (!l.pet || EXP.petOwned(data, l.pet)) data.pet = l.pet || '';
+    EXP.ACCESSORY_SLOTS.forEach(slot => {
+      const acc = EXP.getAccessory(l.accessories && l.accessories[slot.id]);
+      if (acc && acc.slot === slot.id && data.accessoryOwned.indexOf(acc.id) !== -1) data.accessories[slot.id] = acc.id;
+    });
+    if (EXP.themeUnlocked(data, EXP.getTheme(l.theme))) data.set.theme = l.theme;
+    if (owns(data.skinsOwned, l.skin)) data.skin = l.skin;
+    if (!l.hat || owns(data.hatsOwned, l.hat)) data.hat = l.hat || null;
+    if (owns(data.fxOwned, l.fx)) data.fx = l.fx;
+    save();
+    try { EXP.applyTheme(data, typeof document !== 'undefined' ? document : null); } catch (e) { }
+    return true;
+  }
+  function deleteLoadout(id) {
+    const before = (data.loadouts || []).length;
+    data.loadouts = (data.loadouts || []).filter(x => x.id !== id);
+    if (data.loadouts.length === before) return false;
+    save();
+    return true;
+  }
+
+  /* --- Liga semanal local --- */
+  function leagueState(date) {
+    const key = EXP.weekKey(date);
+    if (data.league.week !== key) {
+      data.league.week = key;
+      data.league.claimed = '';
+      save();
+    }
+    const points = EXP.weekPoints(data, date);
+    const tier = EXP.leagueTierFor(points);
+    return {
+      week: key,
+      points: points,
+      tier: tier,
+      next: EXP.nextLeagueTier(points),
+      claimed: data.league.claimed === tier.id ? tier.id : '',
+      rivals: EXP.ghostRivals(data, 5)
+    };
+  }
+  function claimLeague(date) {
+    const st = leagueState(date);
+    if (st.claimed === st.tier.id) return null;
+    data.league.claimed = st.tier.id;
+    grantReward(st.tier.reward);
+    save();
+    return st.tier;
+  }
+
   function get() { return data; }
 
   /* --- Copia de seguridad manual: exportar e importar el progreso --- */
   function exportData() {
-    return JSON.stringify({ app: 'pio-vuelo', v: 1, exported: Date.now(), data: data }, null, 2);
+    return JSON.stringify({ app: 'pio-vuelo', v: 4, exported: Date.now(), data: data }, null, 2);
   }
   function importData(text) {
     let parsed;
@@ -1261,6 +1762,17 @@ window.SAVE = (function () {
     // perfil, ranking local y escudos persistentes
     getProfile, rename, randomName, cleanName, leaderboard,
     shieldCount, addShield, useShield,
+    // expansión v4
+    buyChar, equipChar, charPerk,
+    buyAccessory, equipAccessory,
+    petXpOf, petLevelOf, addPetXp, buyPet, equipPet,
+    skillLevel, addSkillPoint, learnSkill, resetSkills, skillBuffs,
+    claimBadge, equipTitle, claimCollection, claimMastery,
+    eventState, claimEventReward,
+    buyLegendary, equipLegendary,
+    setTheme, applyPreset,
+    saveLoadout, applyLoadout, deleteLoadout,
+    leagueState, claimLeague,
     lastSaveError, lastLoadError
   };
   return SAVE;

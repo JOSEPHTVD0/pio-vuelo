@@ -142,7 +142,7 @@ sandbox.globalThis = sandbox;
 sandbox.self = sandbox;
 
 vm.createContext(sandbox);
-for (const f of ['js/data.js', 'js/save.js', 'js/game.js']) {
+for (const f of ['js/data.js', 'js/expansion.js', 'js/save.js', 'js/game.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), sandbox, { filename: f });
 }
 
@@ -859,6 +859,7 @@ section('16. INTERFAZ: pantallas, navegación e inicio');
 {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+  const expUiSrc = fs.readFileSync(path.join(ROOT, 'js/expansion-ui.js'), 'utf8');
   const mainSrc = fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8');
 
   ['btnPlay', 'btnContinue', 'homeCoins', 'homeParts', 'homeNotice', 'homeTutorial',
@@ -868,7 +869,8 @@ section('16. INTERFAZ: pantallas, navegación e inicio');
 
   const navs = Array.from(new Set(Array.from(html.matchAll(/data-nav="([^"]+)"/g)).map(m => m[1])));
   ok(navs.length >= 8, 'la portada tiene accesos rápidos', navs.join(','));
-  navs.forEach(n => ok(uiSrc.indexOf("case '" + n + "':") !== -1 || uiSrc.indexOf("case '" + n + "':") !== -1,
+  navs.forEach(n => ok(
+    uiSrc.indexOf("case '" + n + "':") !== -1 || expUiSrc.indexOf("case '" + n + "':") !== -1,
     'la navegación «' + n + '» tiene pantalla real'));
 
   ok(uiSrc.indexOf('function renderInventory') !== -1, 'existe la pantalla de inventario');
@@ -1247,6 +1249,300 @@ section('23. RELIQUIA DEL PASE: permanente, desgaste y reparación');
   ok(dup && dup.converted === true, 'reclamar otra vez la Reliquia se convierte en monedas');
   ok(SAVE.get().coins === coinsPre + 250, 'la Reliquia repetida paga 250 🪙', SAVE.get().coins - coinsPre);
   ok(SAVE.itemCount('legend') === 1, 'la Reliquia repetida no suma stock infinito');
+}
+
+/* ---------------- 24. Expansión v3.2 ---------------- */
+section('24. EXPANSIÓN v3.2: personajes, mascotas, habilidades y modos');
+{
+  const EXP = sandbox.EXP;
+  ok(!!EXP, 'el catálogo de la expansión está cargado');
+
+  /* --- Migración a guardado v4 --- */
+  const oldV3 = {
+    v: 3, coins: 250, coinsEarned: 400, level: 4, xp: 10,
+    stats: { best: 15, flights: 6, pipes: 60, coinsGot: 300 },
+    char: 'no-existe', charsOwned: ['pio', 'fantasma'],
+    petsOwned: ['pet-inventada'], pet: 'pet-inventada', petXp: { 'pet-inventada': 50, 'pet-gato': -3 },
+    skills: { sk_coins: 99, sk_inexistente: 2 }, skillPoints: -5,
+    badges: ['bg-first', 'bg-falso'], collections: ['co-starter', 'co-falsa'],
+    masteryClaimed: ['day:oro', 'dia:oro'], mapBest: { day: 40, 'mapa-falso': 10 },
+    bestByMode: { free: 15, hacked: 'x' }, events: { 'halloween-2026': { progress: -3, claimed: ['h1'] }, basura: 1 },
+    legendaryOwned: ['lg-electric', 'lg-falso'], legendary: 'lg-falso',
+    league: { week: 7, claimed: 3 }, set: { theme: 'theme-neon', cine: 'raro' },
+    loadouts: [{ name: 'Viejo', char: 'fantasma', pet: 'pet-inventada', accessories: { frame: 'fr-oro' }, theme: 'theme-neon' }]
+  };
+  localStorage.setItem(KEY, JSON.stringify(oldV3));
+  SAVE.load();
+  const m = SAVE.get();
+  ok(m.v === 4, 'un guardado v3 se migra a v4', m.v);
+  ok(Array.isArray(m.charsOwned) && m.charsOwned.indexOf('pio') !== -1 && m.charsOwned.indexOf('fantasma') === -1,
+    'los personajes desconocidos se descartan');
+  ok(m.char === 'pio', 'un personaje equipado inválido vuelve a Pío');
+  ok(m.petsOwned.indexOf('pet-inventada') === -1 && m.pet === '', 'las mascotas inventadas se limpian');
+  ok(m.petXp['pet-gato'] === 0 && !('pet-inventada' in m.petXp), 'la XP de mascota se sanea');
+  ok(m.skills.sk_coins === 5 && !('sk_inexistente' in m.skills), 'las habilidades se limitan a su máximo real');
+  ok(m.skillPoints === 0, 'los puntos de habilidad negativos se corrigen');
+  ok(m.badges.indexOf('bg-falso') === -1 && m.collections.indexOf('co-falsa') === -1, 'insignias y colecciones falsas se eliminan');
+  ok(m.masteryClaimed.indexOf('day:oro') !== -1 && m.masteryClaimed.indexOf('dia:oro') === -1, 'la maestría se valida por mapa real');
+  ok(!('mapa-falso' in m.mapBest), 'las mejores marcas de mapas inexistentes se eliminan');
+  ok(!('hacked' in m.bestByMode), 'las mejores marcas por modo se sanean');
+  ok(m.events['halloween-2026'].progress === 0 && !m.events.basura, 'el progreso de evento se valida por evento y año');
+  ok(m.legendaryOwned.indexOf('lg-falso') === -1 && m.legendary === '', 'las legendarias desconocidas se descartan');
+  ok(m.league.week === '' && m.league.claimed === '', 'la liga semanal se reinicia con valores válidos');
+  ok(m.set.theme === 'theme-default' && m.set.cine === 'full', 'un tema bloqueado o una cinemática inválida vuelven al ajuste seguro');
+  ok(m.loadouts.length === 1 && m.loadouts[0].char === 'pio' && m.loadouts[0].pet === '' &&
+    m.loadouts[0].accessories.frame === 'fr-madera', 'los conjuntos guardados se migran a piezas reales');
+
+  /* --- Personajes y accesorios --- */
+  SAVE.reset(); SAVE.load();
+  SAVE.addCoins(20000);
+  const coins0 = SAVE.get().coins;
+  const chispa = SAVE.buyChar('chispa');
+  ok(chispa.ok && SAVE.get().charsOwned.indexOf('chispa') !== -1, 'se compra un personaje real');
+  ok(SAVE.get().coins === coins0 - 1800, 'el personaje descuenta su precio exacto');
+  ok(SAVE.get().char === 'chispa' && SAVE.charPerk().coins === 0.05, 'el personaje comprado se equipa y aporta su ventaja');
+  ok(SAVE.buyChar('chispa').ok === false, 'no se compra dos veces el mismo personaje');
+  const bloqueado = SAVE.buyChar('brisa');
+  ok(bloqueado.ok === false && /Bloqueado/.test(bloqueado.msg), 'un personaje con requisitos no se puede saltar');
+  SAVE.setLevel(3);
+  ok(SAVE.buyChar('brisa').ok === true, 'al cumplir el requisito el personaje se desbloquea');
+  ok(SAVE.equipChar('pio') === true && SAVE.get().char === 'pio', 'se puede volver a equipar a Pío');
+  ok(SAVE.equipChar('no-existe') === false, 'no se puede equipar un personaje que no existe');
+
+  const cu = SAVE.get().coins;
+  const acc = SAVE.buyAccessory('fr-plata');
+  ok(acc.ok && SAVE.get().accessories.frame === 'fr-plata', 'el accesorio comprado queda equipado');
+  ok(SAVE.get().coins === cu - 900, 'el accesorio descuenta su precio');
+  ok(SAVE.equipAccessory('frame', 'fr-madera') === true, 'se puede cambiar de accesorio');
+  ok(SAVE.equipAccessory('emote', 'fr-plata') === false, 'un accesorio no se puede equipar en otra ranura');
+
+  /* --- Mascotas (solo cosméticas) --- */
+  const pet0 = SAVE.buyPet('pet-gato');
+  ok(pet0.ok && SAVE.get().pet === 'pet-gato', 'se compra y equipa una mascota');
+  ok(SAVE.petXpOf('pet-gato') === 0 && SAVE.petLevelOf('pet-gato') === 1, 'la mascota empieza en nivel 1');
+  ok(SAVE.addPetXp('pet-gato', 60) === 1, 'la mascota sube de nivel al alcanzar la XP real');
+  ok(SAVE.petLevelOf('pet-gato') === 2, 'el nivel de mascota se calcula con su tabla');
+  ok(SAVE.equipPet('') === true && SAVE.get().pet === '', 'se puede volar sin mascota');
+  ok(SAVE.equipPet('pet-gato') === true, 'la mascota comprada se puede volver a poner');
+  ok(EXP.PETS.every(p => !p.perk && !p.buff), 'ninguna mascota declara ventajas de juego');
+
+  /* --- Habilidades --- */
+  SAVE.reset(); SAVE.load();
+  SAVE.addSkillPoint(3);
+  ok(SAVE.learnSkill('sk_coins').ok, 'se aprende una habilidad con puntos reales');
+  ok(SAVE.learnSkill('sk_coins').level === 2, 'la habilidad sube al siguiente nivel');
+  ok(SAVE.skillLevel('sk_coins') === 2 && SAVE.skillBuffs().coins > 0.03, 'el efecto de la habilidad se aplica de verdad');
+  ok(SAVE.learnSkill('sk_guard').ok, 'se desbloquea la habilidad que exige otra');
+  ok(SAVE.skillBuffs().startShield === 1, 'la habilidad de escudo aporta el escudo inicial');
+  const refund = SAVE.resetSkills();
+  ok(refund === 3 && SAVE.skillLevel('sk_coins') === 0, 'reiniciar el árbol devuelve todos los puntos');
+
+  /* --- Insignias, títulos, colecciones y maestría --- */
+  SAVE.reset(); SAVE.load();
+  SAVE.get().stats.flights = 1;
+  SAVE.save();
+  const cB = SAVE.get().coins;
+  ok(!!SAVE.claimBadge('bg-first'), 'una insignia cumplida se reclama');
+  ok(SAVE.get().coins > cB, 'la insignia paga su recompensa');
+  ok(SAVE.claimBadge('bg-first') === null, 'la misma insignia no se paga dos veces');
+  ok(SAVE.claimBadge('bg-pipes100') === null, 'una insignia sin cumplir no se puede reclamar');
+  ok(SAVE.equipTitle('ti-novato') === true && SAVE.get().title === 'ti-novato', 'se equipa un título desbloqueado');
+  ok(SAVE.equipTitle('ti-jefe') === false, 'un título bloqueado no se equipa');
+  ok(!!SAVE.claimCollection('co-starter'), 'una colección completada se reclama');
+  ok(SAVE.claimCollection('co-starter') === null, 'la colección no se paga dos veces');
+  SAVE.get().mapBest.day = 60;
+  SAVE.save();
+  const cM = SAVE.get().coins;
+  ok(!!SAVE.claimMastery('day', 'oro'), 'la maestría de oro se reclama con la marca real');
+  ok(SAVE.get().coins > cM, 'la maestría paga su recompensa');
+  ok(SAVE.claimMastery('day', 'oro') === null, 'la maestría no se paga dos veces');
+  ok(!!SAVE.claimMastery('day', 'plata'), 'cada tramo de maestría se reclama por separado');
+
+  /* --- Eventos --- */
+  SAVE.reset(); SAVE.load();
+  SAVE.get().events['halloween-2026'] = { progress: 6, claimed: [] };
+  SAVE.save();
+  const cE = SAVE.get().coins;
+  const evR = SAVE.claimEventReward('halloween', 'h1');
+  ok(!!evR && SAVE.get().coins > cE, 'la recompensa del evento se reclama y paga');
+  ok(SAVE.claimEventReward('halloween', 'h1') === null, 'la recompensa del evento no se repite');
+  ok(SAVE.claimEventReward('halloween', 'h3') !== null, 'se puede reclamar otro tramo del mismo evento');
+  const evDates = EXP.activeEvent(new Date(2026, 9, 28));
+  ok(evDates && evDates.id === 'halloween', 'el calendario real activa Halloween el 28 de octubre');
+  ok(EXP.activeEvent(new Date(2026, 5, 1)) === null, 'fuera de temporada no hay evento activo');
+
+  /* --- Legendarias y HUD --- */
+  SAVE.reset(); SAVE.load();
+  SAVE.setLevel(8);
+  SAVE.addCoins(9000);
+  const lg = SAVE.buyLegendary('lg-magnetic');
+  ok(lg.ok && SAVE.get().legendary === 'lg-magnetic', 'se compra y equipa una herramienta legendaria');
+  G.setMode('free');
+  G.resize();
+  G.startPlay('free');
+  ok(T.useLegendary() === true, 'la legendaria se activa una vez en el vuelo');
+  ok(T.getEff().magnet > T.getT(), 'el efecto de la legendaria se aplica');
+  ok(T.useLegendary() === false, 'la legendaria no se puede repetir en el mismo vuelo');
+  ok(SAVE.equipLegendary('') === true && SAVE.get().legendary === '', 'se puede desequipar la legendaria');
+
+  /* --- Temas, presets y conjuntos --- */
+  SAVE.reset(); SAVE.load();
+  ok(SAVE.setTheme('theme-default') === true, 'el tema base siempre está disponible');
+  ok(SAVE.setTheme('theme-neon') === false, 'un tema bloqueado no se puede activar');
+  SAVE.addCoins(1500);
+  ok(SAVE.setTheme('theme-forest') === true, 'las monedas ganadas desbloquean el tema del bosque');
+  ok(SAVE.applyPreset('pre-rendimiento') === true, 'un preset de rendimiento se aplica');
+  const st = SAVE.get().set;
+  ok(st.reduced === true && st.gfx === 'low' && st.fps === 30, 'el preset reduce efectos de verdad');
+  ok(SAVE.get().presetsUsed.indexOf('pre-rendimiento') !== -1, 'el preset usado queda registrado');
+  SAVE.setLevel(3);
+  SAVE.buyChar('brisa');
+  SAVE.equipChar('brisa');
+  const ld = SAVE.saveLoadout('Mi conjunto');
+  ok(!!ld && SAVE.get().loadouts.length === 1, 'se guarda un conjunto de personalización');
+  SAVE.equipChar('pio');
+  ok(SAVE.applyLoadout(ld.id) === true && SAVE.get().char === 'brisa', 'aplicar el conjunto restaura el personaje guardado');
+  ok(SAVE.deleteLoadout(ld.id) === true && SAVE.get().loadouts.length === 0, 'el conjunto se puede borrar');
+
+  /* --- Liga semanal con datos reales --- */
+  SAVE.reset(); SAVE.load();
+  SAVE.endRun(40, 20, 5, 30, 500, 'free');
+  SAVE.endRun(70, 30, 8, 40, 800, 'free');
+  const lig = SAVE.leagueState(new Date());
+  ok(lig.points >= 110, 'la liga suma los puntos reales de la semana', lig.points);
+  ok(lig.tier && lig.tier.id, 'la liga asigna un tramo real');
+  ok(Array.isArray(lig.rivals) && lig.rivals.length > 0, 'la liga muestra rivales del dispositivo');
+  ok(lig.rivals.every(r => r.source === 'perfil local' || r.source === 'tu historial'),
+    'ningún rival de la liga es inventado');
+  const cL = SAVE.get().coins;
+  const tier = SAVE.claimLeague(new Date());
+  ok(!!tier && SAVE.get().coins > cL, 'el tramo de la liga paga su recompensa');
+  ok(SAVE.claimLeague(new Date()) === null, 'el tramo de la liga no se paga dos veces');
+
+  /* --- Modos, configuración y estado de partida --- */
+  SAVE.reset(); SAVE.load();
+  ok(EXP.MODES.length === 9, 'hay nueve modos nuevos', EXP.MODES.length);
+  ok(new Set(EXP.MODES.map(x => x.id)).size === EXP.MODES.length, 'los identificadores de modo no se repiten');
+  ok(EXP.MODES.every(x => x.name && x.desc && x.cfg), 'todos los modos tienen nombre, descripción y configuración');
+  ok(EXP.modeUnlocked(SAVE.get(), 'survival') === false, 'un modo con nivel requerido empieza bloqueado');
+  SAVE.setLevel(10);
+  ok(EXP.modeUnlocked(SAVE.get(), 'survival') === true, 'al subir de nivel el modo se desbloquea');
+  const evNow = EXP.activeEvent();
+  ok(evNow ? EXP.modeCfg('event').eventId === evNow.id : Object.keys(EXP.modeCfg('event')).length === 0,
+    'el modo evento usa el evento realmente activo');
+
+  G.setMode('timeattack'); G.startPlay('timeattack');
+  let rs = T.getRunState();
+  ok(rs.mode === 'timeattack' && rs.timeLeft === 60, 'Contrarreloj arranca con 60 s');
+  ok(T.getModeCfg().scoreMul === 1.2, 'Contrarreloj aplica su multiplicador real');
+
+  G.setMode('gauntlet'); G.startPlay('gauntlet');
+  rs = T.getRunState();
+  ok(rs.goal === 20 && rs.lives === 2, 'Carrera de obstáculos fija meta de 20 tubos y 2 vidas extra');
+
+  G.setMode('finalboss'); G.startPlay('finalboss');
+  rs = T.getRunState();
+  ok(rs.boss && rs.boss.id === 'cronos-final' && rs.boss.hp === 6, 'el Jefe final carga a Cronos con 6 golpes');
+  ok(T.pipes().filter(p => p.boss).length === 6, 'el jefe final ocupa seis segmentos reales');
+
+  SAVE.get().bestByMode.competitive = 42;
+  SAVE.save();
+  G.setMode('competitive'); G.startPlay('competitive');
+  rs = T.getRunState();
+  ok(rs.ghostRace === true && rs.ghostScore === 42, 'el modo Competitivo usa tu mejor marca real como fantasma');
+
+  G.setMode('survival'); G.startPlay('survival');
+  rs = T.getRunState();
+  ok(rs.lives === 0 && T.getModeCfg().startLevel === 6, 'Supervivencia empieza sin vidas extra y en nivel alto');
+
+  G.setMode('coinrush'); G.startPlay('coinrush');
+  ok(T.getModeCfg().coinMul === 3 && T.getModeCfg().scoreFromCoins === true,
+    'Fiebre de monedas convierte el botín real en puntos');
+
+  G.setMode('endless'); G.startPlay('endless');
+  ok(T.getModeCfg().endless === true && T.getModeCfg().startLevel === 20, 'Infinito arranca en el nivel 20 sin techo');
+
+  /* --- Vidas de modo, meteoros, puertas y cierre de modo --- */
+  SAVE.reset(); SAVE.load();
+  G.setMode('gauntlet'); G.startPlay('gauntlet');
+  T.setRunState({ lives: 1 });
+  T.killBird(T.bird(), 0);
+  ok(T.getRunState().lives === 0 && T.bird().dead === false, 'una vida de modo evita la muerte');
+  T.killBird(T.bird(), 0);
+  ok(T.bird().dead === true, 'sin vidas ni rescates el ave cae');
+
+  G.startPlay('free');
+  const met = T.getMeteors();
+  T.spawnMeteor();
+  ok(met.length === 1, 'se genera un meteoro real');
+  const mx = met[0].x;
+  ok(mx >= 34 && mx <= G.getW() - 34, 'el meteoro aparece dentro de la pantalla', mx);
+  T.updateMeteors(10, 0);
+  ok(met.length === 0, 'el meteoro se elimina al salir de la pantalla');
+
+  const bird = T.bird();
+  const portals = T.getPortals();
+  const cBefore = SAVE.get().coins;
+  portals.push({ x: bird.x, y: bird.y, r: 23, type: 'coins', ph: 0 });
+  T.updatePortals(1 / 60, 0);
+  ok(portals.length === 0 && SAVE.get().coins > cBefore, 'una puerta secreta entrega monedas reales');
+
+  SAVE.reset(); SAVE.load();
+  G.setMode('gauntlet'); G.startPlay('gauntlet');
+  T.setRunState({ pipesDone: 20, score: 33 });
+  const flights0 = SAVE.get().stats.flights;
+  const coinsM = SAVE.get().coins;
+  T.finishMode('goal');
+  ok(SAVE.get().stats.flights === flights0 + 1, 'terminar un modo registra el vuelo');
+  ok((SAVE.get().bestByMode.gauntlet || 0) >= 33, 'terminar un modo guarda la mejor marca del modo');
+  ok(SAVE.get().coins >= coinsM + 180, 'superar la meta paga la recompensa del modo');
+  ok((SAVE.get().mapBest.day || 0) >= 33, 'la marca del mapa se guarda para la maestría');
+
+  /* --- Rankings reales: caché por tabla y orden por su campo --- */
+  const cloudStore = new Map();
+  const cloudLocal = {
+    getItem: k => (cloudStore.has(k) ? cloudStore.get(k) : null),
+    setItem: (k, v) => { cloudStore.set(k, String(v)); },
+    removeItem: k => { cloudStore.delete(k); }
+  };
+  const cloudCtx = {
+    console, Math, Date, JSON, isFinite, isNaN, String, Number, Boolean, Object, Array, RegExp, Error, Map, Set,
+    setTimeout, clearTimeout, setInterval, clearInterval,
+    localStorage: cloudLocal, navigator: { onLine: true },
+    document: { readyState: 'complete', addEventListener() { }, visibilityState: 'visible' },
+    PIO_FIREBASE: { enabled: false, config: {} },
+    CustomEvent: class CustomEvent { constructor(type, opts) { this.type = type; this.detail = opts && opts.detail; } },
+    addEventListener() { }, removeEventListener() { }, dispatchEvent() { return true; }
+  };
+  cloudCtx.window = cloudCtx;
+  cloudCtx.self = cloudCtx;
+  vm.createContext(cloudCtx);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/cloud.js'), 'utf8'), cloudCtx, { filename: 'js/cloud.js' });
+  const CLOUD = cloudCtx.CLOUD;
+  const cloudRows = [
+    { uid: 'u1', name: 'Ana', best: 10, xp: 300, coinsGot: 50, wins: 1, challenges: 1, last: 10, games: 1, level: 5, updatedAt: 1 },
+    { uid: 'u2', name: 'Beto', best: 20, xp: 500, coinsGot: 20, wins: 3, challenges: 0, last: 20, games: 2, level: 6, updatedAt: 2 },
+    { uid: 'u0', name: 'Cero', best: 0, xp: 0, coinsGot: 0, wins: 0, challenges: 0, last: 0, games: 0, level: 1, updatedAt: 3 }
+  ];
+  cloudLocal.setItem('piovuelo_cloud_board_v1:xp', JSON.stringify({ board: 'xp', at: 99, rows: cloudRows }));
+  const xpBoard = CLOUD.cachedLeaderboard('xp');
+  ok(xpBoard.length === 2, 'la tabla de XP descarta las entradas a cero', xpBoard.length);
+  ok(xpBoard[0].uid === 'u2' && xpBoard[1].uid === 'u1', 'la tabla de XP ordena por XP real');
+  ok(CLOUD.cachedLeaderboardAt('xp') === 99, 'la caché guarda la hora de cada tabla');
+
+  cloudLocal.setItem('piovuelo_cloud_board_v1', JSON.stringify({ board: 'global', at: 50, rows: [
+    { uid: 'u1', name: 'Ana', best: 7, xp: 1, coinsGot: 1, wins: 0, challenges: 0, last: 7, games: 1, level: 2, updatedAt: 1 }
+  ] }));
+  const legacy = CLOUD.cachedLeaderboard('global');
+  ok(legacy.length === 1 && legacy[0].best === 7, 'la caché antigua de la tabla global sigue funcionando');
+
+  cloudLocal.setItem('piovuelo_cloud_board_v1:global', JSON.stringify({ board: 'global', at: 60, rows: [
+    { uid: 'u2', name: 'Beto', best: 20, xp: 1, coinsGot: 1, wins: 0, challenges: 0, last: 20, games: 1, level: 2, updatedAt: 1 }
+  ] }));
+  const glob = CLOUD.cachedLeaderboard('global');
+  ok(glob.length === 1 && glob[0].uid === 'u2' && glob[0].best === 20, 'la tabla global usa su propia caché por campo');
+
+  ok(EXP.totalXp(SAVE.get()) >= 0, 'la XP total usada por el ranking es real y no negativa');
 }
 
 /* ---------------- Resumen ---------------- */

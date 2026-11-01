@@ -715,5 +715,94 @@ window.ENTS = (function () {
     ctx.restore();
   }
 
-  return { drawBird, drawHat, drawPipe, drawEnemy, drawCoin, drawPower, lighten, setHC };
+  /* ============ MASCOTA (cosmética) ============ */
+  function drawPet(ctx, pet, x, y, t, level) {
+    const lv = Math.max(1, Math.min(5, Math.floor(level || 1)));
+    const size = 15 + lv * 1.6;
+    const bob = Math.sin(t * 3.4) * 3;
+    ctx.save();
+    ctx.translate(x, y + bob);
+    // aura de nivel
+    ctx.globalAlpha = 0.18 + lv * 0.04;
+    ctx.fillStyle = pet.color || '#ffd54f';
+    ctx.beginPath(); ctx.arc(0, 0, size * (0.95 + 0.06 * Math.sin(t * 4)), 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.font = '900 ' + Math.round(size * 1.55) + 'px "Segoe UI Emoji", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(pet.icon || '🐥', 0, 0);
+    // destellos por nivel (2+)
+    if (lv >= 2) {
+      ctx.fillStyle = pet.color || '#ffd54f';
+      for (let i = 0; i < Math.min(4, lv - 1); i++) {
+        const a = t * 1.8 + i * (Math.PI * 2 / Math.min(4, lv - 1));
+        ctx.globalAlpha = 0.55 + 0.35 * Math.sin(t * 5 + i);
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * size * 0.95, Math.sin(a) * size * 0.7, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  /* ============ METEORO ============ */
+  function drawMeteor(ctx, m, t) {
+    const r = m.r;
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    // estela
+    const grad = ctx.createLinearGradient(0, -r * 4.5, 0, 0);
+    grad.addColorStop(0, 'rgba(255,120,40,0)');
+    grad.addColorStop(1, 'rgba(255,160,60,0.55)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.75, 0);
+    ctx.lineTo(0, -r * (4.2 + Math.sin(t * 7 + m.ph) * 0.7));
+    ctx.lineTo(r * 0.75, 0);
+    ctx.closePath();
+    ctx.fill();
+    // roca
+    ctx.rotate(m.spin || 0);
+    ctx.fillStyle = '#5d4037';
+    ctx.beginPath();
+    ctx.moveTo(-r, -r * 0.2);
+    ctx.lineTo(-r * 0.5, -r);
+    ctx.lineTo(r * 0.45, -r * 0.85);
+    ctx.lineTo(r, 0);
+    ctx.lineTo(r * 0.35, r * 0.9);
+    ctx.lineTo(-r * 0.6, r * 0.75);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffb74d';
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath(); ctx.arc(-r * 0.2, -r * 0.3, r * 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  /* ============ PUERTA SECRETA / ZONA DE BONIFICACIÓN ============ */
+  function drawPortal(ctx, p, t) {
+    const r = p.r;
+    const pul = 1 + 0.1 * Math.sin(t * 4 + p.ph);
+    const col = p.type === 'power' ? '#e040fb' : '#ffd54f';
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.globalAlpha = 0.24;
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(0, 0, r * 1.55 * pul, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.75;
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.68, t * 2, t * 2 + Math.PI * 1.4); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.font = '900 ' + Math.round(r * 0.95) + 'px "Segoe UI Emoji", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(p.type === 'power' ? '🎁' : '🚪', 0, 1);
+    ctx.restore();
+  }
+
+  return { drawBird, drawHat, drawPipe, drawEnemy, drawCoin, drawPower, drawPet, drawMeteor, drawPortal, lighten, setHC };
 })();

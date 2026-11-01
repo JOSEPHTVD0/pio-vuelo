@@ -93,6 +93,12 @@ const firestoreRules = read('firestore.rules');
 });
 ok(firestoreRules.indexOf('allow read, write: if false') !== -1, 'tiene denegación final');
 ok(firestoreRules.indexOf('request.resource.data.best >= resource.data.best') !== -1, 'impide bajar el récord del ranking');
+['xp', 'coinsGot', 'wins', 'challenges'].forEach(function (field) {
+  ok(firestoreRules.indexOf("'" + field + "'") !== -1, 'la nube valida el campo real ' + field);
+});
+['survival', 'timeattack', 'extreme', 'gauntlet', 'coinrush', 'finalboss', 'endless', 'competitive', 'event'].forEach(function (mode) {
+  ok(firestoreRules.indexOf("'" + mode + "'") !== -1, 'acepta el modo ' + mode);
+});
 
 /* ---------- Reglas de Realtime Database ---------- */
 console.log('\nReglas de Realtime Database');

@@ -117,9 +117,12 @@ function playerPayload(uid, name) {
     distance: 0,
     coinsGot: 0,
     timePlayed: 0,
+    wins: 0,
+    challenges: 0,
+    achievements: 0,
     equipped: { skin: 'classic', hat: '', fx: 'fx-none', map: 'day' },
     schema: 1,
-    app: '3.1'
+    app: '3.2'
   };
 }
 
@@ -131,6 +134,10 @@ function leaderboardPayload(uid, name, best, games) {
     last: best,
     games: games,
     level: 1,
+    xp: 120,
+    coinsGot: 40,
+    wins: 2,
+    challenges: 1,
     updatedAt: serverTimestamp()
   };
 }
@@ -197,6 +204,12 @@ async function main() {
       seed: 123, createdAt: serverTimestamp(), verified: false
     });
   });
+  await expectOk('se acepta un modo de la expansión v3.2', function () {
+    return addDoc(collection(a.db, 'players', uidA, 'runs'), {
+      score: 8, pipes: 8, coins: 2, dist: 160, mode: 'survival',
+      seed: 123, createdAt: serverTimestamp(), verified: false
+    });
+  });
   await expectDenied('un modo de vuelo inventado se rechaza', function () {
     return addDoc(collection(a.db, 'players', uidA, 'runs'), {
       score: 5, pipes: 5, coins: 1, dist: 100, mode: 'hackeado',
@@ -221,6 +234,20 @@ async function main() {
   });
   await expectDenied('no se puede escribir la entrada de otro', function () {
     return setDoc(doc(a.db, 'leaderboards', 'global', 'entries', 'otro-uid'), leaderboardPayload('otro-uid', 'Intruso', 999, 9));
+  });
+  await expectOk('el dueño publica las tablas reales de la expansión', function () {
+    return setDoc(doc(a.db, 'leaderboards', 'xp', 'entries', uidA), leaderboardPayload(uidA, 'TesterA', 12, 1));
+  });
+  await expectOk('los contadores de la expansión pueden subir', function () {
+    return setDoc(doc(a.db, 'leaderboards', 'xp', 'entries', uidA), {
+      xp: 400, coinsGot: 90, wins: 3, challenges: 2,
+      best: 12, games: 2, last: 12, updatedAt: serverTimestamp()
+    }, { merge: true });
+  });
+  await expectDenied('los contadores de la expansión no pueden bajar', function () {
+    return setDoc(doc(a.db, 'leaderboards', 'xp', 'entries', uidA), {
+      xp: 10, updatedAt: serverTimestamp()
+    }, { merge: true });
   });
 
   console.log('\nFirestore · catálogo y lectura pública');

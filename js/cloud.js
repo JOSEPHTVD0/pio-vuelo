@@ -30,7 +30,11 @@ window.CLOUD = (function () {
   const QUEUE_MAX = 50;
   const BOARD_CACHE_KEY = 'piovuelo_cloud_board_v1';
   const BOARD_CACHE_MAX = 25;
-  const VALID_MODES = ['free', 'zen', 'boss', 'wind', 'challenge', 'duel', 'replay'];
+  const VALID_MODES = ['free', 'zen', 'boss', 'wind', 'challenge', 'duel', 'replay',
+    'survival', 'timeattack', 'extreme', 'gauntlet', 'coinrush', 'finalboss', 'endless', 'competitive', 'event'];
+  // Cada tabla ordena por un campo real del guardado (nunca valores inventados).
+  const BOARD_METRICS = { global: 'best', xp: 'xp', coins: 'coinsGot', wins: 'wins', challenges: 'challenges' };
+  function boardMetric(board) { return BOARD_METRICS[board] || 'best'; }
 
   const state = {
     status: 'off',       // off | connecting | online | error
@@ -113,11 +117,19 @@ window.CLOUD = (function () {
   function cleanRow(v, id) {
     if (!v || typeof v !== 'object') return null;
     const best = clampInt(v.best, 0, 10000000);
-    if (best <= 0) return null;
+    const xp = clampInt(v.xp, 0, 1000000000);
+    const coinsGot = clampInt(v.coinsGot, 0, 1000000000);
+    const wins = clampInt(v.wins, 0, 100000000);
+    const challenges = clampInt(v.challenges, 0, 100000000);
+    if (best <= 0 && xp <= 0 && coinsGot <= 0 && wins <= 0 && challenges <= 0) return null;
     return {
       uid: String((v.uid || id || '')).slice(0, 128),
       name: String(v.name == null ? 'Jugador' : v.name).replace(/[<>]/g, '').trim().slice(0, 16) || 'Jugador',
       best: best,
+      xp: xp,
+      coinsGot: coinsGot,
+      wins: wins,
+      challenges: challenges,
       last: clampInt(v.last, 0, 10000000),
       games: clampInt(v.games, 0, 100000000),
       level: clampInt(v.level, 1, 999),
@@ -126,11 +138,14 @@ window.CLOUD = (function () {
     };
   }
 
-  function cleanRows(rows) {
+  function cleanRows(rows, board) {
     if (!Array.isArray(rows)) return [];
+    const metric = boardMetric(board);
     return rows.map(function (r) { return cleanRow(r, r && r.uid); })
       .filter(Boolean)
-      .sort(function (a, b) { return b.best - a.best || b.last - a.last || a.name.localeCompare(b.name); })
+      .sort(function (a, b) {
+        return (b[metric] || 0) - (a[metric] || 0) || b.best - a.best || b.last - a.last || a.name.localeCompare(b.name);
+      })
       .slice(0, BOARD_CACHE_MAX);
   }
 
@@ -138,12 +153,15 @@ window.CLOUD = (function () {
   /* Caché local del ranking (solo lectura si falla la red)              */
   /* ------------------------------------------------------------------ */
 
+  function cacheKey(board) { return BOARD_CACHE_KEY + ':' + String(board || 'global'); }
+
   function cacheBoard(board, rows) {
     try {
-      localStorage.setItem(BOARD_CACHE_KEY, JSON.stringify({
-        board: String(board || OPT.board || 'global'),
+      const id = String(board || OPT.board || 'global');
+      localStorage.setItem(cacheKey(id), JSON.stringify({
+        board: id,
         at: Date.now(),
-        rows: cleanRows(rows)
+        rows: cleanRows(rows, id)
       }));
     } catch (e) { /* espacio lleno o modo privado */ }
   }
@@ -151,9 +169,11 @@ window.CLOUD = (function () {
   function cachedLeaderboard(boardId) {
     const board = boardId || OPT.board || 'global';
     try {
-      const obj = JSON.parse(localStorage.getItem(BOARD_CACHE_KEY) || 'null');
-      if (!obj || obj.board !== board || !Array.isArray(obj.rows)) return [];
-      return cleanRows(obj.rows).map(function (r) {
+      let obj = JSON.parse(localStorage.getItem(cacheKey(board)) || 'null');
+      // Compatibilidad con la caché anterior (una sola tabla global).
+      if (!obj && board === 'global') obj = JSON.parse(localStorage.getItem(BOARD_CACHE_KEY) || 'null');
+      if (!obj || !Array.isArray(obj.rows)) return [];
+      return cleanRows(obj.rows, board).map(function (r) {
         return Object.assign({}, r, { me: !!(state.uid && r.uid === state.uid) });
       });
     } catch (e) { return []; }
@@ -162,8 +182,9 @@ window.CLOUD = (function () {
   function cachedLeaderboardAt(boardId) {
     const board = boardId || OPT.board || 'global';
     try {
-      const obj = JSON.parse(localStorage.getItem(BOARD_CACHE_KEY) || 'null');
-      return (obj && obj.board === board && typeof obj.at === 'number') ? obj.at : 0;
+      let obj = JSON.parse(localStorage.getItem(cacheKey(board)) || 'null');
+      if (!obj && board === 'global') obj = JSON.parse(localStorage.getItem(BOARD_CACHE_KEY) || 'null');
+      return (obj && typeof obj.at === 'number') ? obj.at : 0;
     } catch (e) { return 0; }
   }
 
@@ -313,6 +334,9 @@ window.CLOUD = (function () {
       distance: clampInt(st.dist, 0, 1000000000000),
       coinsGot: clampInt(st.coinsGot, 0, 1000000000),
       timePlayed: clampInt(st.timePlayed, 0, 1000000000000),
+      wins: clampInt(st.duelWins, 0, 100000000),
+      challenges: clampInt(st.challengePlayed, 0, 100000000),
+      achievements: clampInt((s.achieved || []).length, 0, 100000),
       equipped: {
         skin: String(s.skin || ''),
         hat: String(s.hat || ''),
@@ -320,7 +344,7 @@ window.CLOUD = (function () {
         map: String(s.map || '')
       },
       schema: 1,
-      app: '3.1'
+      app: '3.2'
     };
   }
 
@@ -360,6 +384,10 @@ window.CLOUD = (function () {
       uid: state.uid,
       name: prof.name || 'Jugador',
       best: clampInt(st.best, 0, 10000000),
+      xp: clampInt(EXP && EXP.totalXp ? EXP.totalXp(s) : s.xp, 0, 1000000000),
+      coinsGot: clampInt(st.coinsGot, 0, 1000000000),
+      wins: clampInt(st.duelWins, 0, 100000000),
+      challenges: clampInt(st.challengePlayed, 0, 100000000),
       last: clampInt(lastScore, 0, 10000000),
       games: clampInt(st.flights, 0, 100000000),
       level: clampInt(s.level, 1, 999),
@@ -367,34 +395,42 @@ window.CLOUD = (function () {
     };
   }
 
+  /* Sincroniza la entrada en todas las tablas reales (marcador, XP, monedas,
+     victorias y desafíos). Cada tabla ordena por su campo real. */
   async function syncLeaderboard(lastScore) {
     if (!state.ready || !db || !state.uid) return false;
-    const board = OPT.board || 'global';
-    const ref = M.fsMod.doc(db, 'leaderboards', board, 'entries', state.uid);
     const payload = leaderboardPayload(lastScore);
     const hasLast = typeof lastScore === 'number' && isFinite(lastScore);
-
-    /* No ensuciar el ranking con entradas de 0 puntos antes de jugar. */
-    if (payload.best <= 0 && payload.games <= 0) return false;
-
-    try {
-      await M.fsMod.runTransaction(db, async function (tx) {
-        const snap = await tx.get(ref);
-        const prev = snap.exists() ? snap.data() : {};
-        const merged = Object.assign({}, payload, {
-          best: Math.max(clampInt(prev.best, 0, 10000000), payload.best),
-          last: hasLast ? payload.last : clampInt(prev.last, 0, 10000000),
-          games: Math.max(clampInt(prev.games, 0, 100000000), payload.games),
-          updatedAt: M.fsMod.serverTimestamp()
+    const boards = Object.keys(BOARD_METRICS);
+    let any = false;
+    for (const board of boards) {
+      const metric = boardMetric(board);
+      /* No ensuciar una tabla con entradas de 0 en su propio campo. */
+      if ((payload[metric] || 0) <= 0 && payload.games <= 0) continue;
+      const ref = M.fsMod.doc(db, 'leaderboards', board, 'entries', state.uid);
+      try {
+        await M.fsMod.runTransaction(db, async function (tx) {
+          const snap = await tx.get(ref);
+          const prev = snap.exists() ? snap.data() : {};
+          const merged = Object.assign({}, payload, {
+            best: Math.max(clampInt(prev.best, 0, 10000000), payload.best),
+            xp: Math.max(clampInt(prev.xp, 0, 1000000000), payload.xp),
+            coinsGot: Math.max(clampInt(prev.coinsGot, 0, 1000000000), payload.coinsGot),
+            wins: Math.max(clampInt(prev.wins, 0, 100000000), payload.wins),
+            challenges: Math.max(clampInt(prev.challenges, 0, 100000000), payload.challenges),
+            last: hasLast ? payload.last : clampInt(prev.last, 0, 10000000),
+            games: Math.max(clampInt(prev.games, 0, 100000000), payload.games),
+            updatedAt: M.fsMod.serverTimestamp()
+          });
+          tx.set(ref, merged, { merge: true });
         });
-        tx.set(ref, merged, { merge: true });
-      });
-      state.lastSync = Date.now();
-      return true;
-    } catch (err) {
-      warn('syncLeaderboard:', err);
-      return false;
+        any = true;
+      } catch (err) {
+        warn('syncLeaderboard(' + board + '):', err);
+      }
     }
+    if (any) state.lastSync = Date.now();
+    return any;
   }
 
   function rowFromDoc(d, source) {
@@ -407,10 +443,11 @@ window.CLOUD = (function () {
   }
 
   function topQuery(board, max) {
+    const field = boardMetric(board);
     return M.fsMod.query(
       M.fsMod.collection(db, 'leaderboards', board, 'entries'),
-      M.fsMod.where('best', '>', 0),
-      M.fsMod.orderBy('best', 'desc'),
+      M.fsMod.where(field, '>', 0),
+      M.fsMod.orderBy(field, 'desc'),
       M.fsMod.limit(clampInt(max || BOARD_CACHE_MAX, 1, 100))
     );
   }

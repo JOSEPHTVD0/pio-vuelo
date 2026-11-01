@@ -434,6 +434,7 @@ window.UI = (function () {
       const el = document.getElementById(pair[0]);
       if (el) el.classList.toggle('active', m === pair[1]);
     });
+    if (typeof EXPUI !== 'undefined' && EXPUI && EXPUI.refreshModePicker) EXPUI.refreshModePicker();
   }
 
   function drawDailyRun() {
@@ -490,6 +491,16 @@ window.UI = (function () {
   /* ---------- HUD ---------- */
   function setHudVisible(v) { $('hud').classList.toggle('hidden', !v); }
   function showStartHint(v) { $('start-hint').classList.toggle('hidden', !v); }
+
+  // Herramienta legendaria en el HUD: visible solo si hay una equipada.
+  function setLegendary(has, ready, icon, name) {
+    const b = $('hudLegend');
+    if (!b) return;
+    b.classList.toggle('hidden', !has);
+    b.classList.toggle('spent', !!has && !ready);
+    if (icon && b.textContent !== icon) b.textContent = icon;
+    if (name && b.title !== name) b.title = name + ' · 1 uso por partida';
+  }
 
   /* Barra de herramientas manuales en vuelo (un botón por herramienta armada).
    Solo se reconstruye cuando cambia la lista o su cantidad (no en cada frame). */
@@ -761,9 +772,16 @@ window.UI = (function () {
     currentGeneric = kind;
     $('screen-generic').classList.remove('hidden');
     $('genBody').innerHTML = '';
-    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤', inventory: 'INVENTARIO 📦', stats: 'ESTADÍSTICAS 📊', help: 'AYUDA ❓' };
+    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤', inventory: 'INVENTARIO 📦', stats: 'ESTADÍSTICAS 📊', help: 'AYUDA ❓', characters: 'PERSONAJES 🧑‍🚀', pets: 'MASCOTAS 🐾', skills: 'HABILIDADES 🌳', events: 'EVENTOS 🎉', badges: 'TROFEOS 🏆', legendary: 'LEGENDARIAS 🗡️', custom: 'PERSONALIZACIÓN 🎨', league: 'LIGA 🏆', modes: 'MODOS 🎮' };
     $('genTitle').textContent = titles[kind] || '';
     $('genCoins').textContent = SAVE.get().coins;
+    // Las pantallas de la expansión se dibujan en su propio módulo.
+    if (typeof EXPUI !== 'undefined' && EXPUI && EXPUI.render && titles[kind] &&
+      ['characters', 'pets', 'skills', 'events', 'badges', 'legendary', 'custom', 'league', 'modes'].indexOf(kind) !== -1) {
+      EXPUI.render(kind);
+      $('genBody').scrollTop = 0;
+      return;
+    }
     switch (kind) {
       case 'shop': renderShop(tab); break;
       case 'maps': renderMaps(); break;
@@ -3159,7 +3177,7 @@ window.UI = (function () {
 
   return {
     hideAllScreens, showLoading, showHome, refreshHome,
-    setHudVisible, showStartHint, setPaused, setResumeCountdown, refreshHudTools, updateEffectTimers,
+    setHudVisible, showStartHint, setPaused, setResumeCountdown, refreshHudTools, updateEffectTimers, setLegendary,
     showGameOver, showModeClear, toast, confirm, openGeneric, closeGeneric,
     showModePick, closeModePick, isModePickOpen,
     popAch,

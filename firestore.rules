@@ -37,8 +37,26 @@ service cloud.firestore {
       return value is int && value >= min && value <= max;
     }
 
+    /* Campos nuevos de la expansión v3.2: opcionales para que la versión
+       anterior de la app (que no los envía) siga pudiendo publicar. */
+    function optionalInt(data, key, min, max) {
+      return !(key in data) || intIn(data[key], min, max);
+    }
+
+    /* Un contador nunca puede bajar. Si el documento antiguo no tenía el
+       campo, se permite añadirlo sin comparar. */
+    function notLower(prev, data, key, min, max) {
+      return !(key in data)
+        || !(key in prev)
+        || (intIn(data[key], min, max) && data[key] >= prev[key]);
+    }
+
     function validMode(mode) {
-      return mode in ['free', 'zen', 'boss', 'wind', 'challenge', 'duel', 'replay'];
+      return mode in [
+        'free', 'zen', 'boss', 'wind', 'challenge', 'duel', 'replay',
+        'survival', 'timeattack', 'extreme', 'gauntlet', 'coinrush',
+        'finalboss', 'endless', 'competitive', 'event'
+      ];
     }
 
     /* ---------- Perfil del jugador ---------- */
@@ -50,7 +68,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'uid', 'name', 'createdAt', 'updatedAt', 'level', 'xp', 'coins',
           'parts', 'shields', 'best', 'flights', 'pipes', 'distance',
-          'coinsGot', 'timePlayed', 'equipped', 'schema', 'app'
+          'coinsGot', 'timePlayed', 'wins', 'challenges', 'achievements',
+          'equipped', 'schema', 'app'
         ])
         && request.resource.data.keys().hasAll([
           'uid', 'name', 'createdAt', 'updatedAt', 'level', 'best', 'schema'
@@ -59,13 +78,17 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && intIn(request.resource.data.level, 1, 999)
         && intIn(request.resource.data.best, 0, 10000000)
+        && optionalInt(request.resource.data, 'wins', 0, 100000000)
+        && optionalInt(request.resource.data, 'challenges', 0, 100000000)
+        && optionalInt(request.resource.data, 'achievements', 0, 100000)
         && request.resource.data.schema == 1;
 
       allow update: if isSelf(uid)
         && request.resource.data.keys().hasOnly([
           'uid', 'name', 'createdAt', 'updatedAt', 'level', 'xp', 'coins',
           'parts', 'shields', 'best', 'flights', 'pipes', 'distance',
-          'coinsGot', 'timePlayed', 'equipped', 'schema', 'app'
+          'coinsGot', 'timePlayed', 'wins', 'challenges', 'achievements',
+          'equipped', 'schema', 'app'
         ])
         && request.resource.data.uid == uid
         && request.resource.data.createdAt == resource.data.createdAt
@@ -73,6 +96,9 @@ service cloud.firestore {
         && intIn(request.resource.data.level, 1, 999)
         && intIn(request.resource.data.best, 0, 10000000)
         && request.resource.data.best >= resource.data.best
+        && optionalInt(request.resource.data, 'wins', 0, 100000000)
+        && optionalInt(request.resource.data, 'challenges', 0, 100000000)
+        && optionalInt(request.resource.data, 'achievements', 0, 100000)
         && request.resource.data.schema == 1;
 
       /* Historial de vuelos: se crea una vez y nunca se modifica ni se borra. */
@@ -104,7 +130,8 @@ service cloud.firestore {
 
       allow create: if isSelf(uid)
         && request.resource.data.keys().hasOnly([
-          'uid', 'name', 'best', 'last', 'games', 'level', 'updatedAt'
+          'uid', 'name', 'best', 'last', 'games', 'level', 'updatedAt',
+          'xp', 'coinsGot', 'wins', 'challenges'
         ])
         && request.resource.data.keys().hasAll([
           'uid', 'name', 'best', 'last', 'games', 'level', 'updatedAt'
@@ -115,11 +142,16 @@ service cloud.firestore {
         && intIn(request.resource.data.last, 0, 10000000)
         && intIn(request.resource.data.games, 0, 100000000)
         && intIn(request.resource.data.level, 1, 999)
+        && optionalInt(request.resource.data, 'xp', 0, 1000000000)
+        && optionalInt(request.resource.data, 'coinsGot', 0, 1000000000)
+        && optionalInt(request.resource.data, 'wins', 0, 100000000)
+        && optionalInt(request.resource.data, 'challenges', 0, 100000000)
         && request.resource.data.updatedAt == request.time;
 
       allow update: if isSelf(uid)
         && request.resource.data.keys().hasOnly([
-          'uid', 'name', 'best', 'last', 'games', 'level', 'updatedAt'
+          'uid', 'name', 'best', 'last', 'games', 'level', 'updatedAt',
+          'xp', 'coinsGot', 'wins', 'challenges'
         ])
         && request.resource.data.uid == uid
         && validName(request.resource.data.name)
@@ -129,6 +161,10 @@ service cloud.firestore {
         && intIn(request.resource.data.level, 1, 999)
         && request.resource.data.best >= resource.data.best
         && request.resource.data.games >= resource.data.games
+        && notLower(resource.data, request.resource.data, 'xp', 0, 1000000000)
+        && notLower(resource.data, request.resource.data, 'coinsGot', 0, 1000000000)
+        && notLower(resource.data, request.resource.data, 'wins', 0, 100000000)
+        && notLower(resource.data, request.resource.data, 'challenges', 0, 100000000)
         && request.resource.data.updatedAt == request.time;
     }
 

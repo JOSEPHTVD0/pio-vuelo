@@ -207,9 +207,12 @@ firebase emulators:start --import=./.firebase-data --export-on-exit
   "distance": 18400,
   "coinsGot": 2100,
   "timePlayed": 5400,
+  "wins": 4,
+  "challenges": 3,
+  "achievements": 42,
   "equipped": { "skin": "classic", "hat": "", "fx": "fx-none", "map": "day" },
   "schema": 1,
-  "app": "3.1"
+  "app": "3.2"
 }
 ```
 
@@ -228,7 +231,7 @@ firebase emulators:start --import=./.firebase-data --export-on-exit
 }
 ```
 
-Modos válidos: `free`, `zen`, `boss`, `wind`, `challenge`, `duel`, `replay`.
+Modos válidos: `free`, `zen`, `boss`, `wind`, `challenge`, `duel`, `replay`, `survival`, `timeattack`, `extreme`, `gauntlet`, `coinrush`, `finalboss`, `endless`, `competitive`, `event`.
 
 #### `leaderboards/{boardId}/entries/{uid}` (lectura pública)
 
@@ -240,9 +243,17 @@ Modos válidos: `free`, `zen`, `boss`, `wind`, `challenge`, `duel`, `replay`.
   "last": 42,
   "games": 64,
   "level": 12,
+  "xp": 3400,
+  "coinsGot": 2100,
+  "wins": 4,
+  "challenges": 3,
   "updatedAt": "<serverTimestamp>"
 }
 ```
+
+Los campos `xp`, `coinsGot`, `wins` y `challenges` son opcionales para que los
+clientes v3.1 sigan publicando. Las tablas `xp`, `coins`, `wins` y `challenges`
+ordenan por su propio campo real y las entradas a cero se filtran.
 
 `boardId` recomendados:
 

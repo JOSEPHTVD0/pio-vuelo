@@ -54,8 +54,38 @@ window.G = (function () {
   let diff = null;
   let mapCfgCur = { speedMul: 1, gravMul: 1, gapMul: 1, spawnMul: 1, coinMul: 1, wind: false }; // mecánicas del mapa activo
   let lvl = 1;
-  let mode = 'free';       // free | challenge | duel | zen | boss | wind | replay
+  let mode = 'free';       // free | challenge | duel | zen | boss | wind | replay + modos de EXP
   let clearedFlag = false; // evita disparar la superación de un modo 2 veces
+
+  /* --- Expansión v3.2 --- */
+  let modeCfg = {};         // configuración del modo de expansión activo
+  let curMapId = 'day';     // mapa real de la partida (para maestría)
+  let dyn = { mv: 0.2, grav: 1, gap: 1, feature: 'coins' };
+  let runTimeLeft = 0;      // segundos restantes (0 = sin límite)
+  let runLives = 0;         // vidas extra además de la primera
+  let runGoal = 0;          // tubos objetivo del modo
+  let runStartLevel = 1;    // nivel de dificultad inicial
+  let eventId = '';         // evento activo en el modo evento
+  let ghostRace = false;    // competitivo: fantasma del propio récord
+  let ghostBest = 0;        // mejor marca real en el modo actual
+  let legendaryUsed = false;
+  let legendaryReady = false;
+  let futureUntil = 0;      // multiplicador x3 de la legendaria Futurista
+  let meteors = [];
+  let spawnMeteorDist = 0;
+  let nextSecretDist = 0;
+  let bossCfg = null;
+  let bossAttackAt = 0;
+  let bossKills = 0;
+  let pipeFreezeUntil = 0;
+  let enemiesFrozenUntil = 0;
+  let modeClearFlag = false;
+  let buffs = { coins: 0, score: 0, xp: 0, magnet: 0, duration: 0, bossScore: 0, startShield: 0, slowStart: 0, revive: 0, enemyMul: 1 };
+  let runReviveUsed = false;   // ya gastó la resurrección de personaje/habilidad
+  let slowStartUntil = 0;      // fin del arranque lento (personaje/habilidad)
+  let secretPortals = [];      // puertas secretas / zonas de bonificación
+  let ghostScore = 0;          // marca real del fantasma (competitivo)
+  let ghostTime = 0;           // tiempo de referencia del fantasma
 
   // RNG determinado por semilla (partida idéntica para todos: Semilla diaria + Replay fiel)
   let rng = Math.random;
@@ -169,21 +199,27 @@ function difficultyFor(sc, diffc) {
     const d = diffc || diff || DAT.getDiff(SAVE.get().set.diff);
     // Suavizado: crece más lento, tope más bajo
     // Las tuberías alcanzan su nivel de dificultad máximo en el nivel 50 y ahí se quedan
-    const scTubo = Math.min(sc, (TUBO_MAX_LEVEL - 1) * LEVEL_STEP);
+    const cfg = modeCfg || {};
+    const startBoost = Math.max(0, (runStartLevel - 1) * LEVEL_STEP) * 0.62;
+    const scAdj = sc + startBoost;
+    const scTubo = cfg.endless ? scAdj : Math.min(scAdj, (TUBO_MAX_LEVEL - 1) * LEVEL_STEP);
     const mcfg = mapCfgCur || {};
-    const speed = (150 + scTubo * 6.2) * d.speedMul * (mcfg.speedMul || 1);
-    const gapMin = Math.max(108 * d.gapMul, 118 - scTubo * 0.75) * (mcfg.gapMul || 1);
-    const gapVar = (H * 0.45 * d.gapMul - scTubo * 2.2) * (mcfg.gapMul || 1);
+    const dynGap = (dyn && dyn.gap) || 1;
+    const modeSpeed = cfg.speed || 1;
+    const modeGap = cfg.gap || 1;
+    const speed = (150 + scTubo * 6.2) * d.speedMul * (mcfg.speedMul || 1) * modeSpeed;
+    const gapMin = Math.max(108 * d.gapMul, 118 - scTubo * 0.75) * (mcfg.gapMul || 1) * modeGap * dynGap;
+    const gapVar = (H * 0.45 * d.gapMul - scTubo * 2.2) * (mcfg.gapMul || 1) * modeGap * dynGap;
     const gap = Math.max(gapMin, gapVar);
     return {
-      speed: Math.min(speed, 370 * d.speedMul * (mcfg.speedMul || 1)),
+      speed: cfg.endless ? speed : Math.min(speed, 370 * d.speedMul * (mcfg.speedMul || 1) * modeSpeed),
       gap: gap,
       spawnEvery: Math.max(180, ip.width * 4.1) * d.spawnMul * (mcfg.spawnMul || 1) - Math.min(scTubo * 1.0, 100),
-      enemyEvery: Math.max(1050, 1900 - sc * 32) * d.spawnMul * (mcfg.spawnMul || 1),
-      powerEvery: Math.max(1400, 3000 - sc * 15),
-      megaEvery: Math.max(300, 430 - sc * 3),
-      chainEvery: Math.max(900, 2200 - sc * 9),
-      level: Math.min(Math.floor(sc / LEVEL_STEP) + 1, TUBO_MAX_LEVEL)
+      enemyEvery: Math.max(1050, 1900 - scAdj * 32) * d.spawnMul * (mcfg.spawnMul || 1) / Math.max(0.5, (buffs.enemyMul || 1)),
+      powerEvery: Math.max(1400, 3000 - scAdj * 15),
+      megaEvery: Math.max(300, 430 - scAdj * 3),
+      chainEvery: Math.max(900, 2200 - scAdj * 9),
+      level: cfg.endless ? Math.floor(scAdj / LEVEL_STEP) + 1 : Math.min(Math.floor(scAdj / LEVEL_STEP) + 1, TUBO_MAX_LEVEL)
     };
   }
 
@@ -224,6 +260,45 @@ function difficultyFor(sc, diffc) {
     wind.on = false; windZoneLast = 0; giantsMade = 0; nextWindPts = 150;
     windArrows = mode === 'wind';
     bossGroup = null; bossNext = false; bossPendAt = 20; zenLast = 0;
+
+    /* --- Expansión v3.2: configuración real del modo, personaje y habilidades --- */
+    const expReady = typeof EXP !== 'undefined' && EXP;
+    modeCfg = expReady && EXP.getMode(mode) ? EXP.modeCfg(mode) : {};
+    const mcfg = modeCfg || {};
+    const cp = (SAVE.charPerk && SAVE.charPerk()) || {};
+    const sb = (SAVE.skillBuffs && SAVE.skillBuffs()) || {};
+    buffs = {
+      coins: (cp.coins || 0) + (sb.coins || 0) + (mcfg.coins || 0),
+      score: (cp.score || 0) + (sb.score || 0) + (mcfg.score || 0),
+      xp: (cp.xp || 0) + (sb.xp || 0),
+      magnet: (cp.magnet || 0) + (sb.magnet || 0),
+      duration: (cp.duration || 0) + (sb.duration || 0),
+      bossScore: sb.bossScore || 0,
+      startShield: (cp.startShield || 0) + (sb.startShield || 0),
+      slowStart: (cp.slowStart || 0) + (sb.slowStart || 0),
+      revive: (cp.revive || 0) + (sb.revive || 0),
+      enemyMul: mcfg.enemies || 1
+    };
+    runStartLevel = Math.max(1, Math.round(mcfg.startLevel || 1));
+    runTimeLeft = Math.max(0, Number(mcfg.time) || 0);
+    runGoal = Math.max(0, Math.round(mcfg.pipes || (mode === 'duel' ? DUEL_PIPES : 0)));
+    runLives = Math.max(0, Math.round(mcfg.lives || 1) - 1);
+    runReviveUsed = false;
+    slowStartUntil = buffs.slowStart > 0 ? t + buffs.slowStart : 0;
+    if (buffs.slowStart > 0) { eff.slow = t + buffs.slowStart; effDur.slow = buffs.slowStart; }
+    if (buffs.startShield > 0) { runShields += buffs.startShield; }
+    eventId = mcfg.eventId || '';
+    legendaryUsed = false;
+    legendaryReady = !!(SAVE.get().legendary && SAVE.get().legendaryOwned.indexOf(SAVE.get().legendary) !== -1);
+    futureUntil = 0;
+    meteors = []; secretPortals = [];
+    spawnMeteorDist = 0; nextSecretDist = 0;
+    bossAttackAt = 0; bossKills = 0;
+    pipeFreezeUntil = 0; enemiesFrozenUntil = 0;
+    modeClearFlag = false;
+    ghostRace = !!mcfg.ghostRace;
+    ghostScore = ghostRace ? Math.max(0, Math.floor((SAVE.get().bestByMode || {})[mode] || 0)) : 0;
+
     if (mode === 'challenge') { curSeed = daySeed(); rng = mulberry32(curSeed); }
     else if (mode === 'replay') {
       const rp = SAVE.getReplay();
@@ -238,8 +313,17 @@ function difficultyFor(sc, diffc) {
     rival = mode === 'duel'
       ? { prog: 0, strength: clamp(0.6 + SAVE.get().level * 0.02, 0.55, 1.3) }
       : null;
-    const mapId = mode === 'challenge' ? challengeMap : (mode === 'replay' && replayMode && rp ? rp.map : SAVE.get().map);
+    const mapId = mode === 'challenge' ? challengeMap : (mode === 'replay' && replayMode && rp ? rp.map : (mcfg.map || SAVE.get().map));
+    curMapId = mapId;
     mapCfgCur = DAT.mapCfg(mapId); // cada mapa altera velocidad, gravedad, huecos, monedas y viento
+    dyn = expReady ? EXP.dynamicFor(mapId) : { mv: 0.2, grav: 1, gap: 1, feature: 'coins' };
+    if (dyn.feature === 'wind') mapCfgCur.wind = true;
+    bossCfg = expReady ? EXP.bossFor(mapId, mode) : null;
+    if (bossCfg && (mcfg.bossHp || mcfg.bossSeg)) {
+      bossCfg = Object.assign({}, bossCfg, { hp: mcfg.bossHp || bossCfg.hp, seg: mcfg.bossSeg || bossCfg.seg });
+    }
+    if (mcfg.bossOnly) { bossPendAt = 0; bossNext = true; }
+    else if (mode === 'event' && bossCfg) bossPendAt = 15;
     diff = DAT.getDiff(mode === 'challenge' ? 'normal' : SAVE.get().set.diff);
     ENTS.setHC(!!SAVE.get().set.hc);
     skinStats = DAT.skinStats(SAVE.get().skin);
@@ -281,7 +365,7 @@ function difficultyFor(sc, diffc) {
     const w = big ? ip.width * 1.7 : ip.width;
     x = safePipeX(x, w, MIN_PIPE_PAD); // raíz: nunca dos tubos encima
     // Fase de jefe: el siguiente tubo se sustituye por la tubería gigante con vida
-    if (mode === 'boss' && bossNext && !bossGroup) { bossNext = false; mkBoss(x, D); return; }
+    if (bossNext && !bossGroup && mode !== 'zen') { bossNext = false; mkBoss(x, D); return; }
     // El hueco mínimo siempre deja espacio real para el pajarito
     const minGap = bird.r * 2 + 36;
     const gap = Math.max(minGap, D.gap * (big ? 0.8 : 1) * skinStats.gap);
@@ -333,7 +417,10 @@ function difficultyFor(sc, diffc) {
   // que haya que sincronizar el paso (difficultyFor ya da el nivel, aquí solo se
   // arma la fase en newRun continuando el generador).
   function mkBoss(x, D) {
-    const g = { hp: 3, left: x, dead: false };
+    const cfg = bossCfg || { hp: 3, seg: 3, name: 'Jefe', icon: '👹', color: '#ff7043', amp: 1, speed: 1 };
+    const segCount = clamp(Math.round(cfg.seg || 3), 2, 6);
+    const hp = clamp(Math.round(cfg.hp || 3), 1, 12);
+    const g = { hp: hp, maxHp: hp, left: x, dead: false, name: cfg.name || 'Jefe', icon: cfg.icon || '👹', attack: cfg.attack || 'wind', color: cfg.color || '#ff7043' };
     bossGroup = g;
     const minGap = bird.r * 2 + 40;
     const gap = Math.max(minGap, D.gap * 0.7 * skinStats.gap);
@@ -342,9 +429,9 @@ function difficultyFor(sc, diffc) {
     const minCy = margin + gapHalf;
     const maxCy = H - groundH - gapHalf - margin;
     const lo = Math.min(minCy, maxCy), hi = Math.max(minCy, maxCy);
-    const segW = ip.width * 1.25;
-    for (let seg = 0; seg < 3; seg++) {
-      const gx = safePipeX(x + seg * (ip.width + 150), segW, MIN_PIPE_PAD);
+    const segW = ip.width * 1.15;
+    for (let seg = 0; seg < segCount; seg++) {
+      const gx = safePipeX(x + seg * (ip.width + 132), segW, MIN_PIPE_PAD);
       const cy = lo + rng() * (hi - lo);
       pipes.push({
         x: gx,
@@ -352,15 +439,17 @@ function difficultyFor(sc, diffc) {
         gap: cy, gapHalf,
         passed: false,
         big: true,
-        boss: true, seg,
-        mv: { ph: rng() * Math.PI * 2, amp: Math.min(gap * 0.62, 78), spd: 1.7 + rng() * 0.9, base: cy }
+        boss: true, seg, bossSegs: segCount,
+        bossColor: g.color, bossIcon: g.icon, bossName: g.name,
+        mv: { ph: rng() * Math.PI * 2, amp: Math.min(gap * 0.62, 78) * (cfg.amp || 1), spd: (1.7 + rng() * 0.9) * (cfg.speed || 1), base: cy }
       });
       lastCy = cy;
       lastPipeX = gx;
     }
     giantsMade++;
     revalidateCollectibles();
-    FX.text(W * 0.5, H * 0.28, '👹 ¡Boss! Cruza sus 3 huecos', 20, '#ff7043');
+    FX.text(W * 0.5, H * 0.28, g.icon + ' ¡' + g.name + '! Cruza sus ' + segCount + ' huecos', 20, g.color);
+    UI.toast(g.icon + ' Jefe: ' + g.name + ' · ' + hp + ' golpes', 'warning');
     SND.sfx.level();
   }
 
@@ -505,6 +594,44 @@ function difficultyFor(sc, diffc) {
     return true;
   }
 
+  function spawnBatAt(x, y) {
+    const r = 15;
+    enemies.push({
+      x: x, baseY: y, y: y, r: r, tier: 2, type: 'bat',
+      speed: 110, wf: 2.2, ph: rng() * Math.PI * 2, amp: 36, passed: false
+    });
+  }
+
+  // Ataques del jefe activo: cada patrón tiene un efecto real en el vuelo.
+  function updateBossAttacks() {
+    const g = bossGroup;
+    if (!g || g.dead || state !== 'play' || mode === 'zen') return;
+    if (bossAttackAt <= 0) { bossAttackAt = t + 4.5; return; }
+    if (t < bossAttackAt) return;
+    bossAttackAt = t + 5.5;
+    const kind = g.attack || 'wind';
+    const col = g.color || '#ff7043';
+    if (kind === 'wind') {
+      wind.on = true; wind.t0 = t; wind.dur = 3.2; wind.dir = rng() < 0.5 ? -1 : 1;
+      FX.text(bird.x, bird.y - bird.r - 76, '💨 ¡' + (g.name || 'Jefe') + ' invoca viento!', 16, col);
+      UI.toast('💨 ¡Rachas de viento del jefe!', 'warning');
+    } else if (kind === 'meteor') {
+      for (let i = 0; i < 3; i++) {
+        spawnMeteor();
+        const m = meteors[meteors.length - 1];
+        if (m) { m.x = clamp(bird.x + (i - 1) * 70 + (rng() - 0.5) * 40, 40, W - 40); m.vy += i * 20; }
+      }
+      FX.text(bird.x, bird.y - bird.r - 76, '🌋 ¡' + (g.name || 'Jefe') + ' lanza ascuas!', 16, col);
+    } else {
+      const bx = W + 50;
+      spawnBatAt(bx, clamp(bird.y - 70, 70, H - groundH - 70));
+      spawnBatAt(bx + 64, clamp(bird.y + 70, 70, H - groundH - 70));
+      FX.text(bird.x, bird.y - bird.r - 76, '🦇 ¡' + (g.name || 'Jefe') + ' invoca murciélagos!', 16, col);
+    }
+    SND.sfx.enemy();
+    if (SAVE.get().set.shake !== false) FX.shake(6);
+  }
+
   // Cadena de monedas 🍒: un arco de 5 monedas. Cada moneda se valida por separado
   // (el arco ocupa ~104 px y puede cruzar el cuerpo de un tubo).
   function spawnChain() {
@@ -561,7 +688,7 @@ function difficultyFor(sc, diffc) {
     }
     const labels = { x2: '✨ ¡Doble puntos!', xc: '💰 ¡Monedas al doble!', magnet: '🧲 ¡Imán!', slow: '⏳ ¡Cámara lenta!', gem: '💎 +3 🪙 ¡Diamante!', shield: '🛡️ ¡Escudo de partida +1!', ghost: '👻 ¡Modo fantasma!' };
     const colors = { x2: '#ffe066', xc: '#b2ff59', magnet: '#ff7043', slow: '#ffd54f', gem: '#e1bee7', shield: '#29b6f6', ghost: '#b388ff' };
-    const dur = type === 'xc' ? 10 : type === 'magnet' ? 7 : type === 'slow' ? 5 : 8;
+    const dur = (type === 'xc' ? 10 : type === 'magnet' ? 7 : type === 'slow' ? 5 : 8) * (1 + (buffs.duration || 0));
     if (type === 'shield') {
       // Recogido en pleno vuelo: se acumula solo para esta partida.
       runShields++;
@@ -585,6 +712,176 @@ function difficultyFor(sc, diffc) {
     FX.burst(bird.x, bird.y, colors[type], 16, 220);
     FX.text(bird.x, bird.y - bird.r - 24, labels[type], 15, colors[type]);
     if (type === 'shield') updateHUD(); // el contador del HUD refleja el escudo de partida
+  }
+
+  /* --- Expansión: puntuación, meteoros, puertas secretas y legendarias --- */
+  function scoreGain(base) {
+    let v = base;
+    if (modeCfg && modeCfg.scoreMul) v *= modeCfg.scoreMul;
+    if (buffs.score) v *= (1 + buffs.score);
+    if (futureUntil > t) v *= 3;
+    return Math.max(1, Math.round(v));
+  }
+
+  function runtimeCoinMul() {
+    let m = 1 + (buffs.coins || 0);
+    if (modeCfg && modeCfg.coinMul) m *= modeCfg.coinMul;
+    if (futureUntil > t) m *= 2;
+    return m;
+  }
+
+  function spawnMeteor() {
+    const r = 12 + rng() * 8;
+    const x = clamp(bird.x + 140 + rng() * Math.max(160, W - bird.x - 160), 34, W - 34);
+    meteors.push({ x: x, y: -r - 16, r: r, vy: 190 + rng() * 170, vx: -24 - rng() * 52, ph: rng() * Math.PI * 2, spin: rng() * 6.28 });
+  }
+
+  function updateMeteors(dt, spd) {
+    for (let i = meteors.length - 1; i >= 0; i--) {
+      const m = meteors[i];
+      m.y += m.vy * dt;
+      m.x += (m.vx - spd * 0.12) * dt;
+      m.spin += dt * 4;
+      if (m.y - m.r > H + 40 || m.x < -60) { meteors.splice(i, 1); continue; }
+      if (eff.ghost > t || invulnT > t) continue;
+      if (state !== 'play') continue;
+      const dx = m.x - bird.x, dy = m.y - bird.y;
+      const rr = m.r + bird.r * 0.8;
+      if (dx * dx + dy * dy < rr * rr) {
+        meteors.splice(i, 1);
+        FX.burst(m.x, m.y, '#ff7043', 16, 240);
+        hitObstacleBird(bird, 0);
+        break;
+      }
+    }
+  }
+
+  function spawnPortal() {
+    const r = 23;
+    const y = spawnCorridorY(r, W + 40, r * 2);
+    if (y === null) return false;
+    const type = rng() < 0.72 ? 'coins' : 'power';
+    secretPortals.push({ x: W + 40, y: y, r: r, type: type, ph: rng() * Math.PI * 2 });
+    return true;
+  }
+
+  function updatePortals(dt, spd) {
+    for (let i = secretPortals.length - 1; i >= 0; i--) {
+      const p = secretPortals[i];
+      p.x -= spd * dt;
+      if (p.x < -70) { secretPortals.splice(i, 1); continue; }
+      const dx = p.x - bird.x, dy = p.y - bird.y;
+      const rr = p.r + bird.r * 0.9;
+      if (dx * dx + dy * dy >= rr * rr) continue;
+      secretPortals.splice(i, 1);
+      if (p.type === 'power') {
+        const pf = POWERS[Math.floor(rng() * POWERS.length)];
+        activatePower(pf.type);
+        FX.text(bird.x, bird.y - bird.r - 54, '🚪 ¡Puerta secreta! Power-up', 15, '#b388ff');
+      } else {
+        const gain = 12 + Math.floor(rng() * 14);
+        SAVE.addCoins(gain);
+        score += scoreGain(4);
+        FX.burst(p.x, p.y, '#ffd54f', 22, 280);
+        FX.text(bird.x, bird.y - bird.r - 54, '🚪 ¡Puerta secreta! +' + gain + ' 🪙', 15, '#ffe066');
+        UI.toast('🚪 Puerta secreta: +' + gain + ' 🪙', 'good');
+      }
+      SND.sfx.power();
+      updateHUD();
+    }
+  }
+
+  // Herramienta legendaria: un uso manual por partida (si está equipada).
+  function useLegendary() {
+    if (state !== 'play' || paused || replayMode) return false;
+    if (!legendaryReady || legendaryUsed) return false;
+    const key = SAVE.get().legendary;
+    const cfg = (typeof EXP !== 'undefined' && EXP) ? EXP.getLegendary(key) : null;
+    if (!cfg) return false;
+    legendaryUsed = true;
+    legendaryReady = false;
+    const col = cfg.color || '#ffe066';
+    if (cfg.effect === 'electric') {
+      enemies.forEach(e => FX.burst(e.x, e.y, col, 10, 180));
+      enemies = [];
+      enemiesFrozenUntil = t + 4;
+      FX.text(bird.x, bird.y - bird.r - 60, '⚡ ¡Tormenta Eléctrica!', 17, col);
+    } else if (cfg.effect === 'magnetic') {
+      eff.magnet = t + 9; effDur.magnet = 9;
+      FX.text(bird.x, bird.y - bird.r - 60, '🧲 ¡Corazón Magnético!', 17, col);
+    } else if (cfg.effect === 'energy') {
+      runShields += 2;
+      eff.slow = t + 6; effDur.slow = 6;
+      FX.text(bird.x, bird.y - bird.r - 60, '🔋 ¡Núcleo de Energía! +2 🛡️', 17, col);
+    } else if (cfg.effect === 'freeze') {
+      pipeFreezeUntil = t + 6;
+      eff.slow = t + 6; effDur.slow = 6;
+      FX.text(bird.x, bird.y - bird.r - 60, '❄️ ¡Aliento Glacial!', 17, col);
+    } else if (cfg.effect === 'impulse') {
+      eff.turbo = t + 3; effDur.turbo = 3;
+      invulnT = t + 3;
+      FX.text(bird.x, bird.y - bird.r - 60, '🚀 ¡Impulso Estelar!', 17, col);
+    } else if (cfg.effect === 'build') {
+      const limit = W * 1.15;
+      pipes = pipes.filter(p => p.x > limit || p.boss);
+      for (let i = 0; i < 6; i++) addCoinSafe(bird.x + 80 + i * 30, bird.y, 10);
+      FX.text(bird.x, bird.y - bird.r - 60, '🧱 ¡Constructor! Puente de monedas', 17, col);
+    } else if (cfg.effect === 'future') {
+      futureUntil = t + 12;
+      FX.text(bird.x, bird.y - bird.r - 60, '🛸 ¡Futurista! x3 puntos · x2 monedas', 17, col);
+    }
+    SND.sfx.power();
+    if (SAVE.get().set.shake !== false) FX.shake(10);
+    FX.burst(bird.x, bird.y, col, 30, 340, { big: true });
+    UI.toast(cfg.icon + ' ' + cfg.name + ' activada', 'good');
+    updateHUD();
+    return true;
+  }
+
+  // Fin de un modo con victoria (meta, tiempo o jefe final).
+  function finishMode(kind) {
+    if (modeClearFlag || replayMode) return;
+    modeClearFlag = true;
+    clearedFlag = true;
+    const s = SAVE.get();
+    const dist = Math.floor(totalDist / 30);
+    const xpBase = Math.floor(score * 3 + pipesDone * 2 + coinCount * 3);
+    const xp = Math.max(1, Math.floor(xpBase * (1 + (buffs.xp || 0))));
+    const levelUps = SAVE.addXp(xp);
+    awardSkinXp(xpBase);
+    SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, mode, { mapId: curMapId, bossKills: bossKills });
+    let reward = 0, title = '¡MODO SUPERADO!', stars = '🏁 Meta';
+    let lvLbl = 'Puntos', lv = String(score), tgtLbl = 'Objetivo', tgt = String(runGoal || pipesDone);
+    if (kind === 'boss') {
+      reward = 150 + bossKills * 40;
+      title = '¡JEFE FINAL DERROTADO!';
+      stars = '👑 Victoria';
+      tgtLbl = 'Golpes'; tgt = String(bossKills);
+    } else if (kind === 'time') {
+      reward = 40 + Math.floor(score / 2) + (mode === 'coinrush' ? coinCount * 3 : 0);
+      title = mode === 'coinrush' ? '¡BOTÍN COMPLETADO!' : '¡TIEMPO AGOTADO!';
+      stars = mode === 'coinrush' ? '💰 Botín' : '⏱️ Tiempo';
+      lvLbl = 'Puntos'; tgtLbl = 'Monedas'; tgt = String(coinCount);
+    } else {
+      reward = 80 + (runGoal || pipesDone) * 5 + Math.max(0, pipesDone - (runGoal || pipesDone)) * 3;
+      stars = '🏁 Meta ' + (runGoal || pipesDone);
+      lvLbl = 'Tubos'; tgtLbl = 'Meta'; tgt = String(runGoal || pipesDone);
+    }
+    SAVE.addCoins(reward);
+    SAVE.save();
+    const ach = SAVE.checkAch();
+    SND.stopMusic();
+    SND.sfx.medal();
+    SND.sfx.achieve();
+    FX.confetti(bird.x, bird.y - 30);
+    state = 'cleared';
+    UI.setHudVisible(false);
+    UI.showModeClear({
+      title: title, lvLbl: lvLbl, lv: lv, tgtLbl: tgtLbl, tgt: tgt,
+      reward: reward, xp: xp, lvUps: levelUps, ach: ach, stars: stars,
+      btn: '🔁 VOLVER A JUGAR'
+    });
+    if (window.ADS) ADS.onRunEnd('mode');
   }
 
   function drawAura(ctx, x, y, r, col) {
@@ -617,7 +914,7 @@ function difficultyFor(sc, diffc) {
       for (const b of birds) {
         if (b.dead) continue;
         const dx = c.x - b.x, dy = c.y - b.y;
-        const rr = c.r + b.r * (magnetOn ? 1.0 : 0.8);
+        const rr = c.r + b.r * (magnetOn ? 1.0 + (buffs.magnet || 0) : 0.8);
         if (dx * dx + dy * dy < rr * rr) { pick = b; break; }
       }
       if (pick) {
@@ -634,8 +931,10 @@ function difficultyFor(sc, diffc) {
         let val = c.big ? 10 : Math.max(1, Math.round((1 + Math.floor(lvl / 5)) * (diff && diff.coinMul ? diff.coinMul : 1) * (mapCfgCur.coinMul || 1))) + (rt.luck ? (1 + toolLv('luck')) : 0);
         if (!c.big && (eff.xc > t || rt.coins)) val = val * 2 + toolLv('coins');
         if (eff.ferro > t) val += 2;
+        if (runtimeCoinMul() !== 1) val = Math.max(1, Math.round(val * runtimeCoinMul()));
         if (rt.legend) val = Math.ceil(val * 1.25);
         SAVE.addCoins(val);
+        if (modeCfg && modeCfg.scoreFromCoins) { score += scoreGain(Math.max(1, Math.round(val / 2))); }
         if (eff.bomb > t) { score += 1; FX.text(c.x, c.y - 34, '🧨 +1', 11, '#ffab91'); }
         if (c.big) {
           SND.sfx.power();
@@ -707,6 +1006,16 @@ function difficultyFor(sc, diffc) {
       }
     } else {
       runSeconds += dt;
+      // Contrarreloj / Fiebre de monedas: el reloj real del modo decide el final.
+      if (runTimeLeft > 0) {
+        runTimeLeft = Math.max(0, runTimeLeft - dt);
+        if (runTimeLeft <= 0 && !modeClearFlag) {
+          finishMode('time');
+          FX.update(dt); updateHUD(); render();
+          rafId = requestAnimationFrame(loop);
+          return;
+        }
+      }
       const D = curD(mode === 'zen' ? 0 : effScore()); // Zen: dificultad congelada, sin tubos ni enemigos
       lvl = D.level;
       worldSpeed += (D.speed * skinStats.spd - worldSpeed) * Math.min(1, dt * 1.6);
@@ -783,18 +1092,31 @@ function difficultyFor(sc, diffc) {
       if (spawnMegaDist >= (rt.radar ? D.megaEvery / 1.6 : D.megaEvery)) { spawnMegaDist = 0; spawnMega(); }
       spawnChDist += spd * dt;
       if (spawnChDist >= (rt.radar ? D.chainEvery / 1.6 : D.chainEvery)) { spawnChDist = 0; spawnChain(); }
+
+      /* --- Expansión: mapa dinámico (meteoros, puertas secretas) --- */
+      spawnMeteorDist += spd * dt;
+      const meteorEvery = dyn.feature === 'meteor' ? 520 : (eventId ? 900 : 1500);
+      if (spawnMeteorDist >= meteorEvery) { spawnMeteorDist = 0; if (meteors.length < 14) spawnMeteor(); }
+      nextSecretDist += spd * dt;
+      const secretEvery = dyn.feature === 'secret' ? 2100 : 4200;
+      if (nextSecretDist >= secretEvery) { nextSecretDist = 0; spawnPortal(); }
+
+      // Jefe activo: patrones de ataque reales (viento, ascuas, murciélagos)
+      updateBossAttacks();
       }
 
-      // mover tubos
+      // mover tubos (Aliento Glacial los congela)
+      const frozen = pipeFreezeUntil > t;
       for (let i = pipes.length - 1; i >= 0; i--) {
         const p = pipes[i];
-        p.x -= spd * dt;
+        if (!frozen) p.x -= spd * dt;
         // tubo móvil: el hueco sube y baja
         if (p.mv) {
           p.gap = clamp(p.mv.base + Math.sin(t * p.mv.spd + p.mv.ph) * p.mv.amp, 80 + p.gapHalf, H - groundH - p.gapHalf - 4);
         }
         if (!p.passed && p.x + p.w < bird.x - bird.r) {
-          p.passed = true; pipesDone++; score += (eff.x2 > t ? 2 : 1) + (rt.score ? 1 : 0) + (eff.combo > t ? 2 : 0) + (eff.aura > t ? 1 : 0) + (rt.doble ? 1 : 0) + (rt.titan ? 2 : 0) + (rt.legend ? 1 : 0); combo++;
+          p.passed = true; pipesDone++;
+          score += scoreGain((eff.x2 > t ? 2 : 1) + (rt.score ? 1 : 0) + (eff.combo > t ? 2 : 0) + (eff.aura > t ? 1 : 0) + (rt.doble ? 1 : 0) + (rt.titan ? 2 : 0) + (rt.legend ? 1 : 0)); combo++;
           if (rt.bala && pipesDone % 10 === 0) balaShot();
           if (mode === 'duel' && !clearedFlag && !bird.dead && pipesDone >= DUEL_PIPES) {
             clearedFlag = true;
@@ -805,23 +1127,26 @@ function difficultyFor(sc, diffc) {
             if (rng() < rival.strength) rival.prog++;
             else if (rng() < 0.35) rival.prog++;
           }
-          if (mode === 'boss' && !bossGroup && !bossNext && pipesDone >= bossPendAt) bossNext = true;
+          if ((mode === 'boss' || mode === 'event') && !bossGroup && !bossNext && pipesDone >= bossPendAt) bossNext = true;
           if (p.boss && bossGroup && !bossGroup.dead) {
             bossGroup.hp--;
             SND.sfx.enemy();
-            score += 8;
-            FX.text(bird.x, bird.y - bird.r - 70, '💥 ¡Boss! -1 vida', 16, '#ff7043');
-            FX.burst(bird.x, bird.y, '#ff7043', 16, 260);
+            score += scoreGain(8 + (buffs.bossScore || 0));
+            FX.text(bird.x, bird.y - bird.r - 70, '💥 ¡' + (bossGroup.name || 'Boss') + '! -1 vida', 16, bossGroup.color || '#ff7043');
+            FX.burst(bird.x, bird.y, bossGroup.color || '#ff7043', 16, 260);
+            if (SAVE.get().set.shake !== false) FX.shake(7);
             if (bossGroup.hp <= 0) {
               bossGroup.dead = true;
+              bossKills++;
               SAVE.addCoins(20);
               SAVE.get().stats.bossDefeated = (SAVE.get().stats.bossDefeated || 0) + 1;
               SAVE.save();
               SND.sfx.level();
               FX.confetti(bird.x, bird.y - 40);
-              FX.text(bird.x, bird.y - bird.r - 120, '👹 ¡BOSS DERROTADO! +20 🪙', 22, '#ffca28');
-              UI.toast('👹 ¡Boss derrotado! +20 🪙', 'good');
+              FX.text(bird.x, bird.y - bird.r - 120, (bossGroup.icon || '👹') + ' ¡' + (bossGroup.name || 'BOSS') + ' DERROTADO! +20 🪙', 22, '#ffca28');
+              UI.toast((bossGroup.icon || '👹') + ' ¡' + (bossGroup.name || 'Boss') + ' derrotado! +20 🪙', 'good');
               bossPendAt += 20;
+              if (mode === 'finalboss') { finishMode('boss'); break; }
             }
           }
           if (p.big) {
@@ -837,24 +1162,30 @@ function difficultyFor(sc, diffc) {
           const lvlAfter = difficultyFor(score).level;
           if (lvlAfter > lvl) onLevelUp(lvlAfter);
           updateHUD();
+          // Meta de los modos con objetivo (Carrera, Competitivo…)
+          if (mode !== 'duel' && runGoal > 0 && pipesDone >= runGoal && !modeClearFlag) { finishMode('goal'); break; }
         }
         if (p.x < -p.w - 40) {
-          if (p.boss && p.seg === 2 && bossGroup) bossGroup = null; // el jefe salió de pantalla (solo al irse su último hueco)
+          if (p.boss && p.seg === (p.bossSegs || 3) - 1 && bossGroup) bossGroup = null; // el jefe salió de pantalla (solo al irse su último hueco)
           pipes.splice(i, 1);
         }
       }
 
       // mover y recoger monedas
+      if (state !== 'play') { FX.update(dt); updateHUD(); render(); rafId = requestAnimationFrame(loop); return; }
       updateCoins(dt, spd);
+      updateMeteors(dt, spd);
+      updatePortals(dt, spd);
 
-      // mover enemigos
+      // mover enemigos (la Tormenta Eléctrica los congela)
+      const enemiesFrozen = enemiesFrozenUntil > t;
       for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
-        e.x -= (spd + e.speed) * dt;
+        if (!enemiesFrozen) e.x -= (spd + e.speed) * dt;
         e.y = e.baseY + Math.sin(t * e.wf + e.ph) * (e.type === 'bat' ? e.amp * 1.25 : e.amp);
         if (!e.passed && e.x + e.r < bird.x - bird.r) {
           e.passed = true;
-          score += eff.x2 > t ? 4 : 2; combo++;
+          score += scoreGain(eff.x2 > t ? 4 : 2); combo++;
           SAVE.get().stats.enemiesGot = (SAVE.get().stats.enemiesGot || 0) + 1;
           if (e.type === 'bat') SAVE.get().stats.batsGot = (SAVE.get().stats.batsGot || 0) + 1;
           SAVE.save();
@@ -1082,6 +1413,37 @@ function difficultyFor(sc, diffc) {
       updateHUD();
       return;
     }
+    // Expansión: vidas de modo (Carrera) y resurrección de personaje/habilidad.
+    if (runLives > 0) {
+      runLives--;
+      b.dead = false;
+      b.y = clamp(b.y, H * 0.2, H - groundH - b.r - 40);
+      b.vy = -300;
+      invulnT = t + 2.0;
+      SAVE.get().stats.modeLivesUsed = (SAVE.get().stats.modeLivesUsed || 0) + 1;
+      SAVE.save();
+      SND.sfx.block();
+      FX.burst(b.x, b.y, '#69f0ae', 30, 360, { big: true, grav: 300 });
+      FX.text(b.x, b.y - b.r - 40, '💚 ¡Vida extra! Quedan ' + runLives, 18, '#69f0ae');
+      UI.toast('💚 ¡Vida extra! Quedan ' + runLives, 'good');
+      updateHUD();
+      return;
+    }
+    if (buffs.revive > 0 && !runReviveUsed) {
+      runReviveUsed = true;
+      b.dead = false;
+      b.y = Math.max(H * 0.38, H - groundH - b.r - 80);
+      b.vy = -280;
+      invulnT = t + 1.5;
+      SAVE.get().stats.reviveUsed = (SAVE.get().stats.reviveUsed || 0) + 1;
+      SAVE.save();
+      SND.sfx.power();
+      FX.burst(b.x, b.y, '#4dd0e1', 30, 380, { big: true, grav: 300 });
+      FX.text(b.x, b.y - b.r - 40, '💞 ¡Segunda oportunidad!', 18, '#4dd0e1');
+      UI.toast('💞 ¡Tu personaje te dio otra oportunidad!', 'good');
+      updateHUD();
+      return;
+    }
     bird = b;
     bird.dead = true;
     bird.vy = -300;
@@ -1122,12 +1484,12 @@ function difficultyFor(sc, diffc) {
       return;
     }
     state = 'over';
-    const xp = Math.floor(score * 3 + pipesDone * 2 + coinCount * 3);
+    const xp = Math.floor((score * 3 + pipesDone * 2 + coinCount * 3) * (1 + (buffs.xp || 0)));
     const xpTotal = rt.amuleto ? Math.floor(xp * 1.05) : xp;
     const levelUps = SAVE.addXp(xpTotal);
     awardSkinXp(xp);
     const dist = Math.floor(totalDist / 30);
-    const isRecord = SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, mode);
+    const isRecord = SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, mode, { mapId: curMapId, bossKills: bossKills });
     const s = SAVE.get();
     if (mode === 'zen') s.stats.zenBest = Math.max(s.stats.zenBest || 0, score);
     // medallas ocultas (condiciones raras)
@@ -1194,10 +1556,17 @@ function difficultyFor(sc, diffc) {
     if (window.ADS) ADS.onRunEnd('duel');
   }
 
+  function isPlayableMode(m) {
+    if (m === 'free' || m === 'challenge' || m === 'duel' || m === 'replay' || m === 'zen' || m === 'boss' || m === 'wind') return true;
+    if (typeof EXP !== 'undefined' && EXP && EXP.getMode(m)) return true;
+    return false;
+  }
+
   function startPlay(m) {
-    const valid = m === undefined || m === 'free' || m === 'challenge' || m === 'duel' || m === 'replay' || m === 'zen' || m === 'boss' || m === 'wind';
-    if (m !== undefined && !valid) return; // modos removidos (time/levels/pvp) no inician vuelo
+    const valid = m === undefined || isPlayableMode(m);
+    if (m !== undefined && !valid) return; // modos desconocidos no inician vuelo
     if (valid && m !== undefined) mode = m;
+    if (mode === 'event' && typeof EXP !== 'undefined' && EXP && !EXP.activeEvent()) return;
     SND.unlock();
     challengeMap = null;
     if (mode === 'challenge') challengeMap = dailyChallengeMap();
@@ -1213,6 +1582,7 @@ function difficultyFor(sc, diffc) {
     UI.setHudVisible(true);
     UI.showStartHint(true);
     UI.hideAllScreens();
+    if (mode !== 'replay' && typeof EXPUI !== 'undefined' && EXPUI && EXPUI.cinematic) EXPUI.cinematic(mode);
     updateHUD();
     SND.startMusic();
   }
@@ -1505,7 +1875,8 @@ function difficultyFor(sc, diffc) {
   }
 
   function setMode(m) {
-    if (m !== 'free' && m !== 'challenge' && m !== 'duel' && m !== 'zen' && m !== 'boss' && m !== 'wind') return;
+    if (!isPlayableMode(m)) return;
+    if (m === 'event' && typeof EXP !== 'undefined' && EXP && !EXP.activeEvent()) return;
     mode = m;
     if (m !== 'challenge' && m !== 'duel') SAVE.setSetting('mode', mode);
   }
@@ -1576,6 +1947,19 @@ function difficultyFor(sc, diffc) {
     bird.y = bird.y0;
     bird.rot = 0; bird.vy = 0; bird.dead = false;
     enemies = [];
+    meteors = [];
+    secretPortals = [];
+    runLives = 0;
+    runTimeLeft = 0;
+    runGoal = 0;
+    modeClearFlag = false;
+    legendaryReady = false;
+    legendaryUsed = false;
+    futureUntil = 0;
+    pipeFreezeUntil = 0;
+    enemiesFrozenUntil = 0;
+    ghostRace = false;
+    ghostScore = 0;
     BG.init(SAVE.get().map);
     BG.reset();
     if (SND.setMapTheme) SND.setMapTheme(SAVE.get().map);
@@ -1595,12 +1979,54 @@ function difficultyFor(sc, diffc) {
     const hat = S.hat;
     const birdStage = SAVE.skinStage(S.skin);
     const birdGolden = !!skin.golden;
+    const expOk = typeof EXP !== 'undefined' && EXP;
+    let drawSkin = skin;
+    if (expOk) {
+      const ch = EXP.getChar(S.char);
+      if (ch && ch.id !== 'pio' && !skin.rainbow && !skin.golden) drawSkin = Object.assign({}, skin, ch.colors);
+    }
+
+    drawDynamicLight(ctx, S);
 
     pipes.forEach(p => ENTS.drawPipe(ctx, p, BG.getMap(), groundH, W, H));
+    if (expOk) drawBossFaces(ctx);
     if (rt.mirilla && state === 'play') drawMirilla(ctx);
     coins.forEach(c => ENTS.drawCoin(ctx, c, t));
     enemies.forEach(e => ENTS.drawEnemy(ctx, e, t));
     powers.forEach(pw => ENTS.drawPower(ctx, pw, t));
+    if (expOk) {
+      meteors.forEach(m => ENTS.drawMeteor(ctx, m, t));
+      secretPortals.forEach(p => ENTS.drawPortal(ctx, p, t));
+    }
+
+    // Mascota equipada: 100 % cosmética, sigue al ave.
+    if (expOk && S.pet && EXP.petOwned(S, S.pet) && bird && !bird.dead) {
+      const pet = EXP.getPet(S.pet);
+      const lvl = SAVE.petLevelOf(S.pet);
+      const style = pet.style || 'hop';
+      let px = bird.x - 58, py = bird.y + 30 + Math.sin(t * 3.2) * 6;
+      if (style === 'orbit') { px = bird.x - 26 + Math.cos(t * 1.7) * 52; py = bird.y + Math.sin(t * 1.7) * 44; }
+      else if (style === 'zigzag') { px = bird.x - 62 + Math.sin(t * 4.4) * 16; py = bird.y + 24 + Math.cos(t * 3.1) * 10; }
+      else if (style === 'float') { py = bird.y + 36 + Math.sin(t * 1.9) * 10; }
+      ENTS.drawPet(ctx, pet, px, py, t, lvl);
+    }
+
+    // Competitivo: fantasma de tu propio récord real (sin rivales inventados)
+    if (expOk && ghostRace && state === 'play' && bird) {
+      const gx = clamp(bird.x + (ghostScore - score) * 9, 28, W - 28);
+      const gy = H * 0.44 + Math.sin(t * 1.3) * 54;
+      ENTS.drawBird(ctx, gx, gy, {
+        skin: DAT.getSkin('classic'), hat: null, t, wingPhase: Math.sin(t * 6) * 0.5 + 0.5,
+        squash: 1, rot: 0, r: bird.r * 0.92, ghost: true, scale: 1
+      });
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      ctx.font = '900 11px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#b388ff';
+      ctx.fillText('👻 TU RÉCORD ' + ghostScore + ' pts', gx, gy + 34);
+      ctx.restore();
+    }
 
     birds.forEach((b) => {
       if (b === bird) {
@@ -1623,13 +2049,13 @@ function difficultyFor(sc, diffc) {
         if (rt.fenix) drawAura(ctx, b.x, b.y, b.r, '#ffb74d');
       }
       ENTS.drawBird(ctx, b.x, b.y, {
-        skin, hat, t, wingPhase: b.wingPhase, squash: b.squish, rot: b.rot, r: b.r,
+        skin: drawSkin, hat, t, wingPhase: b.wingPhase, squash: b.squish, rot: b.rot, r: b.r,
         ghost: eff.ghost > t,
         stage: b === bird ? birdStage : 0,
         golden: b === bird ? birdGolden : false
       });
     });
-    if (mode === 'boss' && bossGroup && !bossGroup.dead) drawBossBar();
+    if (bossGroup && !bossGroup.dead) drawBossBar();
 
     if (wind.on && !bird.dead && state === 'play') drawWind();
     if (mode === 'duel' && rival && bird && !bird.dead) drawRival();
@@ -1637,6 +2063,80 @@ function difficultyFor(sc, diffc) {
     if (state === 'play' && readyTap) drawReady();
     FX.draw(ctx, false);
     ctx.restore();
+  }
+
+  // Iluminación dinámica por mapa/efectos (se puede reducir en Ajustes).
+  const lightCache = {};
+  function lightGrad(kind, build) {
+    const key = kind + ':' + W + 'x' + H;
+    if (!lightCache[key]) lightCache[key] = build();
+    return lightCache[key];
+  }
+  function drawDynamicLight(ctx, S) {
+    const st = (S && S.set) || {};
+    if (st.reduced || st.gfx === 'low') return;
+    const feat = (dyn && dyn.feature) || 'coins';
+    ctx.save();
+    if (feat === 'meteor' || eventId) {
+      ctx.fillStyle = lightGrad('meteor', () => {
+        const g = ctx.createLinearGradient(0, 0, 0, H);
+        g.addColorStop(0, 'rgba(255,110,60,0.13)');
+        g.addColorStop(0.6, 'rgba(255,110,60,0.03)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        return g;
+      });
+      ctx.fillRect(0, 0, W, H);
+    } else if (feat === 'secret') {
+      ctx.fillStyle = lightGrad('secret', () => {
+        const g = ctx.createLinearGradient(0, 0, 0, H);
+        g.addColorStop(0, 'rgba(160,110,255,0.12)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        return g;
+      });
+      ctx.fillRect(0, 0, W, H);
+    } else if (feat === 'wind') {
+      ctx.fillStyle = lightGrad('wind', () => {
+        const g = ctx.createLinearGradient(0, 0, W, 0);
+        g.addColorStop(0, 'rgba(120,200,255,0.10)');
+        g.addColorStop(0.5, 'rgba(0,0,0,0)');
+        g.addColorStop(1, 'rgba(120,200,255,0.10)');
+        return g;
+      });
+      ctx.fillRect(0, 0, W, H);
+    }
+    if (pipeFreezeUntil > t) {
+      ctx.fillStyle = 'rgba(130,210,255,0.12)';
+      ctx.fillRect(0, 0, W, H);
+    }
+    if (state === 'play') {
+      ctx.fillStyle = lightGrad('vig', () => {
+        const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.34, W / 2, H / 2, Math.max(W, H) * 0.78);
+        g.addColorStop(0, 'rgba(0,0,0,0)');
+        g.addColorStop(1, 'rgba(0,0,0,0.26)');
+        return g;
+      });
+      ctx.fillRect(0, 0, W, H);
+    }
+    ctx.restore();
+  }
+
+  // Cara del jefe sobre sus tubos gigantes.
+  function drawBossFaces(ctx) {
+    if (!bossGroup || bossGroup.dead) return;
+    pipes.forEach(p => {
+      if (!p.boss) return;
+      const cx = p.x + p.w / 2;
+      ctx.save();
+      ctx.globalAlpha = 0.92;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = p.bossColor || '#ff7043';
+      ctx.shadowBlur = 16;
+      ctx.font = '900 24px "Segoe UI Emoji", sans-serif';
+      ctx.fillText(p.bossIcon || '👹', cx, p.gap - p.gapHalf - 20);
+      ctx.fillText(p.bossIcon || '👹', cx, p.gap + p.gapHalf + 20);
+      ctx.restore();
+    });
   }
 
   // Rayas y flechas de viento lateral (flechas grandes en el modo Viento)
@@ -1682,10 +2182,10 @@ function difficultyFor(sc, diffc) {
     ctx.font = '900 13px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = '#fff';
-    ctx.fillText('👹 JEFE', x + w / 2, y - 8);
+    ctx.fillText((g.icon || '👹') + ' ' + (g.name || 'JEFE') + ' · ' + Math.max(0, g.hp) + '/' + (g.maxHp || 3), x + w / 2, y - 8);
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.fillRect(x, y, w, 10);
-    const frac = Math.max(0, g.hp) / 3;
+    const frac = Math.max(0, g.hp) / (g.maxHp || 3);
     ctx.fillStyle = frac <= 1 / 3 ? '#ff5252' : frac <= 2 / 3 ? '#ffb300' : '#69f0ae';
     ctx.fillRect(x, y, w * frac, 10);
     ctx.strokeStyle = 'rgba(255,255,255,0.4)';
@@ -1743,7 +2243,25 @@ function difficultyFor(sc, diffc) {
               ? '👹 Boss cada ' + bossPendAt + ' tubos · ¡cruza sus huecos!'
               : mode === 'wind'
                 ? '💨 Viento · tramos con ráfagas laterales y flechas'
-                : 'Esquiva tubos, monedas y enemigos';
+                : mode === 'timeattack'
+                  ? '⏱️ Contrarreloj · ' + Math.round(modeCfg.time || 60) + ' s para puntuar'
+                  : mode === 'coinrush'
+                    ? '💰 Fiebre de monedas · ' + Math.round(modeCfg.time || 45) + ' s · monedas x3'
+                    : mode === 'gauntlet'
+                      ? '🏁 Carrera · ' + (runGoal || 20) + ' tubos y ' + (runLives + 1) + ' vidas'
+                      : mode === 'competitive'
+                        ? '🆚 Competitivo · supera tu récord de ' + ghostScore + ' pts'
+                        : mode === 'finalboss'
+                          ? '👑 Jefe final · ' + (bossCfg ? bossCfg.icon + ' ' + bossCfg.name : 'Cronos') + ' · ' + (bossCfg ? bossCfg.hp : 6) + ' golpes'
+                          : mode === 'survival'
+                            ? '💀 Supervivencia · dificultad alta desde el inicio'
+                            : mode === 'extreme'
+                              ? '🔥 Desafío extremo · huecos estrechos y x2 puntos'
+                              : mode === 'endless'
+                                ? '♾️ Infinito · sin techo de dificultad'
+                                : mode === 'event'
+                                  ? '🎉 Evento activo · ' + ((typeof EXP !== 'undefined' && EXP && EXP.activeEvent()) ? EXP.activeEvent().name + ' · ' + EXP.activeEvent().desc : 'Vuelo especial')
+                                  : 'Esquiva tubos, monedas y enemigos';
     const tools = armedLine();
     const line = (tools ? '🛠 ' + tools.trim() + ' · ' : '') + sub;
     ctx.strokeText(line, W / 2, H * 0.74 + 20);
@@ -1846,6 +2364,25 @@ function difficultyFor(sc, diffc) {
       levelText = '💨 Viento · ' + score;
       grad = 'linear-gradient(90deg,#81d4fa,#0277bd)';
       prog = null; // barra de nivel normal
+    } else if (mode === 'timeattack' || mode === 'coinrush') {
+      levelText = (mode === 'coinrush' ? '💰 ' : '⏱️ ') + Math.ceil(Math.max(0, runTimeLeft)) + ' s' +
+        (mode === 'coinrush' ? ' · 🪙 ' + coinCount : ' · ' + score + ' pts');
+      grad = mode === 'coinrush' ? 'linear-gradient(90deg,#ffd54f,#ff8f00)' : 'linear-gradient(90deg,#4dd0e1,#006064)';
+      prog = Math.max(0, Math.min(100, runTimeLeft / Math.max(1, (modeCfg && modeCfg.time) || 60) * 100));
+    } else if (mode === 'gauntlet' || mode === 'competitive') {
+      levelText = (mode === 'gauntlet' ? '🏁 ' : '🆚 ') + pipesDone + '/' + (runGoal || 20) +
+        ' · 💚 ' + (runLives + 1) + (ghostRace ? ' · 👻 ' + ghostScore : '');
+      grad = mode === 'gauntlet' ? 'linear-gradient(90deg,#ffca28,#ef6c00)' : 'linear-gradient(90deg,#b388ff,#651fff)';
+      prog = fracTo(pipesDone, runGoal || 20, curD(score));
+    } else if (mode === 'finalboss') {
+      levelText = '👑 Jefe final' + (bossGroup && !bossGroup.dead ? ' · ❤️ ' + bossGroup.hp + '/' + (bossGroup.maxHp || 6) : ' · avanza');
+      grad = 'linear-gradient(90deg,#7e57c2,#311b92)';
+      prog = bossGroup && !bossGroup.dead ? Math.max(0, bossGroup.hp / (bossGroup.maxHp || 6) * 100) : 0;
+    } else if (mode === 'survival' || mode === 'extreme' || mode === 'endless' || mode === 'event') {
+      const mc = (typeof EXP !== 'undefined' && EXP && EXP.getMode(mode)) || null;
+      levelText = (mc ? mc.icon + ' ' + mc.name : '✨ Evento') + ' · Nivel ' + lvl + ' · ' + score + ' pts';
+      grad = mode === 'extreme' ? 'linear-gradient(90deg,#ff5252,#b71c1c)' : mode === 'endless' ? 'linear-gradient(90deg,#26c6da,#00695c)' : 'linear-gradient(90deg,#ffb300,#e65100)';
+      prog = null;
     } else if (mode === 'replay') {
       levelText = '🎬 Replay';
       grad = 'linear-gradient(90deg,#b39ddb,#7c4dff)';
@@ -1863,6 +2400,12 @@ function difficultyFor(sc, diffc) {
       if (hudCache.pfW !== w) { pf.style.width = w; hudCache.pfW = w; }
       const full = cp >= 99.5;
       if (hudCache.pfFull !== full) { pf.classList.toggle('full', full); hudCache.pfFull = full; }
+    }
+    if (typeof UI !== 'undefined' && UI.setLegendary) {
+      let lcfg = null;
+      if (typeof EXP !== 'undefined' && EXP && SAVE.get().legendary) lcfg = EXP.getLegendary(SAVE.get().legendary);
+      const ready = !!(lcfg && legendaryReady && !legendaryUsed && state === 'play' && !paused);
+      UI.setLegendary(!!lcfg, ready, lcfg ? lcfg.icon : '', lcfg ? lcfg.name : '');
     }
   }
 
@@ -1945,7 +2488,42 @@ function difficultyFor(sc, diffc) {
       isSpotFree: isSpotFree,
       freeY: freeY,
       pipes: () => pipes,
-      bird: () => bird
+      bird: () => bird,
+      // Expansión v3.2
+      isPlayableMode: isPlayableMode,
+      scoreGain: scoreGain,
+      spawnMeteor: spawnMeteor,
+      updateMeteors: updateMeteors,
+      spawnPortal: spawnPortal,
+      updatePortals: updatePortals,
+      useLegendary: useLegendary,
+      finishMode: finishMode,
+      updateBossAttacks: updateBossAttacks,
+      spawnBatAt: spawnBatAt,
+      getModeCfg: () => Object.assign({}, modeCfg),
+      getRunState: () => ({
+        mode: mode, timeLeft: runTimeLeft, lives: runLives, goal: runGoal,
+        mapId: curMapId, eventId: eventId, ghostRace: ghostRace, ghostScore: ghostScore,
+        boss: bossCfg, bossKills: bossKills, legendaryReady: legendaryReady,
+        legendaryUsed: legendaryUsed, dyn: Object.assign({}, dyn), buffs: Object.assign({}, buffs)
+      }),
+      getMeteors: () => meteors,
+      getPortals: () => secretPortals,
+      setRunState: patch => {
+        patch = patch || {};
+        if ('lives' in patch) runLives = Math.max(0, Math.floor(patch.lives));
+        if ('timeLeft' in patch) runTimeLeft = Math.max(0, Number(patch.timeLeft) || 0);
+        if ('goal' in patch) runGoal = Math.max(0, Math.floor(patch.goal));
+        if ('pipesDone' in patch) pipesDone = Math.max(0, Math.floor(patch.pipesDone));
+        if ('score' in patch) score = Math.max(0, Math.floor(patch.score));
+        if ('ghostScore' in patch) ghostScore = Math.max(0, Math.floor(patch.ghostScore));
+        if ('bossCfg' in patch) bossCfg = patch.bossCfg;
+        if ('legendaryReady' in patch) legendaryReady = !!patch.legendaryReady;
+      },
+      killBird: killBird,
+      hitObstacleBird: hitObstacleBird,
+      endRun: endRun,
+      startPlay: startPlay
     }
   };
 })();

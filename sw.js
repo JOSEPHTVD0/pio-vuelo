@@ -1,4 +1,4 @@
-var CACHE = 'piovuelo-v24';
+var CACHE = 'piovuelo-v25';
 var FILES = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ var FILES = [
   './css/style.css',
   './js/firebase-config.js',
   './js/data.js',
+  './js/expansion.js',
   './js/audio.js',
   './js/save.js',
   './js/cloud.js',
@@ -15,6 +16,7 @@ var FILES = [
   './js/entities.js',
   './js/game.js',
   './js/ui.js',
+  './js/expansion-ui.js',
   './js/main.js',
   './icons/pwa-192.png',
   './icons/pwa-512.png',
