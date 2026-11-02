@@ -1,4 +1,4 @@
-# Pío Vuelo 3.2
+# Pío Vuelo 3.2.1
 
 Juego arcade de un pájaro que vuela entre tubos, con monedas, power-ups, tienda, misiones, récords y progresión. Funciona como aplicación web instalable (PWA) y también como APK Android mediante WebView.
 
@@ -62,6 +62,13 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Clasificación local por dispositivo y ranking online opcional con Firebase.
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
+
+## Novedades de la versión 3.2.1
+
+- **Selector de modo adaptado:** el panel de **Elegir modo** ahora tiene un área de desplazamiento propia; los 15 modos se muestran en una lista de una columna, con icono, nombre y estado, y el botón **VOLVER** queda siempre visible.
+- **Opciones que no se salen:** las pestañas, el Pase de Vuelo, la tienda y el inventario se reorganizan en rejillas adaptables en lugar de desbordar en móviles estrechos.
+- **Mejor manejo en Android y PC:** objetivos táctiles más altos, textos que se ajustan o truncan sin romper la pantalla, desplazamiento táctil con indicador y foco visible para teclado.
+- **Comprobaciones automáticas:** la prueba de navegador audita 320x568, 360x640, 390x844, 768x1024 y 1440x900, además de comprobar que el selector de modo desplaza y mantiene visible el botón VOLVER.
 
 ## Novedades de la versión 3.2
 

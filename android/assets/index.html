@@ -228,21 +228,25 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
 
   <!-- ELECCIÓN DE MODO (botón JUGAR) -->
   <div id="screen-modepick" class="screen overlay-screen hidden">
-    <div class="panel">
+    <div class="panel mp-panel">
       <div class="panel-head" id="mpHeader">
         <h3 id="mpTitle">ELEGIR MODO</h3>
         <div class="panel-sub" id="mpSub">¿Cómo quieres volar hoy?</div>
       </div>
-      <div class="mode-list">
-        <button class="mode-btn" id="mpFree"><span class="mb-ico">&#127919;</span><span class="mb-txt">Libre</span><span id="mpFreeSub" class="md-tag"></span></button>
-        <button class="mode-btn" id="mpDuel"><span class="mb-ico">&#127928;</span><span class="mb-txt">Duelo</span><span id="mpDuelSub" class="md-tag"></span></button>
-        <button class="mode-btn" id="mpDaily"><span class="mb-ico">&#127769;</span><span class="mb-txt">Desafío diario</span><span id="mpDailySub" class="md-tag"></span></button>
-        <button class="mode-btn" id="mpZen"><span class="mb-ico">&#129496;</span><span class="mb-txt">Zen</span><span id="mpZenSub" class="md-tag"></span></button>
-        <button class="mode-btn" id="mpBoss"><span class="mb-ico">&#128121;</span><span class="mb-txt">Jefe</span><span id="mpBossSub" class="md-tag"></span></button>
-        <button class="mode-btn" id="mpWind"><span class="mb-ico">&#127786;</span><span class="mb-txt">Viento</span><span id="mpWindSub" class="md-tag"></span></button>
+      <div class="mp-scroll" id="mpScroll">
+        <div class="mode-sec-title">MODOS CL&#193;SICOS</div>
+        <div class="mode-list">
+          <button class="mode-btn" id="mpFree"><span class="mb-ico">&#127919;</span><span class="mb-txt">Libre</span><span id="mpFreeSub" class="md-tag"></span></button>
+          <button class="mode-btn" id="mpDuel"><span class="mb-ico">&#127928;</span><span class="mb-txt">Duelo</span><span id="mpDuelSub" class="md-tag"></span></button>
+          <button class="mode-btn" id="mpDaily"><span class="mb-ico">&#127769;</span><span class="mb-txt">Desafío diario</span><span id="mpDailySub" class="md-tag"></span></button>
+          <button class="mode-btn" id="mpZen"><span class="mb-ico">&#129496;</span><span class="mb-txt">Zen</span><span id="mpZenSub" class="md-tag"></span></button>
+          <button class="mode-btn" id="mpBoss"><span class="mb-ico">&#128121;</span><span class="mb-txt">Jefe</span><span id="mpBossSub" class="md-tag"></span></button>
+          <button class="mode-btn" id="mpWind"><span class="mb-ico">&#127786;</span><span class="mb-txt">Viento</span><span id="mpWindSub" class="md-tag"></span></button>
+        </div>
+        <div class="mode-sec-title">M&#193;S MODOS</div>
+        <div id="mpExpModes" class="mode-list exp-mode-list"></div>
       </div>
-      <div class="mode-sec-title">M&#193;S MODOS</div>
-      <div id="mpExpModes" class="mode-list exp-mode-list"></div>
+      <div class="mp-scroll-hint" id="mpScrollHint">&#8597; Desliza para ver todos los modos</div>
       <button class="btn btn-ghost" id="btnModeBack">VOLVER</button>
     </div>
   </div>
@@ -257,7 +261,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
       <button class="btn" data-nav="settings">&#9881; Ajustes</button>
       <button class="btn" data-nav="records">&#127942; Récords</button>
       <button class="btn btn-danger" id="btnExit">&#8962; Salir</button>
-      <div class="panel-note">P&#237;o Vuelo v3.2 · Temporada 2026 🌍</div>
+      <div class="panel-note">P&#237;o Vuelo v3.2.1 · Temporada 2026 🌍</div>
     </div>
   </div>
 

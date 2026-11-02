@@ -252,6 +252,113 @@ function makeClient(ws) {
       }
     }
 
+    // Adaptación real a móvil, tablet y PC: ninguna pantalla debe desbordar.
+    const viewports = [
+      { w: 320, h: 568, name: 'móvil pequeño 320x568' },
+      { w: 360, h: 640, name: 'móvil 360x640' },
+      { w: 390, h: 844, name: 'móvil moderno 390x844' },
+      { w: 768, h: 1024, name: 'tablet 768x1024' },
+      { w: 1440, h: 900, name: 'PC 1440x900' }
+    ];
+    const responsiveScreens = ['home', 'characters', 'pets', 'skills', 'events', 'badges', 'legendary', 'custom', 'league', 'modes', 'shop', 'inventory', 'pass', 'records', 'settings'];
+    for (const vp of viewports) {
+      await c.send('Emulation.setDeviceMetricsOverride', { width: vp.w, height: vp.h, deviceScaleFactor: 1, mobile: vp.w < 600 });
+      await sleep(150);
+      const scan = await evalJs(`(async function(){
+        var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms)})};
+        var out=[];
+        function check(label){
+          var vw=window.innerWidth;
+          if(document.documentElement.scrollWidth>vw+1) out.push('documento ' + document.documentElement.scrollWidth + '>' + vw);
+          var all=document.querySelectorAll('button,input,select,.exp-card,.exp-row,.exp-theme,.exp-chip,.item,.tab,.q-nav,.acc-nav,.pass-cell,.panel');
+          for(var i=0;i<all.length;i++){
+            var el=all[i];
+            if(el.closest('.hidden')) continue;
+            var cs=getComputedStyle(el);
+            if(cs.display==='none'||cs.visibility==='hidden') continue;
+            var r=el.getBoundingClientRect();
+            if(r.width<1||r.height<1) continue;
+            if(r.left<-1||r.right>vw+1) out.push(label + ': ' + (el.id||el.className) + ' fuera (' + Math.round(r.left) + '..' + Math.round(r.right) + '/' + vw + ')');
+            if(el.scrollWidth>el.clientWidth+2 && cs.overflowX!=='auto' && cs.overflowX!=='scroll' && el.clientWidth>0) out.push(label + ': ' + (el.id||el.className) + ' recortado');
+          }
+        }
+        check('portada');
+        var kinds=${JSON.stringify(responsiveScreens.slice(1))};
+        for(var k=0;k<kinds.length;k++){
+          try{UI.openGeneric(kinds[k]);}catch(e){out.push(kinds[k]+': no abre');continue;}
+          await sleep(60);
+          check(kinds[k]);
+          try{UI.closeGeneric();}catch(e){}
+        }
+        try{UI.showHome();}catch(e){}
+        await sleep(40);
+        document.getElementById('btnPlay').click();
+        await sleep(60);
+        check('selector de modo');
+        try{document.getElementById('btnModeBack').click();}catch(e){}
+        return out;
+      })()`);
+      ok(Array.isArray(scan) && scan.length === 0, 'ninguna opción se sale de la pantalla en ' + vp.name, (scan || []).slice(0, 4).join(' | '));
+    }
+
+    // Selector de modo: lista completa, una columna y área desplazable propia.
+    await c.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 568, deviceScaleFactor: 1, mobile: true });
+    await sleep(150);
+    const mp = await evalJs(`(async function(){
+      document.getElementById('btnPlay').click();
+      await new Promise(function(r){setTimeout(r,140)});
+      var sc=document.getElementById('mpScroll');
+      var back=document.getElementById('btnModeBack');
+      var hint=document.getElementById('mpScrollHint');
+      var rows=[].slice.call(document.querySelectorAll('#screen-modepick .mode-btn'));
+      var lefts=rows.map(function(b){return Math.round(b.getBoundingClientRect().left)});
+      var widths=rows.map(function(b){return Math.round(b.getBoundingClientRect().width)});
+      var sr=sc.getBoundingClientRect();
+      sc.scrollTop=sc.scrollHeight;
+      await new Promise(function(r){setTimeout(r,70)});
+      var last=rows[rows.length-1].getBoundingClientRect();
+      var br=back.getBoundingClientRect();
+      return {
+        count:rows.length,
+        scrollable:sc.scrollHeight>sc.clientHeight+2,
+        oneColumn:Math.max.apply(null,lefts)-Math.min.apply(null,lefts)<2,
+        wideRows:Math.min.apply(null,widths)>200,
+        lastVisible:last.top>=sr.top-1&&last.bottom<=sr.bottom+2,
+        backVisible:br.top>=0&&br.bottom<=innerHeight+1,
+        hint:!!hint && !hint.classList.contains('hidden')
+      };
+    })()`);
+    ok(mp && mp.count === 15 && mp.scrollable && mp.oneColumn && mp.wideRows && mp.lastVisible && mp.backVisible && mp.hint,
+      'el selector de modo muestra los 15 modos en una lista desplazable', JSON.stringify(mp));
+    await evalJs("try{document.getElementById('btnModeBack').click()}catch(e){}");
+    await sleep(120);
+
+    // Controles táctiles y pestañas adaptables en el tamaño más estrecho.
+    await c.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 568, deviceScaleFactor: 1, mobile: true });
+    await sleep(150);
+    const touch = await evalJs(`(function(){
+      var out=[];
+      try{UI.openGeneric('badges')}catch(e){}
+      var tabs=document.querySelector('.exp-tabs');
+      if(tabs && tabs.scrollWidth>tabs.clientWidth+2) out.push('pestañas de insignias con scroll horizontal');
+      var minis=[].slice.call(document.querySelectorAll('.exp-btn,.exp-tab,.pass-all')).filter(function(el){
+        return !el.closest('.hidden') && getComputedStyle(el).display!=='none';
+      });
+      for(var i=0;i<minis.length;i++){ if(minis[i].getBoundingClientRect().height<36) out.push((minis[i].id||minis[i].className)+' mide '+Math.round(minis[i].getBoundingClientRect().height)+'px'); }
+      try{UI.closeGeneric()}catch(e){}
+      try{UI.openGeneric('shop')}catch(e){}
+      var shopTabs=document.querySelector('.shop-tabs');
+      if(shopTabs && shopTabs.scrollWidth>shopTabs.clientWidth+2) out.push('pestañas de tienda con scroll horizontal');
+      try{UI.closeGeneric()}catch(e){}
+      try{UI.openGeneric('pass')}catch(e){}
+      var passCells=[].slice.call(document.querySelectorAll('.pass-cell')).filter(function(el){return !el.closest('.hidden')});
+      for(var p=0;p<passCells.length;p++){ var r=passCells[p].getBoundingClientRect(); if(r.right>window.innerWidth+1) out.push('recompensa del Pase fuera de pantalla'); }
+      try{UI.closeGeneric()}catch(e){}
+      try{UI.showHome()}catch(e){}
+      return out;
+    })()`);
+    ok(Array.isArray(touch) && touch.length === 0, 'pestañas, botones y recompensas se adaptan al móvil', (touch || []).slice(0, 4).join(' | '));
+
     // Errores reales de la consola
     const errors = c.events.filter(e =>
       (e.method === 'Runtime.exceptionThrown') ||

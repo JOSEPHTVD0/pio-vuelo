@@ -405,11 +405,27 @@ window.UI = (function () {
 
   /* Popup de elección de modo: JUGAR en la pantalla principal */
   let modePickOpen = false;
+  function updateModeScrollHint() {
+    const sc = $('mpScroll');
+    const hint = $('mpScrollHint');
+    if (!sc || !hint) return;
+    const more = sc.scrollHeight > sc.clientHeight + 2;
+    hint.classList.toggle('hidden', !more);
+    if (!more) return;
+    const atEnd = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 4;
+    hint.textContent = atEnd ? '↑ Desliza para volver arriba' : '↕ Desliza para ver todos los modos';
+  }
   function showModePick() {
     modePickOpen = true;
     refreshModePick();
     hideAllScreens();
     $('screen-modepick').classList.remove('hidden');
+    const sc = $('mpScroll');
+    if (sc) {
+      sc.scrollTop = 0;
+      sc.onscroll = updateModeScrollHint;
+    }
+    setTimeout(updateModeScrollHint, 0);
   }
   function closeModePick() {
     modePickOpen = false;
