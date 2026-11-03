@@ -349,7 +349,7 @@ window.ELITE = (function () {
     { id: 'warp', icon: '🌀', name: 'Distorsión', desc: 'Activar la cámara lenta de élite.' },
     { id: 'pulse', icon: '💠', name: 'Pulso magnético', desc: 'Atraer monedas con el pulso.' },
     { id: 'gate', icon: '🔵', name: 'Compuerta de energía', desc: 'Cruzar el aro central de una compuerta.' },
-    { id: 'barrier', icon: '💥', name: 'Barrera cristalina', desc: 'Sobrevivir a una barrera sin romperla.' },
+    { id: 'barrier', icon: '💥', name: 'Barrera cristalina', desc: 'Romper una barrera cristalina con el impulso.' },
     { id: 'relic', icon: '💎', name: 'Reliquia de élite', desc: 'Recoger una reliquia que mejora una habilidad.' },
     { id: 'zone', icon: '🌬️', name: 'Corriente térmica', desc: 'Usar una columna de aire para remontar.' },
     { id: 'hunter', icon: '🦇', name: 'Director de IA', desc: 'Ver a un enemigo telegrafiar una picada.' },
@@ -380,7 +380,7 @@ window.ELITE = (function () {
     { id: 'barrier', icon: '💥', name: 'Barreras cristalinas', desc: 'Obstáculos destructibles que premian el impulso.' },
     { id: 'relic', icon: '💎', name: 'Reliquias de élite', desc: 'Mejoran una habilidad aleatoria durante el vuelo.' },
     { id: 'zone', icon: '🌬️', name: 'Corrientes térmicas', desc: 'Columnas de aire que empujan el ave hacia arriba o abajo.' },
-    { id: 'hunter', icon: '🦇', name: 'Director de IA', desc: 'Los enemigos telegrafían, picad e flanquean con estados reales.' },
+    { id: 'hunter', icon: '🦇', name: 'Director de IA', desc: 'Los enemigos telegrafían, pican y flanquean con estados reales.' },
     { id: 'event', icon: '🎉', name: 'Eventos dinámicos', desc: 'Fiebre de monedas, meteoros, viento solar, élite oscura y compuertas.' },
     { id: 'rank', icon: '🏅', name: 'Rango de vuelo', desc: 'Nota S/A/B/C/D con desglose de perfectos, compuertas y reliquias.' },
     { id: 'contract', icon: '📜', name: 'Contratos de élite', desc: 'Tres encargos diarios con recompensas reales en monedas y XP.' },
@@ -483,9 +483,7 @@ window.ELITE = (function () {
     run.cooldowns[id] = a.cd;
     run.abilitiesUsed++;
     run.abilityUses[id] = num(run.abilityUses[id]) + 1;
-    discover('dash');
-    if (id === 'warp') discover('warp');
-    if (id === 'pulse') discover('pulse');
+    discover(id);
     return { ok: true, ability: a, dur: a.dur };
   }
   function chargeAbility(amount, id) {
