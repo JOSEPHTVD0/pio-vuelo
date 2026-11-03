@@ -28,7 +28,7 @@ window.SAVE = (function () {
       hat: null, hatsOwned: [],
       fx: 'fx-none', fxOwned: [{ id: 'fx-none' }],
       map: 'day', mapsOwned: [{ id: 'day' }],
-      set: { sfx: true, music: true, vib: true, diff: 'normal', gfx: 'high', mode: 'free', hc: false, moon: false, volS: 1, volM: 1, volG: 1, reduced: false, shake: true, lift: false, fps: 0, sens: 1, notif: true, uiAnim: true, confirmBuy: false, theme: 'theme-default', cine: 'full' },
+      set: { sfx: true, music: true, vib: true, diff: 'normal', gfx: 'high', mode: 'free', hc: false, moon: false, volS: 1, volM: 1, volG: 1, volA: 1, reduced: false, shake: true, lift: false, fps: 0, sens: 1, notif: true, uiAnim: true, confirmBuy: false, theme: 'theme-default', cine: 'full', cam: 'auto' },
       tutorialDone: false,
       history: [],          // últimas compras/mejoras/reparaciones (máx. 30)
       dailyM: { date: '', claimed: [] },
@@ -75,7 +75,19 @@ window.SAVE = (function () {
       legendary: '',             // herramienta legendaria equipada
       league: { week: '', claimed: '' },
       presetsUsed: [],
-      loadouts: []          // conjuntos de personalización guardados
+      loadouts: [],         // conjuntos de personalización guardados
+      /* --- ÉLITE v3.3 --- */
+      elite: {
+        bestRank: '',
+        bestPoints: 0,
+        runs: 0,
+        totals: { perfects: 0, gates: 0, relics: 0, barriers: 0, events: 0, abilities: 0 },
+        contracts: { date: '', progress: {}, claimed: [] },
+        codex: [],
+        cosmetics: [],
+        camera: 'auto',
+        lastRun: null
+      }
     };
   }
 
@@ -178,8 +190,29 @@ window.SAVE = (function () {
 
   /* Completa y valida todos los datos de la expansión (migración v4).
      Compatible con guardados v1-v3: añade lo que falta sin borrar nada. */
+  // Migración de ÉLITE v3.3: rangos, contratos, códice, cosméticos y cámara.
+  function ensureElite() {
+    if (typeof ELITE !== 'undefined' && ELITE && ELITE.ensureSave) {
+      ELITE.ensureSave(data);
+    } else if (!data.elite || typeof data.elite !== 'object' || Array.isArray(data.elite)) {
+      data.elite = {
+        bestRank: '', bestPoints: 0, runs: 0,
+        totals: { perfects: 0, gates: 0, relics: 0, barriers: 0, events: 0, abilities: 0 },
+        contracts: { date: '', progress: {}, claimed: [] },
+        codex: [], cosmetics: [], camera: 'auto', lastRun: null
+      };
+    }
+    if (!data.set) data.set = {};
+    if (['auto', 'cine', 'off'].indexOf(data.set.cam) === -1) data.set.cam = 'auto';
+    if (['low', 'medium', 'high', 'ultra', 'auto'].indexOf(data.set.gfx) === -1) data.set.gfx = 'high';
+    data.set.volA = Math.max(0, Math.min(1, isFinite(Number(data.set.volA)) ? Number(data.set.volA) : 1));
+    // La cámara guardada en ÉLITE y el ajuste general deben coincidir.
+    if (!data.elite.camera) data.elite.camera = data.set.cam;
+  }
+
   function ensureExpansion() {
     data.v = 4;                               // versión de guardado con expansión
+    ensureElite();
     if (typeof EXP === 'undefined' || !EXP) return;
     const known = list => (Array.isArray(list) ? list : []).filter(x => typeof x === 'string');
     const uniq = list => known(list).filter((x, i) => known(list).indexOf(x) === i);
@@ -422,13 +455,16 @@ window.SAVE = (function () {
         if (typeof data.lastDaily !== 'string') data.lastDaily = '';
         if (typeof data.dailyStreak !== 'number') data.dailyStreak = 0;
         if (!data.set) data.set = defaults().set;
-        ['sfx', 'music', 'vib', 'diff', 'gfx', 'mode', 'hc', 'moon', 'volS', 'volM', 'volG', 'reduced', 'shake', 'lift', 'fps', 'sens', 'notif', 'uiAnim', 'confirmBuy'].forEach(k => {
+        ['sfx', 'music', 'vib', 'diff', 'gfx', 'mode', 'hc', 'moon', 'volS', 'volM', 'volG', 'volA', 'reduced', 'shake', 'lift', 'fps', 'sens', 'notif', 'uiAnim', 'confirmBuy', 'cam'].forEach(k => {
           if (data.set[k] === undefined) data.set[k] = defaults().set[k];
         });
         // sanea ajustes numéricos/booleanos (saves antiguos o manipulados)
         data.set.volS = Math.max(0, Math.min(1, num(data.set.volS) || 0));
         data.set.volM = Math.max(0, Math.min(1, num(data.set.volM) || 0));
         data.set.volG = Math.max(0, Math.min(1, isFinite(num(data.set.volG)) ? num(data.set.volG) : 1));
+        data.set.volA = Math.max(0, Math.min(1, isFinite(Number(data.set.volA)) ? Number(data.set.volA) : 1));
+        if (['low', 'medium', 'high', 'ultra', 'auto'].indexOf(data.set.gfx) === -1) data.set.gfx = 'high';
+        if (['auto', 'cine', 'off'].indexOf(data.set.cam) === -1) data.set.cam = 'auto';
         data.set.sens = Math.max(0.5, Math.min(1.5, num(data.set.sens) || 1));
         data.set.fps = [0, 30, 60, 120].indexOf(num(data.set.fps)) !== -1 ? num(data.set.fps) : 0;
         ['sfx', 'music', 'vib', 'hc', 'moon', 'reduced', 'shake', 'lift', 'notif', 'uiAnim', 'confirmBuy'].forEach(k => {

@@ -3,8 +3,10 @@ window.SND = (function () {
   'use strict';
 
   let ctx = null, master = null, musicGain = null, sfxGain = null, started = false;
+  let ambientGain = null, ambientSrc = null, ambientFilter = null;
   let sfxOn = true, musicOn = true;
-  let sfxVol = 1, musicVol = 1, masterVol = 1;
+  let sfxVol = 1, musicVol = 1, masterVol = 1, ambientVol = 1;
+  let intensity = 0;
   let musicTimer = null, nextStep = 0, step = 0;
 
   const PITCH = [0, 3, 5, 7, 10, 12, 15]; // pentatonic-ish scale (semitonos desde base)
@@ -30,6 +32,29 @@ window.SND = (function () {
     musicGain = ctx.createGain();
     musicGain.gain.value = 0.0;
     musicGain.connect(master);
+    // Capa ambiental: ruido filtrado en bucle, propio de cada escenario.
+    ambientGain = ctx.createGain();
+    ambientGain.gain.value = 0.0;
+    ambientGain.connect(master);
+    try {
+      const len = Math.floor(ctx.sampleRate * 3);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      let last = 0;
+      for (let i = 0; i < len; i++) {
+        last = last * 0.96 + (Math.random() * 2 - 1) * 0.04;
+        d[i] = last;
+      }
+      ambientSrc = ctx.createBufferSource();
+      ambientSrc.buffer = buf;
+      ambientSrc.loop = true;
+      ambientFilter = ctx.createBiquadFilter();
+      ambientFilter.type = 'lowpass';
+      ambientFilter.frequency.value = 600;
+      ambientFilter.Q.value = 0.7;
+      ambientSrc.connect(ambientFilter).connect(ambientGain);
+      ambientSrc.start();
+    } catch (e) { ambientSrc = null; }
   }
 
   // Debe llamarse tras un gesto del usuario para desbloquear audio en móvil
@@ -98,7 +123,18 @@ window.SND = (function () {
     power: () => { tone(660, 0.09, 'sine', 0.25); tone(880, 0.09, 'sine', 0.25, 0.07); tone(1320, 0.18, 'sine', 0.25, 0.14); },
     block: () => { tone(500, 0.12, 'square', 0.2, 0, 180); noise(0.12, 0.3, 0, 900); },
     achieve: () => { [660, 880, 990, 1320].forEach((f, i) => tone(f, 0.1, 'sine', 0.25, i * 0.07)); },
-    medal: () => { [523, 784, 1046].forEach((f, i) => tone(f, 0.13, 'sine', 0.26, i * 0.1)); }
+    medal: () => { [523, 784, 1046].forEach((f, i) => tone(f, 0.13, 'sine', 0.26, i * 0.1)); },
+    // --- ÉLITE v3.3 ---
+    dash:    () => { tone(240, 0.24, 'sawtooth', 0.22, 0, 980); noise(0.16, 0.16, 0, 2600); },
+    warp:    () => { tone(880, 0.5, 'sine', 0.2, 0, 180); tone(440, 0.42, 'triangle', 0.16, 0.05, 110); },
+    pulse:   () => { tone(180, 0.42, 'sine', 0.24, 0, 420); tone(720, 0.3, 'sine', 0.12, 0.06, 320); },
+    gate:    () => { [880, 1320, 1760].forEach((f, i) => tone(f, 0.12, 'triangle', 0.2, i * 0.06)); },
+    barrier: () => { noise(0.3, 0.42, 0, 1500); tone(160, 0.24, 'square', 0.2, 0, 60); },
+    relic:   () => { [1046, 1318, 1568, 2093].forEach((f, i) => tone(f, 0.1, 'sine', 0.2, i * 0.055)); },
+    perfect: () => { tone(1046, 0.09, 'triangle', 0.24); tone(1568, 0.16, 'triangle', 0.22, 0.07); },
+    event:   () => { tone(392, 0.16, 'square', 0.2); tone(587, 0.18, 'square', 0.18, 0.12); },
+    contract:() => { [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, 0.12, 'sine', 0.22, i * 0.08)); },
+    boss:    () => { tone(110, 0.6, 'sawtooth', 0.22, 0, 70); tone(164, 0.5, 'square', 0.14, 0.1, 110); }
   };
 
   /* --- Música procedural ligera (loop de acordes arpegiados por ambiente) ---
@@ -137,9 +173,52 @@ window.SND = (function () {
   let themeId = 'day';
   let theme = THEMES.day;
   function themeFor(mapId) { return THEME_FOR[mapId] || 'day'; }
-  function setMapTheme(mapId) { themeId = themeFor(mapId); theme = THEMES[themeId] || THEMES.day; return themeId; }
+  function setMapTheme(mapId) { themeId = themeFor(mapId); theme = THEMES[themeId] || THEMES.day; applyAmbient(true); return themeId; }
   function getMapTheme() { return themeId; }
   const STEP_LEN = 0.12;
+
+  /* Ambiente por familia de mapa: filtro y nivel base de la capa de ruido. */
+  const AMBIENT = {
+    day:     { freq: 900, vol: 0.045, type: 'lowpass' },
+    night:   { freq: 420, vol: 0.05, type: 'lowpass' },
+    space:   { freq: 300, vol: 0.06, type: 'lowpass' },
+    water:   { freq: 1100, vol: 0.06, type: 'bandpass' },
+    fire:    { freq: 520, vol: 0.055, type: 'lowpass' },
+    ice:     { freq: 1800, vol: 0.04, type: 'highpass' },
+    candy:   { freq: 1300, vol: 0.04, type: 'bandpass' },
+    forest:  { freq: 760, vol: 0.045, type: 'bandpass' },
+    synth:   { freq: 640, vol: 0.05, type: 'bandpass' },
+    premium: { freq: 1000, vol: 0.045, type: 'lowpass' }
+  };
+  function musicTarget(boost) {
+    return 0.85 * musicVol * (1 + 0.22 * intensity) * (boost === undefined ? 1 : boost);
+  }
+  function applyAmbient(ramp) {
+    if (!ctx || !ambientGain) return;
+    const cfg = AMBIENT[themeId] || AMBIENT.day;
+    try {
+      if (ambientFilter) {
+        ambientFilter.type = cfg.type || 'lowpass';
+        ambientFilter.frequency.setTargetAtTime(cfg.freq, ctx.currentTime, 0.4);
+      }
+      const target = ambientVol * cfg.vol * (1 + intensity * 0.7);
+      if (ramp) ambientGain.gain.linearRampToValueAtTime(Math.max(0.0001, target), ctx.currentTime + 0.8);
+      else ambientGain.gain.setTargetAtTime(target, ctx.currentTime, 0.25);
+    } catch (e) { }
+  }
+  function setAmbientVol(v) {
+    ambientVol = Math.max(0, Math.min(1, v === undefined ? 1 : (parseFloat(v) || 0)));
+    applyAmbient(false);
+    return ambientVol;
+  }
+  function setIntensity(v) {
+    intensity = Math.max(0, Math.min(1, Number(v) || 0));
+    if (ctx && musicGain && musicTimer) {
+      try { musicGain.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.35); } catch (e) { }
+    }
+    applyAmbient(false);
+    return intensity;
+  }
 
   function musicTick() {
     if (!ctx || !musicOn) return;
@@ -160,7 +239,8 @@ window.SND = (function () {
     nextStep = ctx.currentTime + 0.05;
     musicTimer = setInterval(musicTick, STEP_LEN * 1000);
     musicGain.gain.cancelScheduledValues(ctx.currentTime);
-    musicGain.gain.linearRampToValueAtTime(0.85 * musicVol, ctx.currentTime + 1.5);
+    musicGain.gain.linearRampToValueAtTime(musicTarget(), ctx.currentTime + 1.5);
+    applyAmbient(true);
   }
 
   function stopMusic() {
@@ -169,6 +249,9 @@ window.SND = (function () {
     if (ctx && musicGain) {
       try { musicGain.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.5); } catch (e) { }
       setTimeout(() => { if (!musicTimer && musicGain) musicGain.gain.value = 0; }, 550);
+    }
+    if (ctx && ambientGain) {
+      try { ambientGain.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.5); } catch (e) { }
     }
   }
 
@@ -186,7 +269,7 @@ window.SND = (function () {
   function setMusicVol(v) {
     musicVol = Math.max(0, Math.min(1, v || 0));
     if (ctx && musicGain && musicTimer) {
-      try { musicGain.gain.cancelScheduledValues(ctx.currentTime); musicGain.gain.linearRampToValueAtTime(0.85 * musicVol, ctx.currentTime + 0.4); } catch (e) { }
+      try { musicGain.gain.cancelScheduledValues(ctx.currentTime); musicGain.gain.linearRampToValueAtTime(musicTarget(), ctx.currentTime + 0.4); } catch (e) { }
     }
   }
   // Volumen general: se aplica sobre toda la mezcla (efectos + música).
@@ -204,7 +287,7 @@ window.SND = (function () {
 
   return {
     unlock, ensure, setSfx, setMusic, isMusicOn, startMusic, stopMusic,
-    setVolumes, setSfxVol, setMusicVol, setMasterVol,
+    setVolumes, setSfxVol, setMusicVol, setMasterVol, setAmbientVol, setIntensity,
     setMapTheme, getMapTheme, themeFor,
     sfx: S,
     hotkeys: null

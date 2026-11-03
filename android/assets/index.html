@@ -53,6 +53,11 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
       </div>
     </div>
     <div id="hudEffects" class="hud-effects hidden" aria-live="polite"></div>
+    <div id="hudAbilities" class="hud-abilities" aria-label="Habilidades de élite">
+      <button class="ability-btn" data-ability="dash" aria-label="Impulso"><span class="ab-ico">⚡</span><span class="ab-cd"></span><span class="ab-key">1</span></button>
+      <button class="ability-btn" data-ability="warp" aria-label="Distorsión"><span class="ab-ico">🌀</span><span class="ab-cd"></span><span class="ab-key">2</span></button>
+      <button class="ability-btn" data-ability="pulse" aria-label="Pulso"><span class="ab-ico">💠</span><span class="ab-cd"></span><span class="ab-key">3</span></button>
+    </div>
   </div>
 
   <!-- CUENTA ATRÁS AL REANUDAR -->
@@ -187,6 +192,10 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
           <button class="q-nav" data-nav="modes">
             <span class="qn-ico">&#127918;</span><span class="qn-t">Modos</span>
           </button>
+          <button class="q-nav q-nav-elite" data-nav="elite">
+            <span class="qn-ico">&#128081;</span><span class="qn-t">Élite</span>
+            <span class="q-badge hidden" id="badgeElite">0</span>
+          </button>
         </div>
       </section>
 
@@ -261,7 +270,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
       <button class="btn" data-nav="settings">&#9881; Ajustes</button>
       <button class="btn" data-nav="records">&#127942; Récords</button>
       <button class="btn btn-danger" id="btnExit">&#8962; Salir</button>
-      <div class="panel-note">P&#237;o Vuelo v3.2.1 · Temporada 2026 🌍</div>
+      <div class="panel-note">P&#237;o Vuelo v3.3.0 · Temporada 2026 🌍</div>
     </div>
   </div>
 
@@ -278,8 +287,17 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
         <div><span class="st">Distancia</span><span class="sv" id="overDist">0 m</span></div>
       </div>
       <div id="overLevelup" class="level-up hidden">&#11088; &#161;Subiste de nivel!</div>
+      <div id="overElite" class="elite-result hidden">
+        <div class="er-rank"><span id="overRankLetter">D</span><small id="overRankName">NOVATO</small></div>
+        <div class="er-body">
+          <div class="er-line"><b id="overElitePts">0</b> puntos élite</div>
+          <div class="er-chips" id="overEliteChips"></div>
+          <div class="er-note" id="overEliteNote"></div>
+        </div>
+      </div>
       <button class="btn btn-play" id="btnRetry">REINTENTAR</button>
       <button class="btn" id="btnShare">&#128228; Compartir</button>
+      <button class="btn btn-elite" id="btnPostal">&#128236; Postal de vuelo</button>
       <button class="btn" id="btnOverHome">Inicio</button>
     </div>
   </div>
@@ -384,6 +402,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
 <script src="js/firebase-config.js"></script>
 <script src="js/data.js"></script>
 <script src="js/expansion.js"></script>
+<script src="js/elite.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/save.js"></script>
 <script src="js/cloud.js"></script>

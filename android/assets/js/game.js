@@ -107,6 +107,22 @@ window.G = (function () {
   let bossPendAt = 20;       // cada cuántos tubos aparece el jefe (20)
   let zenLast = 0;           // metros ya contados como puntos en Zen
 
+  /* --- ÉLITE v3.3: cámara, IA, habilidades, compuertas y eventos --- */
+  let eliteGates = [];
+  let eliteBarriers = [];
+  let eliteRelics = [];
+  let eliteZones = [];
+  let eliteSpawnGate = 0;
+  let eliteSpawnBarrier = 0;
+  let eliteSpawnRelic = 0;
+  let eliteSpawnZone = 0;
+  let eliteAbility = { dashUntil: 0, warpUntil: 0, pulseUntil: 0 };
+  let eliteCam = null;
+  let eliteResult = null;
+  let eliteTickOut = null;
+  let eliteIntel = 0;        // 0..1 intensidad para música y HUD
+  let eliteCosmeticCfg = null; // cosmético de élite equipado (estela/aura)
+
   const PHYS = { gravity: 1500, flapVel: -460, maxFall: 820 };
   const SKIN_DEF_STATS = { spd: 1, flap: 1, grav: 1, gap: 1 };
   let skinStats = SKIN_DEF_STATS; // multiplicadores de vuelo del ave equipada (data.js SKIN_STATS)
@@ -327,6 +343,26 @@ function difficultyFor(sc, diffc) {
     diff = DAT.getDiff(mode === 'challenge' ? 'normal' : SAVE.get().set.diff);
     ENTS.setHC(!!SAVE.get().set.hc);
     skinStats = DAT.skinStats(SAVE.get().skin);
+
+    /* --- ÉLITE v3.3: calidad, cámara, habilidades y elementos nuevos --- */
+    const eliteOk = typeof ELITE !== 'undefined' && ELITE;
+    if (eliteOk) {
+      ELITE.setQuality(SAVE.get().set.gfx || 'high');
+      eliteCam = ELITE.newCamera();
+      eliteCam.enabled = SAVE.get().set.cam !== 'off' && !SAVE.get().set.reduced &&
+        (SAVE.get().set.cam === 'cine' || ELITE.profile().rank >= 2);
+      ELITE.startRun({ seed: curSeed, mapId: mapId, mode: mode, camera: eliteCam.enabled });
+      const cosId = SAVE.get().elite ? SAVE.get().elite.activeCosmetic : '';
+      eliteCosmeticCfg = cosId ? (ELITE.ELITE_COSMETICS.filter(c => c.id === cosId)[0] || null) : null;
+    } else {
+      eliteCam = null;
+      eliteCosmeticCfg = null;
+    }
+    eliteGates = []; eliteBarriers = []; eliteRelics = []; eliteZones = [];
+    eliteSpawnGate = 0; eliteSpawnBarrier = 0; eliteSpawnRelic = 0; eliteSpawnZone = 0;
+    eliteAbility.dashUntil = 0; eliteAbility.warpUntil = 0; eliteAbility.pulseUntil = 0;
+    eliteResult = null; eliteTickOut = null; eliteIntel = 0;
+
     worldSpeed = 0;
     FX.clear(); FX.shake(0);
     BG.init(mapId); BG.reset();
@@ -591,6 +627,7 @@ function difficultyFor(sc, diffc) {
       amp: Math.min(42 + lv * 3.5, 120),
       passed: false
     });
+    if (typeof ELITE !== 'undefined' && ELITE) ELITE.initEnemyAI(enemies[enemies.length - 1], rng());
     return true;
   }
 
@@ -600,7 +637,211 @@ function difficultyFor(sc, diffc) {
       x: x, baseY: y, y: y, r: r, tier: 2, type: 'bat',
       speed: 110, wf: 2.2, ph: rng() * Math.PI * 2, amp: 36, passed: false
     });
+    if (typeof ELITE !== 'undefined' && ELITE) ELITE.initEnemyAI(enemies[enemies.length - 1], rng());
   }
+
+  /* ============================================================
+   * ÉLITE v3.3: compuertas, barreras, reliquias y corrientes
+   * ============================================================ */
+  function eliteActive() {
+    return typeof ELITE !== 'undefined' && ELITE && eliteCam !== null && state === 'play' && mode !== 'zen';
+  }
+
+  function spawnGate() {
+    const r = clamp(Math.min(H * 0.085, W * 0.11), 26, 48);
+    const x = W + 70;
+    const y = spawnCorridorY(r, x, r * 2);
+    if (y === null) return false;
+    eliteGates.push({ x: x, y: y, r: r, ph: rng() * Math.PI * 2, color: '#4dd0e1', passed: false });
+    return true;
+  }
+
+  function spawnBarrier() {
+    const x = W + 70, w = clamp(W * 0.028, 18, 26);
+    const band = freeBand(x, w, 10);
+    if (!band || band.b - band.a < 70) return false;
+    const span = band.b - band.a;
+    const h = Math.min(96, Math.max(42, span * 0.56));
+    const top = rng() < 0.5;
+    const y = top ? band.a + h / 2 + 4 : band.b - h / 2 - 4;
+    if (y - h / 2 < band.a - 2 || y + h / 2 > band.b + 2) return false;
+    eliteBarriers.push({
+      x: x, y: y, w: w, h: h, ph: rng() * Math.PI * 2,
+      color: rng() < 0.5 ? '#80deea' : '#b39ddb', broken: false
+    });
+    return true;
+  }
+
+  function spawnRelic() {
+    const r = clamp(Math.min(W, H) * 0.022, 11, 16);
+    const x = W + 70;
+    const y = spawnCorridorY(r, x, r * 2);
+    if (y === null) return false;
+    const ab = (typeof ELITE !== 'undefined' && ELITE) ? ELITE.ABILITIES[Math.floor(rng() * ELITE.ABILITIES.length)] : null;
+    eliteRelics.push({
+      x: x, y: y, r: r, ph: rng() * Math.PI * 2,
+      color: ab ? ab.color : '#ffd54f', ability: ab ? ab.id : 'dash'
+    });
+    return true;
+  }
+
+  function spawnZone() {
+    const x = W + 90;
+    const w = clamp(W * 0.16, 70, 130);
+    const band = freeBand(x, w, 6);
+    if (!band || band.b - band.a < 90) return false;
+    const up = rng() < 0.55;
+    eliteZones.push({
+      x: x, w: w, yTop: band.a, yBot: band.b,
+      dir: up ? 1 : -1, ph: rng() * Math.PI * 2, used: false
+    });
+    return true;
+  }
+
+  function onEliteEventStart(ev) {
+    if (!ev) return;
+    UI.toast(ev.icon + ' Evento: ' + ev.name, 'warning');
+    if (SND.sfx && SND.sfx.event) SND.sfx.event();
+    else SND.sfx.power();
+    if (ev.id === 'rush') {
+      for (let i = 0; i < 3; i++) spawnChain();
+      FX.text(bird.x, bird.y - bird.r - 84, '🪙 ¡Fiebre de monedas!', 18, '#ffd54f');
+    } else if (ev.id === 'meteor') {
+      for (let i = 0; i < 3; i++) spawnMeteor();
+      FX.text(bird.x, bird.y - bird.r - 84, '☄️ ¡Lluvia de meteoros!', 18, '#ff7043');
+    } else if (ev.id === 'solar') {
+      wind.on = true; wind.t0 = t; wind.dur = ev.total; wind.dir = rng() < 0.5 ? -1 : 1;
+      FX.text(bird.x, bird.y - bird.r - 84, '🌞 ¡Viento solar!', 18, '#81d4fa');
+    } else if (ev.id === 'dark') {
+      enemies.forEach(e => { if (e.ai) e.ai.aggression = Math.min(1, e.ai.aggression + 0.3); });
+      spawnEnemy(); spawnEnemy();
+      FX.text(bird.x, bird.y - bird.r - 84, '🌑 ¡Élite oscura!', 18, '#b388ff');
+    } else if (ev.id === 'gates') {
+      spawnGate(); spawnGate();
+      FX.text(bird.x, bird.y - bird.r - 84, '🌀 ¡Compuertas de energía!', 18, '#4dd0e1');
+    }
+  }
+
+  function vibrate(ms) {
+    if (!SAVE.get().set.vib || !navigator.vibrate) return;
+    try {
+      if (navigator.userActivation && navigator.userActivation.hasBeenActive === false) return;
+      navigator.vibrate(ms);
+    } catch (e) { }
+  }
+
+  function useAbility(id) {
+    if (state !== 'play' || paused || resumeLeft > 0 || !bird || bird.dead) return false;
+    if (typeof ELITE === 'undefined' || !ELITE) return false;
+    const r = ELITE.useAbility(id);
+    if (!r.ok) {
+      SND.sfx.deny();
+      return false;
+    }
+    if (id === 'dash') {
+      eliteAbility.dashUntil = t + r.dur;
+      invulnT = Math.max(invulnT, t + r.dur * 0.85);
+      if (eliteCam) ELITE.cameraKick(eliteCam, 10);
+      FX.burst(bird.x, bird.y, '#ffd54f', 24, 320);
+      FX.text(bird.x, bird.y - bird.r - 30, '⚡ ¡IMPULSO!', 18, '#ffd54f');
+      if (SND.sfx && SND.sfx.dash) SND.sfx.dash(); else SND.sfx.power();
+    } else if (id === 'warp') {
+      eliteAbility.warpUntil = t + r.dur;
+      if (eliteCam) ELITE.cameraPulse(eliteCam, 0.4);
+      FX.burst(bird.x, bird.y, '#b388ff', 22, 280);
+      FX.text(bird.x, bird.y - bird.r - 30, '🌀 ¡DISTORSIÓN!', 18, '#b388ff');
+      if (SND.sfx && SND.sfx.warp) SND.sfx.warp(); else SND.sfx.power();
+    } else if (id === 'pulse') {
+      eliteAbility.pulseUntil = t + r.dur;
+      FX.burst(bird.x, bird.y, '#4dd0e1', 26, 300);
+      FX.text(bird.x, bird.y - bird.r - 30, '💠 ¡PULSO!', 18, '#4dd0e1');
+      if (SND.sfx && SND.sfx.pulse) SND.sfx.pulse(); else SND.sfx.power();
+    }
+    vibrate(25);
+    updateHUD();
+    return true;
+  }
+
+  // Movimiento, recogida y efectos de los elementos de élite.
+  function updateEliteWorld(dt, spd, frozen) {
+    if (typeof ELITE === 'undefined' || !ELITE || !bird) return;
+    const mv = frozen ? 0 : spd * dt;
+    const camOn = eliteCam && eliteCam.enabled !== false;
+
+    for (let i = eliteGates.length - 1; i >= 0; i--) {
+      const g = eliteGates[i];
+      g.x -= mv;
+      if (!g.passed && g.x < bird.x && !bird.dead) {
+        g.passed = true;
+        const err = Math.abs(bird.y - g.y);
+        if (err <= g.r * 1.02) {
+          const res = ELITE.onGate(err, g.r);
+          if (res && res.ok) {
+            score += res.bonus || 0;
+            const perfect = !!res.perfect;
+            SND.sfx && (SND.sfx.gate ? SND.sfx.gate() : SND.sfx.score());
+            FX.burst(g.x, g.y, g.color, perfect ? 24 : 14, perfect ? 300 : 200);
+            FX.text(g.x, g.y - g.r - 14, perfect ? '🌀 ¡COMPUERTA PERFECTA!' : '🌀 +' + (res.bonus || 2), perfect ? 18 : 14, g.color);
+            if (perfect) {
+              if (camOn) { ELITE.cameraKick(eliteCam, 7); ELITE.cameraPulse(eliteCam, 0.35); }
+              if (SAVE.get().set.shake !== false) FX.shake(5);
+              updateHUD();
+            }
+          }
+        }
+      }
+      if (g.x < -g.r - 40) eliteGates.splice(i, 1);
+    }
+
+    for (let i = eliteBarriers.length - 1; i >= 0; i--) {
+      const b = eliteBarriers[i];
+      b.x -= mv;
+      if (b.x < -b.w - 40) eliteBarriers.splice(i, 1);
+    }
+
+    for (let i = eliteRelics.length - 1; i >= 0; i--) {
+      const r = eliteRelics[i];
+      r.x -= mv;
+      if (!bird.dead) {
+        const dx = r.x - bird.x, dy = r.y - bird.y;
+        const rr = r.r + bird.r * 0.9;
+        if (dx * dx + dy * dy < rr * rr) {
+          const res = ELITE.onRelic();
+          eliteRelics.splice(i, 1);
+          score += res && res.bonus ? res.bonus : 8;
+          const ab = res && res.ability ? ELITE.ABILITIES.find(a => a.id === res.ability) : null;
+          SND.sfx && (SND.sfx.relic ? SND.sfx.relic() : SND.sfx.power());
+          FX.burst(r.x, r.y, r.color, 24, 300);
+          FX.text(r.x, r.y - 26, '💎 ¡RELIQUIA! -4 s ' + (ab ? ab.icon : ''), 16, r.color);
+          UI.toast('💎 Reliquia de élite: habilidad ' + (ab ? ab.name : 'recargada'), 'good');
+          updateHUD();
+          continue;
+        }
+      }
+      if (r.x < -r.r - 40) eliteRelics.splice(i, 1);
+    }
+
+    for (let i = eliteZones.length - 1; i >= 0; i--) {
+      const z = eliteZones[i];
+      z.x -= mv;
+      for (let k = 0; k < birds.length; k++) {
+        const b = birds[k];
+        if (b.dead) continue;
+        if (b.x > z.x - z.w / 2 && b.x < z.x + z.w / 2 && b.y > z.yTop && b.y < z.yBot) {
+          const push = z.dir >= 0 ? -1050 : 820;
+          b.vy = clamp(b.vy + push * dt, -920, PHYS.maxFall);
+          if (!z.used) {
+            z.used = true;
+            ELITE.discover('zone');
+            FX.text(b.x, b.y - b.r - 24, z.dir >= 0 ? '🌬️ ¡Corriente ascendente!' : '🌬️ ¡Corriente descendente!', 13, z.dir >= 0 ? '#69f0ae' : '#ff8a65');
+          }
+          if (Math.random() < dt * 10) FX.trail(b.x - b.r * 0.5, b.y + (z.dir >= 0 ? 18 : -18), z.dir >= 0 ? '#69f0ae' : '#ff8a65', 1, false);
+        }
+      }
+      if (z.x < -z.w - 60) eliteZones.splice(i, 1);
+    }
+  }
+
 
   // Ataques del jefe activo: cada patrón tiene un efecto real en el vuelo.
   function updateBossAttacks() {
@@ -868,6 +1109,18 @@ function difficultyFor(sc, diffc) {
       lvLbl = 'Tubos'; tgtLbl = 'Meta'; tgt = String(runGoal || pipesDone);
     }
     SAVE.addCoins(reward);
+    // El modo superado también cierra el vuelo de élite (rango y contratos).
+    let eliteClear = null;
+    if (typeof ELITE !== 'undefined' && ELITE && ELITE.activeRun()) {
+      ELITE.noteScore(score);
+      eliteClear = ELITE.finishRun();
+      if (eliteClear) {
+        eliteClear.score = score;
+        eliteClear.distance = dist;
+        ELITE.recordRun(s, eliteClear);
+      }
+    }
+    eliteResult = eliteClear;
     SAVE.save();
     const ach = SAVE.checkAch();
     SND.stopMusic();
@@ -899,7 +1152,7 @@ function difficultyFor(sc, diffc) {
   // a alta velocidad el punto de equilibrio quedaba detrás del ave y algunas
   // monedas nunca llegaban a recogerse. Ahora la atracción es directa.
   function updateCoins(dt, spd) {
-    const magnetOn = eff.magnet > t || rt.magnet;
+    const magnetOn = eff.magnet > t || rt.magnet || (eliteAbility.pulseUntil > t);
     for (let i = coins.length - 1; i >= 0; i--) {
       const c = coins[i];
       if (magnetOn) {
@@ -972,6 +1225,10 @@ function difficultyFor(sc, diffc) {
       return;
     }
     t += dt; // el reloj global no avanza mientras se esté en pausa
+    if (typeof ELITE !== 'undefined' && ELITE) {
+      const qNow = ELITE.updatePerf(rawDt);
+      if (qNow) UI.toast('🎚️ Calidad ajustada a ' + ELITE.QUALITY[qNow].name + ' para mantener los FPS', 'info');
+    }
 
     if (state === 'menu' || state === 'cleared' || state === 'over') {
       BG.update(dt, 70);
@@ -1019,8 +1276,24 @@ function difficultyFor(sc, diffc) {
       const D = curD(mode === 'zen' ? 0 : effScore()); // Zen: dificultad congelada, sin tubos ni enemigos
       lvl = D.level;
       worldSpeed += (D.speed * skinStats.spd - worldSpeed) * Math.min(1, dt * 1.6);
-      const spd = worldSpeed * (eff.slow > t ? 0.5 : 1) * (rt.slow ? 0.75 : 1) * (eff.turbo > t ? 1.85 : 1) * (rt.zoom ? 0.75 : 1);
+      let spd = worldSpeed * (eff.slow > t ? 0.5 : 1) * (rt.slow ? 0.75 : 1) * (eff.turbo > t ? 1.85 : 1) * (rt.zoom ? 0.75 : 1);
+      // Habilidades de élite: impulso acelera el mundo; distorsión lo ralentiza.
+      if (eliteAbility.dashUntil > t) spd *= 1.55;
+      if (eliteAbility.warpUntil > t) spd *= 0.42;
       totalDist += spd * dt;
+      // Reloj, cooldowns, combos y eventos de élite (una sola llamada por frame).
+      if (typeof ELITE !== 'undefined' && ELITE && ELITE.activeRun()) {
+        eliteTickOut = ELITE.tick(dt, { distance: totalDist / 30, score: score, dead: !!(bird && bird.dead) });
+        if (eliteTickOut && eliteTickOut.started) onEliteEventStart(eliteTickOut.started);
+        if (eliteTickOut && eliteTickOut.ended) {
+          const ev = eliteTickOut.ended;
+          UI.toast(ev.icon + ' Evento superado: ' + ev.name, 'good');
+          if (SND.sfx && SND.sfx.contract) SND.sfx.contract(); else SND.sfx.achieve();
+        }
+        ELITE.noteScore(score);
+        const st = ELITE.stats();
+        eliteIntel = Math.min(1, (st.combo || 0) / 12 + (st.event ? 0.45 : 0));
+      }
       // Replay: los aleteos grabados se reproducen en su momento exacto
       if (replayMode) {
         while (replayIdx < replayTaps.length && runSeconds >= replayTaps[replayIdx] / 1000) {
@@ -1093,6 +1366,19 @@ function difficultyFor(sc, diffc) {
       spawnChDist += spd * dt;
       if (spawnChDist >= (rt.radar ? D.chainEvery / 1.6 : D.chainEvery)) { spawnChDist = 0; spawnChain(); }
 
+      /* --- ÉLITE v3.3: compuertas, barreras, reliquias y corrientes --- */
+      if (eliteActive()) {
+        const gateEvery = ELITE.eventActive('gates') ? 620 : 1350;
+        eliteSpawnGate += spd * dt;
+        if (eliteSpawnGate >= gateEvery) { eliteSpawnGate = 0; spawnGate(); }
+        eliteSpawnBarrier += spd * dt;
+        if (eliteSpawnBarrier >= 1650) { eliteSpawnBarrier = 0; spawnBarrier(); }
+        eliteSpawnRelic += spd * dt;
+        if (eliteSpawnRelic >= 2750) { eliteSpawnRelic = 0; spawnRelic(); }
+        eliteSpawnZone += spd * dt;
+        if (eliteSpawnZone >= 2150) { eliteSpawnZone = 0; spawnZone(); }
+      }
+
       /* --- Expansión: mapa dinámico (meteoros, puertas secretas) --- */
       spawnMeteorDist += spd * dt;
       const meteorEvery = dyn.feature === 'meteor' ? 520 : (eventId ? 900 : 1500);
@@ -1116,7 +1402,20 @@ function difficultyFor(sc, diffc) {
         }
         if (!p.passed && p.x + p.w < bird.x - bird.r) {
           p.passed = true; pipesDone++;
-          score += scoreGain((eff.x2 > t ? 2 : 1) + (rt.score ? 1 : 0) + (eff.combo > t ? 2 : 0) + (eff.aura > t ? 1 : 0) + (rt.doble ? 1 : 0) + (rt.titan ? 2 : 0) + (rt.legend ? 1 : 0)); combo++;
+          const pipeGain = scoreGain((eff.x2 > t ? 2 : 1) + (rt.score ? 1 : 0) + (eff.combo > t ? 2 : 0) + (eff.aura > t ? 1 : 0) + (rt.doble ? 1 : 0) + (rt.titan ? 2 : 0) + (rt.legend ? 1 : 0));
+          score += pipeGain; combo++;
+          // Paso perfecto: el centro exacto del hueco encadena combo y cámara.
+          if (typeof ELITE !== 'undefined' && ELITE && ELITE.activeRun()) {
+            const ep = ELITE.onPipe({ scoreAdded: pipeGain, gapHalf: p.gapHalf, distToCenter: Math.abs(bird.y - p.gap) });
+            if (ep && ep.bonus) score += ep.bonus;
+            if (ep && ep.perfect) {
+              SND.sfx && (SND.sfx.perfect ? SND.sfx.perfect() : SND.sfx.score());
+              FX.text(bird.x, bird.y - bird.r - 30, '🎯 ' + ep.label, 17, '#ffd54f');
+              FX.burst(bird.x, bird.y, '#ffd54f', 16, 240);
+              if (eliteCam) { ELITE.cameraKick(eliteCam, 6); ELITE.cameraPulse(eliteCam, 0.3); }
+              if (SAVE.get().set.shake !== false) FX.shake(4);
+            }
+          }
           if (rt.bala && pipesDone % 10 === 0) balaShot();
           if (mode === 'duel' && !clearedFlag && !bird.dead && pipesDone >= DUEL_PIPES) {
             clearedFlag = true;
@@ -1176,13 +1475,22 @@ function difficultyFor(sc, diffc) {
       updateCoins(dt, spd);
       updateMeteors(dt, spd);
       updatePortals(dt, spd);
+      if (state === 'play' && typeof ELITE !== 'undefined' && ELITE) {
+        updateEliteWorld(dt, spd, pipeFreezeUntil > t);
+      }
 
       // mover enemigos (la Tormenta Eléctrica los congela)
       const enemiesFrozen = enemiesFrozenUntil > t;
       for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
         if (!enemiesFrozen) e.x -= (spd + e.speed) * dt;
-        e.y = e.baseY + Math.sin(t * e.wf + e.ph) * (e.type === 'bat' ? e.amp * 1.25 : e.amp);
+        if (e.ai && typeof ELITE !== 'undefined' && ELITE) {
+          if (ELITE.eventActive('dark')) e.ai.aggression = Math.min(1, e.ai.aggression + dt * 0.5);
+          ELITE.updateEnemyAI(e, dt, { bird: bird, H: H, groundH: groundH, t: t });
+          if (ELITE.aiTelegraphing(e)) ELITE.onEnemyTelegraph();
+        } else {
+          e.y = e.baseY + Math.sin(t * e.wf + e.ph) * (e.type === 'bat' ? e.amp * 1.25 : e.amp);
+        }
         if (!e.passed && e.x + e.r < bird.x - bird.r) {
           e.passed = true;
           score += scoreGain(eff.x2 > t ? 4 : 2); combo++;
@@ -1240,6 +1548,24 @@ function difficultyFor(sc, diffc) {
                 hitObstacleBird(b, bi); break;
               }
             }
+            // Barreras cristalinas: el impulso las rompe; sin impulso, choque real.
+            for (let i = 0; i < eliteBarriers.length && !b.dead; i++) {
+              const br = eliteBarriers[i];
+              if (!circleRect(b.x, b.y, b.r * 0.82, br.x - br.w / 2, br.y - br.h / 2, br.w, br.h)) continue;
+              eliteBarriers.splice(i, 1); i--;
+              if (eliteAbility.dashUntil > t && typeof ELITE !== 'undefined' && ELITE) {
+                const bonus = ELITE.onBarrierBroken();
+                score += bonus || 0;
+                SND.sfx && (SND.sfx.barrier ? SND.sfx.barrier() : SND.sfx.block());
+                FX.burst(br.x, br.y, br.color, 26, 340, { big: true, grav: 420 });
+                FX.text(br.x, br.y - br.h / 2 - 18, '💥 ¡BARRERA ROTA! +' + (bonus || 0), 17, br.color);
+                if (eliteCam) ELITE.cameraKick(eliteCam, 7);
+                if (SAVE.get().set.shake !== false) FX.shake(7);
+                updateHUD();
+              } else {
+                hitObstacleBird(b, bi);
+              }
+            }
             for (let i = 0; i < enemies.length && !b.dead; i++) {
               const e = enemies[i];
               const dx = e.x - b.x, dy = e.y - b.y;
@@ -1250,17 +1576,33 @@ function difficultyFor(sc, diffc) {
         });
       }
 
+      // Cámara cinematográfica: sigue el vuelo sin mover el escenario de fondo.
+      if (eliteCam && typeof ELITE !== 'undefined' && ELITE) {
+        ELITE.updateCamera(eliteCam, dt, {
+          vy: bird ? bird.vy : 0,
+          speed: worldSpeed,
+          quality: ELITE.profile().camera,
+          dash: eliteAbility.dashUntil > t,
+          enabled: eliteCam.enabled !== false
+        });
+      }
+
     }
 
-    // estela (cantidad segun los efectos visuales)
+    // estela (cantidad segun los efectos visuales y la calidad activa)
     const fx = DAT.getFx(SAVE.get().fx);
     const gq = SAVE.get().set.gfx;
-    const trailChance = gq === 'high' ? 0.5 : gq === 'medium' ? 0.3 : 0.12;
+    const qProf = (typeof ELITE !== 'undefined' && ELITE) ? ELITE.profile() : null;
+    const trailChance = qProf ? Math.min(0.72, qProf.trail * 0.55) : (gq === 'high' ? 0.5 : gq === 'medium' ? 0.3 : 0.12);
     if (airborne) {
       birds.forEach(b => {
-        if (b.dead || !fx.color || Math.random() >= trailChance) return;
-        const col = fx.rainbow ? 'hsl(' + ((t * 260) % 360) + ',95%,62%)' : fx.color;
-        const tn = gq === 'high' ? 3 : gq === 'medium' ? 2 : 1;
+        if (b.dead) return;
+        const cosOn = !!(eliteCosmeticCfg && eliteCosmeticCfg.color && b === bird);
+        if (!cosOn && !fx.color) return;
+        if (Math.random() >= trailChance) return;
+        let col = fx.rainbow ? 'hsl(' + ((t * 260) % 360) + ',95%,62%)' : fx.color;
+        if (cosOn) col = eliteCosmeticCfg.color;
+        const tn = qProf ? Math.max(1, Math.round(qProf.trail * 3)) : (gq === 'high' ? 3 : gq === 'medium' ? 2 : 1);
         FX.trail(b.x - b.r * 0.7, b.y + b.r * 0.2, col, tn, fx.stars);
       });
     }
@@ -1491,6 +1833,19 @@ function difficultyFor(sc, diffc) {
     const dist = Math.floor(totalDist / 30);
     const isRecord = SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, mode, { mapId: curMapId, bossKills: bossKills });
     const s = SAVE.get();
+    // Cierre de ÉLITE: rango, puntos, códice, contratos y cosméticos.
+    let eliteRes = null, eliteRec = null;
+    if (typeof ELITE !== 'undefined' && ELITE && ELITE.activeRun()) {
+      ELITE.noteScore(score);
+      eliteRes = ELITE.finishRun();
+      if (eliteRes) {
+        eliteRes.score = score;
+        eliteRes.distance = dist;
+        eliteRec = ELITE.recordRun(s, eliteRes);
+        SAVE.save();
+      }
+    }
+    eliteResult = eliteRes;
     if (mode === 'zen') s.stats.zenBest = Math.max(s.stats.zenBest || 0, score);
     // medallas ocultas (condiciones raras)
     if (!hitHappened && dist > 0) s.stats.maxDistNoHit = Math.max(s.stats.maxDistNoHit || 0, dist);
@@ -1521,7 +1876,7 @@ function difficultyFor(sc, diffc) {
     mode = SAVE.get().set.mode;
     challengeMap = null;
     SND.sfx.over();
-    UI.showGameOver(score, s.stats.best, coinCount, pipesDone, dist, isRecord, ach, levelUps);
+    UI.showGameOver(score, s.stats.best, coinCount, pipesDone, dist, isRecord, ach, levelUps, eliteRes, eliteRec);
     if (window.ADS) ADS.onRunEnd('gameover');
   }
 
@@ -1988,12 +2343,29 @@ function difficultyFor(sc, diffc) {
 
     drawDynamicLight(ctx, S);
 
+    // La cámara mueve el mundo, no el fondo: nunca deja bordes negros.
+    const eliteDraw = (typeof ELITE !== 'undefined' && ELITE) ? ELITE : null;
+    const useCam = !!(eliteDraw && eliteCam);
+    if (useCam) {
+      ctx.save();
+      eliteDraw.applyCamera(ctx, eliteCam, W, H);
+    }
+
+    if (eliteDraw) {
+      eliteZones.forEach(z => eliteDraw.drawZone(ctx, z, t));
+    }
+
     pipes.forEach(p => ENTS.drawPipe(ctx, p, BG.getMap(), groundH, W, H));
     if (expOk) drawBossFaces(ctx);
     if (rt.mirilla && state === 'play') drawMirilla(ctx);
     coins.forEach(c => ENTS.drawCoin(ctx, c, t));
     enemies.forEach(e => ENTS.drawEnemy(ctx, e, t));
     powers.forEach(pw => ENTS.drawPower(ctx, pw, t));
+    if (eliteDraw) {
+      eliteGates.forEach(g => eliteDraw.drawGate(ctx, g, t));
+      eliteBarriers.forEach(b => eliteDraw.drawBarrier(ctx, b, t));
+      eliteRelics.forEach(r => eliteDraw.drawRelic(ctx, r, t));
+    }
     if (expOk) {
       meteors.forEach(m => ENTS.drawMeteor(ctx, m, t));
       secretPortals.forEach(p => ENTS.drawPortal(ctx, p, t));
@@ -2048,6 +2420,9 @@ function difficultyFor(sc, diffc) {
         if (rt.titan) drawAura(ctx, b.x, b.y, b.r, '#ff8a65');
         if (rt.fenix) drawAura(ctx, b.x, b.y, b.r, '#ffb74d');
       }
+      if (b === bird && eliteCosmeticCfg && eliteCosmeticCfg.color) {
+        drawAura(ctx, b.x, b.y, b.r * (eliteCosmeticCfg.kind === 'aura' ? 1.15 : 0.95), eliteCosmeticCfg.color);
+      }
       ENTS.drawBird(ctx, b.x, b.y, {
         skin: drawSkin, hat, t, wingPhase: b.wingPhase, squash: b.squish, rot: b.rot, r: b.r,
         ghost: eff.ghost > t,
@@ -2055,13 +2430,26 @@ function difficultyFor(sc, diffc) {
         golden: b === bird ? birdGolden : false
       });
     });
+    if (eliteDraw && bird) eliteDraw.drawAbilityFx(ctx, bird, t, eliteAbility);
     if (bossGroup && !bossGroup.dead) drawBossBar();
 
     if (wind.on && !bird.dead && state === 'play') drawWind();
     if (mode === 'duel' && rival && bird && !bird.dead) drawRival();
 
     if (state === 'play' && readyTap) drawReady();
+    if (eliteDraw) {
+      const evNow = eliteDraw.event();
+      if (evNow && bird && !bird.dead) {
+        ctx.save();
+        ctx.globalAlpha = 0.10 + (evNow.left < 2 ? Math.sin(t * 12) * 0.05 + 0.1 : 0.06);
+        ctx.strokeStyle = evNow.color || '#ffd54f';
+        ctx.lineWidth = 10;
+        ctx.strokeRect(5, 5, W - 10, H - 10);
+        ctx.restore();
+      }
+    }
     FX.draw(ctx, false);
+    if (useCam) ctx.restore();
     ctx.restore();
   }
 
@@ -2407,6 +2795,38 @@ function difficultyFor(sc, diffc) {
       const ready = !!(lcfg && legendaryReady && !legendaryUsed && state === 'play' && !paused);
       UI.setLegendary(!!lcfg, ready, lcfg ? lcfg.icon : '', lcfg ? lcfg.name : '');
     }
+
+    // Habilidades de élite: estado real de los 3 botones del HUD.
+    if (typeof ELITE !== 'undefined' && ELITE) {
+      const list = ELITE.abilityInfo();
+      const btns = document.querySelectorAll('#hudAbilities .ability-btn');
+      for (let i = 0; i < btns.length; i++) {
+        const b = btns[i];
+        const a = list.filter(x => x.id === b.getAttribute('data-ability'))[0];
+        if (!a) continue;
+        const key = 'ab_' + a.id;
+        const val = a.ready ? 'r' : String(Math.ceil(a.cd));
+        if (hudCache[key] !== val) {
+          hudCache[key] = val;
+          b.classList.toggle('cooling', !a.ready);
+          b.classList.toggle('ready', a.ready);
+          const cd = b.querySelector('.ab-cd');
+          if (cd) cd.textContent = a.ready ? '' : String(Math.ceil(a.cd));
+        }
+      }
+      const st = ELITE.stats();
+      let txt = st.combo >= 3 ? '🎯 x' + st.combo : '';
+      if (combo >= 3) txt = (txt ? txt + ' · ' : '') + '🔥 x' + combo;
+      if (st.event) txt = st.event.icon + ' ' + st.event.name + (txt ? ' · ' + txt : '');
+      setHudText('hudCombo', txt);
+      if (SND.setIntensity) {
+        const inten = Math.min(1, Math.max(eliteIntel, st.combo / 18 + (st.event ? 0.45 : 0)));
+        if (hudCache.intensity === undefined || Math.abs(hudCache.intensity - inten) > 0.18) {
+          hudCache.intensity = inten;
+          SND.setIntensity(inten);
+        }
+      }
+    }
   }
 
   // Progreso fraccionado de la barra del modo (sube sin saltos entre tubo y tubo)
@@ -2451,6 +2871,31 @@ function difficultyFor(sc, diffc) {
     useBagTool, manualToolList,
     getScore: () => score,
     getDist: () => Math.floor(totalDist / 30),
+    useAbility: useAbility,
+    setGraphics: function (mode) {
+      if (typeof ELITE === 'undefined' || !ELITE) return null;
+      return ELITE.setQuality(mode);
+    },
+    setCamera: function (mode) {
+      const m = ['auto', 'cine', 'off'].indexOf(mode) !== -1 ? mode : 'auto';
+      if (eliteCam && typeof ELITE !== 'undefined' && ELITE) {
+        eliteCam.enabled = m !== 'off' && !SAVE.get().set.reduced &&
+          (m === 'cine' || ELITE.profile().rank >= 2);
+      }
+      return m;
+    },
+    getElite: function () {
+      return {
+        quality: (typeof ELITE !== 'undefined' && ELITE) ? ELITE.quality() : null,
+        qualityMode: (typeof ELITE !== 'undefined' && ELITE) ? ELITE.qualityMode() : null,
+        camera: eliteCam ? { enabled: eliteCam.enabled !== false, x: eliteCam.x, y: eliteCam.y, rot: eliteCam.rot, zoom: eliteCam.zoom } : null,
+        ability: { dashUntil: eliteAbility.dashUntil, warpUntil: eliteAbility.warpUntil, pulseUntil: eliteAbility.pulseUntil },
+        cosmetic: eliteCosmeticCfg ? eliteCosmeticCfg.id : null,
+        result: eliteResult,
+        gates: eliteGates.length, barriers: eliteBarriers.length,
+        relics: eliteRelics.length, zones: eliteZones.length
+      };
+    },
     getW: () => W, getH: () => H,
     canvas, ctx,
     forceRestart: newRun,
@@ -2500,6 +2945,17 @@ function difficultyFor(sc, diffc) {
       finishMode: finishMode,
       updateBossAttacks: updateBossAttacks,
       spawnBatAt: spawnBatAt,
+      // Élite v3.3
+      spawnGate: spawnGate,
+      spawnBarrier: spawnBarrier,
+      spawnRelic: spawnRelic,
+      spawnZone: spawnZone,
+      useAbility: useAbility,
+      elite: () => ({
+        gates: eliteGates, barriers: eliteBarriers, relics: eliteRelics, zones: eliteZones,
+        cam: eliteCam, ability: eliteAbility
+      }),
+      getEliteRun: () => (typeof ELITE !== 'undefined' && ELITE) ? ELITE.activeRun() : null,
       getModeCfg: () => Object.assign({}, modeCfg),
       getRunState: () => ({
         mode: mode, timeLeft: runTimeLeft, lives: runLives, goal: runGoal,

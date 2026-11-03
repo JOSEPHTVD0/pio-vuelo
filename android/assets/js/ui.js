@@ -306,6 +306,14 @@ window.UI = (function () {
     set('badgeHome', readyEggs);
     const lowTools = DAT.TOOLS.filter(t => SAVE.itemCount(t.key) > 0 && SAVE.toolDurInfo(t.key).pct <= 25).length;
     set('badgeTools', lowTools);
+    // Contratos de élite listos para reclamar (y hazañas pendientes del códice).
+    let eliteN = 0;
+    try {
+      if (typeof ELITE !== 'undefined' && ELITE) {
+        eliteN = ELITE.contracts(SAVE.get()).filter(c => c.done && !c.claimed).length;
+      }
+    } catch (e) { eliteN = 0; }
+    set('badgeElite', eliteN);
   }
 
   // Resumen del nido + incubadora con tiempo real en la pantalla de inicio
@@ -649,7 +657,8 @@ window.UI = (function () {
   }
 
   /* ---------- Game over ---------- */
-  function showGameOver(score, best, coinsGot, pipesPassed, dist, isRecord, ach, levelUps) {
+  let lastEliteOver = null;
+  function showGameOver(score, best, coinsGot, pipesPassed, dist, isRecord, ach, levelUps, eliteRes, eliteRec) {
     $('overScore').textContent = score;
     $('overBest').textContent = best;
     $('overCoins').textContent = coinsGot;
@@ -670,8 +679,93 @@ window.UI = (function () {
     else medal.textContent = '';
     const lu = document.getElementById('overLevelup');
     lu.classList.toggle('hidden', !(levelUps > 0));
+
+    // Panel ÉLITE: rango, puntos, desglose y avisos reales del vuelo.
+    const box = document.getElementById('overElite');
+    lastEliteOver = eliteRes ? {
+      score: score, dist: dist, date: Date.now(), maxCombo: eliteRes.maxCombo || 0,
+      elite: eliteRes
+    } : null;
+    if (box) {
+      box.classList.toggle('hidden', !eliteRes);
+      if (eliteRes) {
+        const rank = eliteRes.rank || ELITE.rankFor(eliteRes.points || 0);
+        const letter = document.getElementById('overRankLetter');
+        const name = document.getElementById('overRankName');
+        const pts = document.getElementById('overElitePts');
+        const chips = document.getElementById('overEliteChips');
+        const note = document.getElementById('overEliteNote');
+        if (letter) { letter.textContent = rank.id; letter.style.color = rank.color; }
+        if (name) name.textContent = (rank.icon ? rank.icon + ' ' : '') + rank.name;
+        if (pts) pts.textContent = eliteRes.points || 0;
+        if (chips) {
+          chips.innerHTML = '';
+          [
+            ['🎯', 'perfectos', eliteRes.perfects],
+            ['🌀', 'compuertas', eliteRes.gates],
+            ['💎', 'reliquias', eliteRes.relics],
+            ['🔥', 'combo', eliteRes.maxCombo],
+            ['🎉', 'eventos', eliteRes.events]
+          ].forEach(c => {
+            if (!c[2]) return;
+            const s = document.createElement('span');
+            s.className = 'er-chip';
+            s.textContent = c[0] + ' ' + c[2] + ' ' + c[1];
+            chips.appendChild(s);
+          });
+        }
+        if (note) {
+          const bits = [];
+          if (eliteRec && eliteRec.isNewBest) bits.push('¡Nuevo rango récord!');
+          if (eliteRec && eliteRec.unlocked && eliteRec.unlocked.length) {
+            bits.push('Desbloqueado: ' + eliteRec.unlocked.map(c => c.icon + ' ' + c.name).join(', '));
+          }
+          if (eliteRec && eliteRec.contracts && eliteRec.contracts.length) {
+            bits.push('Contratos listos: ' + eliteRec.contracts.map(c => c.icon).join(' ') + ' (reclámalos en ÉLITE)');
+          }
+          bits.push('Recompensa por rango en la pantalla ÉLITE.');
+          note.textContent = bits.join(' · ');
+        }
+      }
+    }
+    const postalBtn = document.getElementById('btnPostal');
+    if (postalBtn) postalBtn.disabled = !lastEliteOver;
+
     $('screen-over').classList.remove('hidden');
     ach.forEach(a => popAch(a));
+  }
+
+  /* ---------- Postal de vuelo (PNG real generado en canvas) ---------- */
+  function downloadPostal(payload) {
+    const p = payload || lastEliteOver;
+    if (!p || typeof ELITE === 'undefined' || !ELITE || !ELITE.drawPostal) {
+      toast('Juega un vuelo para generar tu postal', 'info');
+      return null;
+    }
+    try {
+      const W = 720, H = 960;
+      const cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      const ctx = cv.getContext('2d');
+      ELITE.drawPostal(ctx, W, H, p);
+      const url = cv.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'pio-vuelo-elite-' + new Date().toISOString().slice(0, 10) + '.png';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      if (ELITE.discoverPersistent) ELITE.discoverPersistent(SAVE.get(), 'postal');
+      SAVE.save();
+      SND.sfx.achieve();
+      toast('📮 Postal descargada', 'good');
+      if (currentGeneric === 'elite') renderElite();
+      return url;
+    } catch (e) {
+      SND.sfx.deny();
+      toast('No se pudo generar la postal en este dispositivo', 'warning');
+      return null;
+    }
   }
 
   /* Pantalla de victoria genérica (Duelo) */
@@ -788,7 +882,7 @@ window.UI = (function () {
     currentGeneric = kind;
     $('screen-generic').classList.remove('hidden');
     $('genBody').innerHTML = '';
-    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤', inventory: 'INVENTARIO 📦', stats: 'ESTADÍSTICAS 📊', help: 'AYUDA ❓', characters: 'PERSONAJES 🧑‍🚀', pets: 'MASCOTAS 🐾', skills: 'HABILIDADES 🌳', events: 'EVENTOS 🎉', badges: 'TROFEOS 🏆', legendary: 'LEGENDARIAS 🗡️', custom: 'PERSONALIZACIÓN 🎨', league: 'LIGA 🏆', modes: 'MODOS 🎮' };
+    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤', inventory: 'INVENTARIO 📦', stats: 'ESTADÍSTICAS 📊', help: 'AYUDA ❓', characters: 'PERSONAJES 🧑‍🚀', pets: 'MASCOTAS 🐾', skills: 'HABILIDADES 🌳', events: 'EVENTOS 🎉', badges: 'TROFEOS 🏆', legendary: 'LEGENDARIAS 🗡️', custom: 'PERSONALIZACIÓN 🎨', league: 'LIGA 🏆', modes: 'MODOS 🎮', elite: 'ÉLITE 👑' };
     $('genTitle').textContent = titles[kind] || '';
     $('genCoins').textContent = SAVE.get().coins;
     // Las pantallas de la expansión se dibujan en su propio módulo.
@@ -810,6 +904,7 @@ window.UI = (function () {
       case 'profile': renderProfile(); break;
       case 'inventory': renderInventory(tab); break;
       case 'stats': renderStats(); break;
+      case 'elite': renderElite(); break;
       case 'help': renderHelp(); break;
       default: break;
     }
@@ -2424,6 +2519,171 @@ window.UI = (function () {
     body.appendChild(note);
   }
 
+  /* ---------- ÉLITE 👑 ---------- */
+  function el(tag, cls, html) {
+    const d = document.createElement(tag);
+    if (cls) d.className = cls;
+    if (html !== undefined) d.innerHTML = html;
+    return d;
+  }
+
+  function renderElite() {
+    const body = $('genBody');
+    body.innerHTML = '';
+    if (typeof ELITE === 'undefined' || !ELITE) {
+      body.appendChild(el('div', 'panel-note', 'El módulo ÉLITE no está disponible en esta carga.'));
+      return;
+    }
+    const s = SAVE.get();
+    const e = ELITE.ensureSave(s);
+    const bestRank = e.bestRank ? (ELITE.RANKS.filter(r => r.id === e.bestRank)[0] || null) : null;
+    const bestPoints = e.bestPoints || 0;
+    const next = ELITE.RANKS.slice().reverse().filter(r => r.min > bestPoints)[0] || null;
+
+    // Héroe: rango récord y objetivo a largo plazo.
+    const hero = el('div', 'elite-hero');
+    hero.appendChild(el('div', 'eh-rank', bestRank ? bestRank.id : '·'));
+    const txt = el('div', 'eh-txt');
+    txt.appendChild(el('h3', '', bestRank ? ((bestRank.icon || '') + ' ' + bestRank.name) : 'SIN RANGO TODAVÍA'));
+    let goal;
+    if (bestPoints <= 0) goal = 'Juega un vuelo para recibir tu primera nota de élite (S/A/B/C/D).';
+    else if (next) goal = 'Mejor marca: <b>' + bestPoints + '</b> pts · faltan <b>' + (next.min - bestPoints) + '</b> para ' + next.icon + ' ' + next.name + '.';
+    else goal = '¡Rango máximo alcanzado! <b>' + bestPoints + '</b> puntos de élite.';
+    txt.appendChild(el('p', '', goal + '<br>Vuelos registrados: <b>' + e.runs + '</b> · Códice: <b>' + e.codex.length + '/' + ELITE.CODEX.length + '</b> · Cosméticos: <b>' + e.cosmetics.length + '/' + ELITE.ELITE_COSMETICS.length + '</b>'));
+    hero.appendChild(txt);
+    body.appendChild(hero);
+
+    // Totales acumulados reales.
+    const grid = el('div', 'elite-grid');
+    [
+      ['🎯', 'Perfectos', e.totals.perfects],
+      ['🌀', 'Compuertas', e.totals.gates],
+      ['💎', 'Reliquias', e.totals.relics],
+      ['💥', 'Barreras', e.totals.barriers],
+      ['🎉', 'Eventos', e.totals.events],
+      ['⚡', 'Habilidades', e.totals.abilities]
+    ].forEach(t => {
+      grid.appendChild(el('div', 'elite-card',
+        '<div class="ec-top"><span class="ec-name">' + t[1] + '</span><span class="ec-ico">' + t[0] + '</span></div>' +
+        '<div class="ec-desc"><b style="font-size:18px;color:#ffe066">' + (t[2] || 0) + '</b> en total</div>'));
+    });
+    body.appendChild(grid);
+
+    // Contratos diarios (progreso y recompensa real).
+    body.appendChild(el('div', 'inv-sub', '<h3>📜 CONTRATOS DE HOY</h3>'));
+    ELITE.contracts(s).forEach(c => {
+      const row = el('div', 'elite-contract');
+      row.appendChild(el('div', 'elc-ico', c.icon));
+      const cb = el('div', 'elc-body');
+      cb.appendChild(el('div', 'elc-text', c.text));
+      const pct = Math.round(Math.min(1, c.progress / c.target) * 100);
+      cb.appendChild(el('div', 'elc-prog', c.claimed ? '✅ Recompensa reclamada'
+        : (c.done ? '✅ Completado · +' + c.reward + ' 🪙 y +' + c.xp + ' XP'
+          : 'Progreso ' + c.progress + '/' + c.target + ' · +' + c.reward + ' 🪙')));
+      const bar = el('div', 'elite-progress');
+      bar.appendChild(el('i', '', ''));
+      bar.firstChild.style.width = pct + '%';
+      cb.appendChild(bar);
+      row.appendChild(cb);
+      const btn = el('button', 'elc-btn', c.claimed ? 'Hecho' : (c.done ? 'Reclamar' : 'Pendiente'));
+      btn.disabled = !c.done || c.claimed;
+      btn.onclick = () => {
+        const got = ELITE.claimContract(SAVE.get(), c.id, (coins, xp) => {
+          SAVE.addCoins(coins);
+          const ups = SAVE.addXp(xp);
+          if (ups > 0) toast('⬆ ¡Subiste ' + ups + ' nivel!', 'good');
+        });
+        if (!got) { SND.sfx.deny(); toast('Ese contrato aún no está completo', 'info'); return; }
+        SND.sfx.buy();
+        toast('📜 Contrato completado: +' + got.reward + ' 🪙 y +' + got.xp + ' XP', 'good');
+        SAVE.save();
+        SAVE.checkAch().forEach(a => popAch(a));
+        refreshHome();
+        renderElite();
+      };
+      row.appendChild(btn);
+      body.appendChild(row);
+    });
+
+    // Habilidades activas.
+    body.appendChild(el('div', 'inv-sub', '<h3>⚡ HABILIDADES DE VUELO</h3>'));
+    const abil = el('div', 'elite-grid');
+    ELITE.ABILITIES.forEach(a => {
+      abil.appendChild(el('div', 'elite-card',
+        '<div class="ec-top"><span class="ec-name">' + a.icon + ' ' + a.name + '</span><span class="ec-ico" style="font-size:11px;color:#9fd7ff">Tecla ' + a.key + '</span></div>' +
+        '<div class="ec-desc">' + a.desc + '<br>Recarga: ' + a.cd + ' s · Duración: ' + a.dur + ' s</div>'));
+    });
+    body.appendChild(abil);
+
+    // Cosméticos de élite con equipado real.
+    body.appendChild(el('div', 'inv-sub', '<h3>✨ COSMÉTICOS DE ÉLITE</h3>'));
+    const active = e.activeCosmetic || '';
+    ELITE.ELITE_COSMETICS.forEach(c => {
+      const owned = e.cosmetics.indexOf(c.id) !== -1;
+      const row = el('div', 'elite-contract');
+      row.appendChild(el('div', 'elc-ico', owned ? c.icon : '🔒'));
+      const cb = el('div', 'elc-body');
+      cb.appendChild(el('div', 'elc-text', c.name + (active === c.id ? ' · EQUIPADO' : '')));
+      cb.appendChild(el('div', 'elc-prog', owned ? 'Color de estela y aura: ' + c.color : 'Se desbloquea con rango ' + c.minRank + ' o superior.'));
+      row.appendChild(cb);
+      const btn = el('button', 'elc-btn', active === c.id ? 'Quitar' : (owned ? 'Equipar' : '—'));
+      btn.disabled = !owned;
+      btn.onclick = () => {
+        const cur = SAVE.get().elite;
+        cur.activeCosmetic = (cur.activeCosmetic === c.id) ? '' : c.id;
+        SAVE.save();
+        SND.sfx.click();
+        toast(cur.activeCosmetic ? '✨ ' + c.name + ' equipado' : 'Cosmético de élite retirado', 'info');
+        renderElite();
+      };
+      row.appendChild(btn);
+      body.appendChild(row);
+    });
+
+    // Códice.
+    body.appendChild(el('div', 'inv-sub', '<h3>📖 CÓDICE DE ÉLITE</h3>'));
+    ELITE.CODEX.forEach(c => {
+      const found = e.codex.indexOf(c.id) !== -1;
+      const row = el('div', 'elite-codex-entry' + (found ? '' : ' locked'));
+      row.appendChild(el('div', 'eco-ico', found ? c.icon : '🔒'));
+      const cb = el('div');
+      cb.appendChild(el('div', 'eco-name', found ? c.name : '???' + ' · ' + c.name));
+      cb.appendChild(el('div', 'eco-desc', c.desc));
+      row.appendChild(cb);
+      body.appendChild(row);
+    });
+
+    // Las 15 características sorpresa, visibles y verificables.
+    body.appendChild(el('div', 'inv-sub', '<h3>🎁 15 SORPRESAS DE ÉLITE</h3>'));
+    const sg = el('div', 'elite-grid');
+    ELITE.SURPRISES.forEach(sp => {
+      sg.appendChild(el('div', 'elite-card',
+        '<div class="ec-top"><span class="ec-name">' + sp.icon + ' ' + sp.name + '</span></div>' +
+        '<div class="ec-desc">' + sp.desc + '</div>'));
+    });
+    body.appendChild(sg);
+
+    // Postal del último vuelo (o de la mejor marca guardada).
+    const postWrap = el('div', 'inv-sub', '<h3>📮 POSTAL DE VUELO</h3>');
+    body.appendChild(postWrap);
+    const postBtn = el('button', 'btn btn-elite', '📮 Generar postal PNG de mi último vuelo');
+    postBtn.onclick = () => {
+      if (!lastEliteOver && e.lastRun) {
+        const rank = ELITE.rankFor(e.lastRun.points || 0);
+        lastEliteOver = {
+          score: e.lastRun.score, dist: e.lastRun.distance, date: e.lastRun.date,
+          maxCombo: 0, elite: Object.assign({}, e.lastRun, { rank: rank })
+        };
+      }
+      if (!lastEliteOver) { SND.sfx.deny(); toast('Juega al menos un vuelo para tener postal', 'info'); return; }
+      SND.sfx.click();
+      downloadPostal(lastEliteOver);
+    };
+    body.appendChild(postBtn);
+    body.appendChild(el('div', 'panel-note',
+      'La postal se genera de verdad en tu dispositivo con los datos del vuelo. El códice y los contratos se guardan en el progreso local.'));
+  }
+
   /* ---------- AYUDA ---------- */
   function renderHelp() {
     const body = $('genBody');
@@ -2509,6 +2769,13 @@ window.UI = (function () {
       if (SND.setMasterVol) SND.setMasterVol(v);
       if (v > 0.05) SND.sfx.click();
     }));
+    gSound.appendChild(sliderRow('🌫 Ambiente', 'volA', s.set.volA === undefined ? 1 : s.set.volA, v => {
+      if (SND.setAmbientVol) SND.setAmbientVol(v);
+    }));
+    const ambNote = document.createElement('div');
+    ambNote.className = 'set-note';
+    ambNote.textContent = 'El ambiente añade capas de viento, agua y ciudad según el mapa; la música se intensifica en eventos y jefes.';
+    gSound.appendChild(ambNote);
     body.appendChild(gSound);
 
     const gCom = groupTitle('🛋 Comodidad');
@@ -2573,25 +2840,66 @@ window.UI = (function () {
     difRow.appendChild(pick);
     gGame.appendChild(difRow);
 
+    // Calidad gráfica: baja, media, alta, ultra y auto con degradación real.
     const gfxRow = document.createElement('div');
     gfxRow.className = 'set-row';
-    gfxRow.innerHTML = '<span>✨ Efectos visuales</span>';
+    gfxRow.innerHTML = '<span>✨ Calidad gráfica</span>';
     const pick2 = document.createElement('div');
     pick2.className = 'set-pick';
-    [['low', 'Bajo'], ['medium', 'Medio'], ['high', 'Alto']].forEach(g => {
+    const gfxOpts = [
+      ['low', 'Baja'], ['medium', 'Media'], ['high', 'Alta'], ['ultra', 'Ultra'], ['auto', 'Auto']
+    ];
+    const curGfx = (typeof ELITE !== 'undefined' && ELITE) ? ELITE.qualityMode() : s.set.gfx;
+    gfxOpts.forEach(g => {
       const b = document.createElement('button');
       b.textContent = g[1];
-      b.className = s.set.gfx === g[0] ? 'active' : '';
+      b.className = curGfx === g[0] ? 'active' : '';
       b.onclick = () => {
         SAVE.setSetting('gfx', g[0]);
+        let prof = null;
+        if (typeof ELITE !== 'undefined' && ELITE) prof = ELITE.setQuality(g[0]);
+        if (typeof G !== 'undefined' && G.setGraphics) G.setGraphics(g[0]);
         renderSettings();
         SND.sfx.click();
-        toast('Efectos visuales: ' + g[1], 'info');
+        toast('Calidad gráfica: ' + g[1] + (prof ? ' (' + ELITE.QUALITY[prof].name + ' activa)' : ''), 'info');
       };
       pick2.appendChild(b);
     });
     gfxRow.appendChild(pick2);
     gGame.appendChild(gfxRow);
+    const gfxNote = document.createElement('div');
+    gfxNote.className = 'set-note';
+    gfxNote.textContent = 'Auto detecta el hardware y baja o sube el nivel según los FPS reales. Los efectos de alta calidad nunca bloquean el juego: se degradan solos.';
+    gGame.appendChild(gfxNote);
+
+    // Cámara cinematográfica: automática, siempre o desactivada.
+    const camRow = document.createElement('div');
+    camRow.className = 'set-row';
+    camRow.innerHTML = '<span>🎥 Cámara</span>';
+    const camPick = document.createElement('div');
+    camPick.className = 'set-pick';
+    [['auto', 'Auto'], ['cine', 'Cine'], ['off', 'Quitar']].forEach(c => {
+      const b = document.createElement('button');
+      b.textContent = c[1];
+      b.className = (s.set.cam || 'auto') === c[0] ? 'active' : '';
+      b.onclick = () => {
+        SAVE.setSetting('cam', c[0]);
+        const el2 = SAVE.get().elite;
+        if (el2) el2.camera = c[0];
+        SAVE.save();
+        if (typeof G !== 'undefined' && G.setCamera) G.setCamera(c[0]);
+        renderSettings();
+        SND.sfx.click();
+        toast(c[0] === 'off' ? 'Cámara cinematográfica desactivada' : (c[0] === 'cine' ? 'Cámara cinematográfica siempre activa' : 'Cámara automática'), 'info');
+      };
+      camPick.appendChild(b);
+    });
+    camRow.appendChild(camPick);
+    gGame.appendChild(camRow);
+    const camNote = document.createElement('div');
+    camNote.className = 'set-note';
+    camNote.textContent = 'La cámara solo desplaza el escenario unos píxeles: nunca cambia los controles ni la posición real de las colisiones.';
+    gGame.appendChild(camNote);
 
     // Límite de FPS (0 = automático). Se aplica en el bucle real del juego.
     const fpsRow = document.createElement('div');
@@ -2686,6 +2994,9 @@ window.UI = (function () {
         SND.setSfx(st.sfx); SND.setMusic(st.music);
         SND.setVolumes(st.volS, st.volM);
         if (SND.setMasterVol) SND.setMasterVol(st.volG);
+        if (SND.setAmbientVol) SND.setAmbientVol(st.volA);
+        if (typeof ELITE !== 'undefined' && ELITE) ELITE.setQuality(st.gfx || 'high');
+        if (typeof G !== 'undefined' && G.setCamera) G.setCamera(st.cam || 'auto');
         FX.setReduced(!!st.reduced); ENTS.setHC(!!st.hc);
         document.body.classList.toggle('no-ui-anim', st.uiAnim === false);
         renderSettings();
@@ -3195,6 +3506,7 @@ window.UI = (function () {
     hideAllScreens, showLoading, showHome, refreshHome,
     setHudVisible, showStartHint, setPaused, setResumeCountdown, refreshHudTools, updateEffectTimers, setLegendary,
     showGameOver, showModeClear, toast, confirm, openGeneric, closeGeneric,
+    downloadPostal,
     showModePick, closeModePick, isModePickOpen,
     popAch,
     current: () => currentGeneric

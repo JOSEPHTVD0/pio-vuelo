@@ -806,3 +806,66 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 }
 
 
+
+/* ---------- v3.3 ÉLITE: habilidades, rangos y postal ---------- */
+.hud-abilities { position:absolute; right:12px; bottom:calc(env(safe-area-inset-bottom,0px) + 88px); display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+.ability-btn { position:relative; pointer-events:auto; width:50px; height:50px; border-radius:16px; border:2px solid rgba(255,255,255,.45); background:linear-gradient(160deg, rgba(32,44,80,.82), rgba(12,18,38,.82)); color:#fff; box-shadow:0 4px 12px rgba(0,0,0,.42); overflow:hidden; display:flex; align-items:center; justify-content:center; transition:transform .12s, border-color .2s; }
+.ability-btn .ab-ico { font-size:22px; line-height:1; }
+.ability-btn .ab-key { position:absolute; right:4px; bottom:2px; font-size:9px; font-weight:900; color:rgba(255,255,255,.7); }
+.ability-btn .ab-cd { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:900; color:#fff; background:rgba(4,8,20,.68); opacity:0; transition:opacity .15s; }
+.ability-btn.cooling .ab-cd { opacity:1; }
+.ability-btn.cooling { border-color:rgba(255,255,255,.18); }
+.ability-btn.ready { border-color:#69f0ae; box-shadow:0 0 0 2px rgba(105,240,174,.18), 0 4px 12px rgba(0,0,0,.42); }
+.ability-btn:active { transform:scale(.9); }
+.ability-btn.pulse { animation:abiPulse .5s ease-out; }
+@keyframes abiPulse { 0% { transform:scale(1.16); } 100% { transform:scale(1); } }
+
+.elite-result { display:flex; align-items:stretch; gap:12px; width:100%; margin:8px 0 4px; padding:12px; border-radius:18px; background:linear-gradient(135deg, rgba(255,213,79,.14), rgba(179,136,255,.16)); border:1px solid rgba(255,255,255,.24); }
+.er-rank { flex:0 0 84px; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:14px; background:rgba(0,0,0,.28); padding:6px; }
+.er-rank span { font-size:42px; font-weight:900; line-height:1; color:#ffd54f; text-shadow:0 3px 0 rgba(0,0,0,.3); }
+.er-rank small { font-size:9px; font-weight:900; letter-spacing:1px; color:#dbe7ff; text-align:center; margin-top:4px; }
+.er-body { flex:1; min-width:0; text-align:left; display:flex; flex-direction:column; gap:5px; }
+.er-line { font-size:12px; color:#dbe7ff; font-weight:700; }
+.er-line b { font-size:18px; color:#ffe066; margin-right:4px; }
+.er-chips { display:flex; flex-wrap:wrap; gap:5px; }
+.er-chip { font-size:10px; font-weight:900; color:#fff; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); border-radius:10px; padding:2px 7px; }
+.er-note { font-size:10px; color:#b9c8e8; line-height:1.35; }
+.btn-elite { background:linear-gradient(135deg,#7c4dff,#26c6da); color:#fff; border-color:rgba(255,255,255,.35); }
+.q-nav-elite { background:linear-gradient(150deg, rgba(255,213,79,.14), rgba(179,136,255,.18)); border-color:rgba(255,213,79,.45); }
+.q-nav-elite .qn-t { color:#ffe066; }
+
+/* Pantalla ÉLITE */
+.elite-hero { display:flex; align-items:center; gap:14px; padding:16px; border-radius:18px; background:linear-gradient(135deg, rgba(255,213,79,.18), rgba(124,77,255,.22)); border:1px solid rgba(255,255,255,.22); margin-bottom:12px; }
+.elite-hero .eh-rank { font-size:54px; line-height:1; font-weight:900; color:#ffd54f; text-shadow:0 4px 0 rgba(0,0,0,.28); }
+.elite-hero .eh-txt { min-width:0; }
+.elite-hero h3 { font-size:16px; letter-spacing:1px; color:#fff; margin-bottom:3px; }
+.elite-hero p { font-size:11px; color:#dbe7ff; line-height:1.45; }
+.elite-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin-bottom:12px; }
+.elite-card { background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:10px; color:#fff; }
+.elite-card .ec-top { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px; }
+.elite-card .ec-name { font-size:12px; font-weight:900; }
+.elite-card .ec-ico { font-size:18px; }
+.elite-card .ec-desc { font-size:10px; color:#c9d7f2; line-height:1.4; }
+.elite-progress { height:7px; border-radius:5px; background:rgba(255,255,255,.16); overflow:hidden; margin-top:7px; }
+.elite-progress i { display:block; height:100%; border-radius:5px; background:linear-gradient(90deg,#ffd54f,#69f0ae); }
+.elite-chip { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:900; padding:3px 8px; border-radius:10px; background:rgba(255,255,255,.11); border:1px solid rgba(255,255,255,.16); color:#dbe7ff; margin:0 4px 4px 0; }
+.elite-chip.done { background:rgba(105,240,174,.18); border-color:rgba(105,240,174,.5); color:#b9f6ca; }
+.elite-codex-entry { display:flex; gap:9px; align-items:flex-start; padding:9px 10px; border-radius:12px; background:rgba(255,255,255,.06); margin-bottom:6px; }
+.elite-codex-entry.locked { opacity:.48; }
+.elite-codex-entry .eco-ico { font-size:18px; line-height:1; }
+.elite-codex-entry .eco-name { font-size:12px; font-weight:900; color:#fff; }
+.elite-codex-entry .eco-desc { font-size:10px; color:#c9d7f2; line-height:1.35; }
+.elite-contract { display:flex; align-items:center; gap:10px; padding:10px; border-radius:14px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.14); margin-bottom:8px; }
+.elite-contract .elc-ico { font-size:22px; flex:0 0 auto; }
+.elite-contract .elc-body { flex:1; min-width:0; }
+.elite-contract .elc-text { font-size:11px; color:#fff; font-weight:800; line-height:1.35; }
+.elite-contract .elc-prog { font-size:10px; color:#c9d7f2; margin-top:3px; }
+.elite-contract .elc-btn { flex:0 0 auto; font-size:11px; padding:7px 10px; border-radius:10px; border:none; background:#ffd54f; color:#3b2c00; font-weight:900; }
+.elite-contract .elc-btn:disabled { background:rgba(255,255,255,.14); color:rgba(255,255,255,.5); }
+@media (max-width:420px) {
+  .hud-abilities { bottom:calc(env(safe-area-inset-bottom,0px) + 78px); right:8px; gap:6px; }
+  .ability-btn { width:44px; height:44px; border-radius:14px; }
+  .ability-btn .ab-ico { font-size:19px; }
+  .elite-hero { padding:12px; }
+  .elite-hero .eh-rank { font-size:44px; }
+}

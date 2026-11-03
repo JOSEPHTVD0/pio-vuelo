@@ -72,6 +72,13 @@ window.APP = (function () {
     SND.setSfx(st.sfx);
     SND.setMusic(st.music);
     SND.setVolumes(st.volS, st.volM, st.volG);
+    if (SND.setAmbientVol) SND.setAmbientVol(st.volA);
+    if (window.ELITE) {
+      try {
+        ELITE.setQuality(st.gfx || 'high');
+        if (SAVE.get().elite) SAVE.get().elite.camera = st.cam || 'auto';
+      } catch (e) { }
+    }
     FX.setReduced(!!st.reduced);
     ENTS.setHC(!!st.hc);
     document.body.classList.toggle('no-ui-anim', st.uiAnim === false);
@@ -116,6 +123,15 @@ window.APP = (function () {
       }
       if (e.code === 'KeyP' || e.code === 'Escape') {
         if (G.isPlay()) { SND.sfx.click(); G.togglePause(); }
+      }
+      // Habilidades de élite: 1 impulso, 2 distorsión, 3 pulso.
+      if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' ||
+        e.code === 'Numpad1' || e.code === 'Numpad2' || e.code === 'Numpad3') {
+        if (G.isPlay() && !G.isPaused() && G.useAbility) {
+          e.preventDefault();
+          const n = e.code.slice(-1);
+          G.useAbility(n === '1' ? 'dash' : n === '2' ? 'warp' : 'pulse');
+        }
       }
     });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -337,6 +353,17 @@ window.APP = (function () {
       SND.sfx.click();
       shareScore();
     };
+    // ÉLITE: postal del último vuelo y habilidades activas.
+    const postal = document.getElementById('btnPostal');
+    if (postal) postal.onclick = () => { SND.sfx.click(); UI.downloadPostal(); };
+    document.querySelectorAll('#hudAbilities .ability-btn').forEach(b => {
+      b.onclick = e => {
+        e.preventDefault();
+        e.stopPropagation();
+        SND.unlock();
+        if (G.useAbility) G.useAbility(b.getAttribute('data-ability'));
+      };
+    });
     $('btnGenBack').onclick = () => { SND.sfx.click(); UI.closeGeneric(); };
     $('btnHomeSound').onclick = () => {
       SND.sfx.click();

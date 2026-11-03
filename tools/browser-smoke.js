@@ -187,6 +187,38 @@ function makeClient(ws) {
     await evalJs("G.goMenu()");
     await sleep(300);
 
+    // ÉLITE v3.3: pantalla, habilidades en partida, calidad y postal real.
+    ok(await evalJs("typeof ELITE === 'object' && ELITE.VERSION === '3.3.0'"), 'el módulo ÉLITE carga en el navegador');
+    await evalJs("UI.openGeneric('elite')");
+    await sleep(500);
+    const eliteInfo = await evalJs("(function(){var b=document.getElementById('genBody');return {title:document.getElementById('genTitle').textContent,hero:b.querySelectorAll('.elite-hero').length,contracts:b.querySelectorAll('.elite-contract').length,codex:b.querySelectorAll('.elite-codex-entry').length,cards:b.querySelectorAll('.elite-card').length,postal:!!b.querySelector('.btn-elite')}})()");
+    ok(eliteInfo.title.indexOf('ÉLITE') !== -1 && eliteInfo.hero === 1, 'la pantalla ÉLITE se abre con su héroe de rango', eliteInfo.title);
+    ok(eliteInfo.contracts >= 3 && eliteInfo.codex >= 10 && eliteInfo.cards >= 15 && eliteInfo.postal,
+      'ÉLITE muestra contratos, códice, habilidades y postal', JSON.stringify(eliteInfo));
+    // Panel de resultados: rango, desglose y postal habilitada.
+    const overInfo = await evalJs("(function(){UI.showGameOver(42,50,7,12,320,false,[],0,{points:280,maxCombo:5,perfects:3,gates:2,relics:1,events:1,rank:ELITE.rankFor(280)},{isNewBest:true,unlocked:[],contracts:[]});var b=document.getElementById('overElite');return {hidden:b.classList.contains('hidden'),letter:document.getElementById('overRankLetter').textContent,name:document.getElementById('overRankName').textContent,chips:b.querySelectorAll('.er-chip').length,postal:!document.getElementById('btnPostal').disabled}})()");
+    ok(!overInfo.hidden && overInfo.letter === 'B' && overInfo.chips >= 4 && overInfo.postal,
+      'los resultados muestran rango de élite, desglose y postal', JSON.stringify(overInfo));
+    await evalJs("UI.hideAllScreens(); UI.showHome()");
+    await sleep(200);
+    await evalJs("document.querySelector('[data-nav=settings]').click()");
+    await sleep(400);
+    const gfxBtns = await evalJs("(function(){var b=document.getElementById('genBody');var t=b.textContent;return {ultra:t.indexOf('Ultra')!==-1,auto:t.indexOf('Auto')!==-1,amb:t.indexOf('Ambiente')!==-1,cam:t.indexOf('Cámara')!==-1}})()");
+    ok(gfxBtns.ultra && gfxBtns.auto && gfxBtns.amb && gfxBtns.cam, 'Ajustes ofrece calidad ultra/auto, cámara y volumen ambiental', JSON.stringify(gfxBtns));
+    await evalJs("UI.closeGeneric(); G.setMode('free'); G.startPlay('free')");
+    await sleep(800);
+    ok(await evalJs("G.useAbility('dash')"), 'la habilidad impulso se activa en una partida real del navegador');
+    const hudAb = await evalJs("(function(){var bs=document.querySelectorAll('#hudAbilities .ability-btn');return {n:bs.length,cooling:document.querySelectorAll('#hudAbilities .ability-btn.cooling').length}})()");
+    ok(hudAb.n === 3 && hudAb.cooling >= 1, 'el HUD refleja la recarga real de las habilidades', JSON.stringify(hudAb));
+    await sleep(2200);
+    const spawns = await evalJs("G.getElite().gates + G.getElite().barriers + G.getElite().relics + G.getElite().zones");
+    ok(spawns >= 0, 'el vuelo genera elementos de élite sin errores', String(spawns));
+    await evalJs("G.goMenu()");
+    await sleep(300);
+    const postal = await evalJs("UI.downloadPostal({score:42,dist:120,maxCombo:3,elite:{points:80,perfects:2,gates:1,relics:0,rank:ELITE.rankFor(80)}})");
+    ok(typeof postal === 'string' && postal.indexOf('data:image/png') === 0, 'la postal se genera como PNG real en el navegador');
+    ok(await evalJs("SAVE.get().elite.codex.indexOf('postal') !== -1"), 'descargar la postal descubre su entrada del códice');
+
     // Ranking online real. Se puede omitir con SKIP_ONLINE=1 en entornos sin red.
     if (process.env.SKIP_ONLINE !== '1') {
       const cloudStatus = await evalJs("CLOUD.init().then(function(s){return {status:s.status, ready:s.ready, error:s.error, configured:s.configured}}).catch(function(e){return {status:'error', ready:false, error:String(e)}})");
@@ -260,7 +292,7 @@ function makeClient(ws) {
       { w: 768, h: 1024, name: 'tablet 768x1024' },
       { w: 1440, h: 900, name: 'PC 1440x900' }
     ];
-    const responsiveScreens = ['home', 'characters', 'pets', 'skills', 'events', 'badges', 'legendary', 'custom', 'league', 'modes', 'shop', 'inventory', 'pass', 'records', 'settings'];
+    const responsiveScreens = ['home', 'characters', 'pets', 'skills', 'events', 'badges', 'legendary', 'custom', 'league', 'modes', 'elite', 'shop', 'inventory', 'pass', 'records', 'settings'];
     for (const vp of viewports) {
       await c.send('Emulation.setDeviceMetricsOverride', { width: vp.w, height: vp.h, deviceScaleFactor: 1, mobile: vp.w < 600 });
       await sleep(150);
@@ -315,7 +347,8 @@ function makeClient(ws) {
       var widths=rows.map(function(b){return Math.round(b.getBoundingClientRect().width)});
       var sr=sc.getBoundingClientRect();
       sc.scrollTop=sc.scrollHeight;
-      await new Promise(function(r){setTimeout(r,70)});
+      for(var w=0;w<8;w++){ await new Promise(function(r){requestAnimationFrame(function(){r()})}); }
+      await new Promise(function(r){setTimeout(r,120)});
       var last=rows[rows.length-1].getBoundingClientRect();
       var br=back.getBoundingClientRect();
       return {

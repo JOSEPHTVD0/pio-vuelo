@@ -142,13 +142,14 @@ sandbox.globalThis = sandbox;
 sandbox.self = sandbox;
 
 vm.createContext(sandbox);
-for (const f of ['js/data.js', 'js/expansion.js', 'js/save.js', 'js/game.js']) {
+for (const f of ['js/data.js', 'js/expansion.js', 'js/elite.js', 'js/save.js', 'js/game.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), sandbox, { filename: f });
 }
 
 const DAT = sandbox.DAT;
 const SAVE = sandbox.SAVE;
 const G = sandbox.G;
+const ELITE = sandbox.ELITE;
 const T = G.__test;
 
 /* ---------------- Mini framework ---------------- */
@@ -1543,6 +1544,200 @@ section('24. EXPANSIÓN v3.2: personajes, mascotas, habilidades y modos');
   ok(glob.length === 1 && glob[0].uid === 'u2' && glob[0].best === 20, 'la tabla global usa su propia caché por campo');
 
   ok(EXP.totalXp(SAVE.get()) >= 0, 'la XP total usada por el ranking es real y no negativa');
+}
+
+/* ---------------- 25. ÉLITE v3.3 ---------------- */
+section('25. ÉLITE v3.3: calidad, IA, habilidades, eventos, rangos y postal');
+{
+  ok(!!ELITE && ELITE.VERSION === '3.3.0', 'el módulo ÉLITE existe y declara la versión 3.3.0');
+  ok(ELITE.QUALITY_ORDER.length === 4 && ELITE.QUALITY_ORDER.join(',') === 'low,medium,high,ultra',
+    'hay cuatro perfiles gráficos reales');
+  ok(ELITE.qualityList().length === 4, 'la lista de calidad expone los cuatro perfiles');
+  ok(ELITE.setQuality('ultra') === 'ultra' && ELITE.profile().rank === 3,
+    'el perfil ultra aplica el mayor nivel de efectos');
+  ok(ELITE.setQuality('low') === 'low' && ELITE.profile().lights === false,
+    'el perfil bajo desactiva luces y reflejos');
+  ELITE.setQuality('high');
+  ok(ELITE.profile().rank === 2 && ELITE.qualityMode() === 'high',
+    'la calidad alta se conserva como ajuste manual');
+
+  // Degradación automática real por FPS sostenidos.
+  ELITE.setQuality('auto');
+  const auto0 = ELITE.quality();
+  let changed = [];
+  for (let i = 0; i < 320; i++) {
+    const q = ELITE.updatePerf(0.05); // 20 FPS simulados de forma sostenida
+    if (q) changed.push(q);
+  }
+  ok(auto0 === 'high', 'la detección automática elige un perfil válido', auto0);
+  ok(changed.length > 0,
+    'el monitor de FPS degrada la calidad cuando el rendimiento cae', changed.join(','));
+  ok(ELITE.perfInfo().drops > 0, 'el contador de degradaciones registra el cambio real');
+  ELITE.setQuality('high');
+
+  // Cámara cinematográfica.
+  const cam = ELITE.newCamera();
+  ELITE.updateCamera(cam, 1 / 60, { vy: 500, speed: 300, quality: 1, enabled: true });
+  ok(cam.y > 0, 'la cámara sigue la velocidad vertical del ave', cam.y);
+  const camCalls = [];
+  const fakeCtx = {
+    translate: (x, y) => camCalls.push(['translate', x, y]),
+    rotate: a => camCalls.push(['rotate', a]),
+    scale: (x, y) => camCalls.push(['scale', x, y])
+  };
+  ELITE.applyCamera(fakeCtx, cam, 800, 600);
+  ok(camCalls.length >= 2, 'la cámara se aplica sobre el contexto real de dibujo');
+  const camOff = ELITE.newCamera();
+  camOff.enabled = false;
+  const before = camCalls.length;
+  ELITE.applyCamera(fakeCtx, camOff, 800, 600);
+  ok(camCalls.length === before, 'la cámara desactivada no transforma el dibujo');
+
+  // IA de enemigos con estados reales.
+  const foe = { x: 300, y: 200, r: 15, type: 'bat', baseY: 200, speed: 110 };
+  ELITE.initEnemyAI(foe, 0.3);
+  const bd = { x: 400, y: 260, r: 15, dead: false };
+  let sawTelegraph = false, sawDive = false;
+  for (let i = 0; i < 120; i++) {
+    ELITE.updateEnemyAI(foe, 1 / 30, { bird: bd, H: 600, groundH: 80, t: i / 30 });
+    if (foe.ai && foe.ai.state === 'telegraph') sawTelegraph = true;
+    if (foe.ai && foe.ai.state === 'dive') sawDive = true;
+    if (ELITE.aiTelegraphing(foe)) sawTelegraph = true;
+  }
+  ok(sawTelegraph, 'un murciélago telegrafía antes de picar');
+  ok(sawDive, 'el murciélago ejecuta la picada de la IA');
+  ok(ELITE.AI_STATES.indexOf(foe.ai.state) !== -1, 'la IA permanece en un estado válido', foe.ai.state);
+
+  // Habilidades activas y recarga.
+  ELITE.startRun({ mapId: 'day', mode: 'free' });
+  ok(ELITE.abilityInfo().length === 3 && ELITE.abilityInfo().every(a => a.ready), 'las tres habilidades arrancan cargadas');
+  const u1 = ELITE.useAbility('dash');
+  ok(u1.ok && u1.dur > 0, 'el impulso se activa de verdad');
+  ok(ELITE.useAbility('dash').ok === false, 'una habilidad en recarga no se puede repetir');
+  ok(ELITE.abilityInfo().filter(a => a.id === 'dash')[0].ready === false, 'el HUD refleja la recarga real');
+  ELITE.chargeAbility(99);
+  ok(ELITE.abilityInfo().every(a => a.ready), 'recargar reduce de verdad los tiempos de espera');
+  const warp = ELITE.useAbility('warp');
+  ok(warp.ok && warp.dur === 2.4, 'la distorsión dura 2,4 s');
+
+  // Pasos perfectos, compuertas, reliquias y barreras.
+  ELITE.startRun({ mapId: 'day', mode: 'free' });
+  const perfect = ELITE.onPipe({ scoreAdded: 1, gapHalf: 50, distToCenter: 2 });
+  ok(perfect.perfect && perfect.combo === 1 && perfect.bonus > 0, 'el centro exacto del hueco da un paso perfecto');
+  const nearMiss = ELITE.onPipe({ scoreAdded: 1, gapHalf: 50, distToCenter: 45 });
+  ok(nearMiss.perfect === false, 'pasar por el borde del hueco no cuenta como perfecto');
+  const gate = ELITE.onGate(1, 40);
+  ok(gate.ok && gate.perfect && gate.charge > 0, 'cruzar el centro de una compuerta recarga habilidades');
+  const relic = ELITE.onRelic();
+  ok(relic.ok && relic.ability && relic.bonus > 0, 'la reliquia mejora una habilidad real');
+  const broken = ELITE.onBarrierBroken();
+  ok(broken > 0, 'romper una barrera devuelve puntos reales');
+  const r1 = ELITE.activeRun();
+  ok(r1.perfects >= 2 && r1.gates === 1 && r1.relics === 1 && r1.barriers === 1,
+    'el estado del vuelo contabiliza cada mecánica');
+
+  // Eventos dinámicos anunciados y cerrados.
+  ELITE.startRun({ mapId: 'day', mode: 'free' });
+  const live = ELITE.activeRun();
+  live.nextEventAt = 0;
+  const start = ELITE.tick(1 / 60, { distance: 120, score: 10 });
+  ok(!!start.started && ELITE.event() && ELITE.eventActive(start.started.id),
+    'un evento dinámico se inicia y queda anunciado', start.started && start.started.name);
+  const evDur = ELITE.event().total;
+  const end = ELITE.tick(evDur + 0.1, { distance: 160, score: 20 });
+  ok(!!end.ended && ELITE.event() === null, 'el evento termina y libera el estado');
+  ok(live.eventsSeen === 1 && live.events.length === 1, 'el evento sobrevivido queda registrado');
+
+  // Rangos y puntos de élite.
+  ok(ELITE.rankFor(0).id === 'D' && ELITE.rankFor(200).id === 'B' && ELITE.rankFor(999).id === 'S',
+    'los rangos S/A/B/C/D se calculan por puntos reales');
+  const pts = ELITE.runPoints({ score: 100, perfects: 2, gates: 1, relics: 1, maxCombo: 4, events: 1, barriers: 1, abilities: 2 });
+  ok(pts > 100, 'los puntos de élite suman todas las hazañas', pts);
+  const finished = ELITE.finishRun();
+  ok(finished && finished.rank && finished.points > 0 && finished.points === ELITE.runPoints(finished),
+    'cerrar el vuelo devuelve rango y puntos coherentes', finished && finished.points);
+  ok(ELITE.getLastResult() === finished && ELITE.activeRun() === null, 'el resultado final queda disponible');
+
+  // Contratos diarios deterministas + reclamo con recompensa real.
+  SAVE.reset(); SAVE.load();
+  const c1 = ELITE.contractsFor('2026-01-05');
+  const c2 = ELITE.contractsFor('2026-01-05');
+  ok(c1.length === 3 && c1.every(c => c.target > 0 && c.reward > 0 && c.text),
+    'hay tres contratos diarios con objetivo y recompensa');
+  ok(JSON.stringify(c1) === JSON.stringify(c2), 'los contratos del mismo día son deterministas');
+  const sv = SAVE.get();
+  const today = ELITE.contracts(sv);
+  const target = today[0];
+  sv.elite.contracts.progress[target.id] = target.target;
+  const list2 = ELITE.contracts(sv);
+  ok(list2[0].done === true, 'el progreso guardado completa el contrato');
+  let granted = null;
+  const gotC = ELITE.claimContract(sv, target.id, (coins, xp) => { granted = { coins: coins, xp: xp }; });
+  ok(gotC && granted && granted.coins === target.reward && granted.xp === target.xp,
+    'reclamar un contrato entrega monedas y XP reales');
+  ok(ELITE.claimContract(sv, target.id, () => { }) === null, 'un contrato no se puede reclamar dos veces');
+  ok(sv.elite.codex.indexOf('contract') !== -1, 'reclamar un contrato descubre su entrada del códice');
+
+  // Registro del vuelo: totales, rango récord, códice y cosméticos.
+  SAVE.reset(); SAVE.load();
+  const sr = SAVE.get();
+  const rec1 = ELITE.recordRun(sr, {
+    score: 120, distance: 400, perfects: 3, gates: 2, relics: 1, barriers: 2,
+    events: 1, abilities: 3, maxCombo: 6, points: 600
+  });
+  ok(sr.elite.runs === 1 && sr.elite.bestPoints === 600 && sr.elite.bestRank === 'S',
+    'el registro guarda mejor rango y puntos', sr.elite.bestRank);
+  ok(rec1.isNewBest === true && sr.elite.totals.perfects === 3, 'el récord y los totales se actualizan');
+  ok(sr.elite.codex.indexOf('rank') !== -1 && sr.elite.cosmetics.length > 0,
+    'el códice y los cosméticos se desbloquean con el rango');
+  const rec2 = ELITE.recordRun(sr, { score: 20, distance: 60, points: 40 });
+  ok(rec2.isNewBest === false && sr.elite.runs === 2, 'un vuelo peor no borra el récord');
+
+  // Postal PNG real sobre un canvas simulado que cuenta las llamadas.
+  let drawn = 0;
+  const postalCtx = {
+    createLinearGradient: () => ({ addColorStop() { } }),
+    fillRect() { drawn++; }, strokeRect() { drawn++; }, fillText() { drawn++; },
+    beginPath() { }, arc() { }, fill() { }, save() { }, restore() { },
+    moveTo() { }, lineTo() { }, stroke() { }, closePath() { }
+  };
+  ELITE.drawPostal(postalCtx, 720, 960, { score: 120, dist: 400, maxCombo: 6, elite: Object.assign({}, sr.elite.lastRun, { rank: ELITE.rankFor(600) }) });
+  ok(drawn > 10, 'la postal se dibuja con textos y datos reales', drawn);
+
+  // Integración con el juego: spawns, habilidades y ajustes.
+  SAVE.reset(); SAVE.load();
+  G.setMode('free'); G.startPlay('free');
+  ok(!!T.getEliteRun(), 'empezar una partida inicia el estado de élite');
+  ok(G.getElite().quality === 'high', 'la partida usa la calidad guardada');
+  G.setGraphics('ultra');
+  ok(G.getElite().quality === 'ultra', 'cambiar la calidad afecta al juego en marcha');
+  G.setGraphics('high');
+  G.setCamera('off');
+  ok(G.getElite().camera && G.getElite().camera.enabled === false, 'la cámara se puede desactivar');
+  G.setCamera('auto');
+  T.spawnGate(); T.spawnBarrier(); T.spawnRelic(); T.spawnZone();
+  const ez = T.elite();
+  ok(ez.gates.length + ez.barriers.length + ez.relics.length + ez.zones.length > 0,
+    'el juego genera compuertas, barreras, reliquias y corrientes reales');
+  const spd0 = G.getElite().camera.enabled;
+  ok(typeof spd0 === 'boolean', 'la cámara activa informa su estado real');
+  const dashOk = G.useAbility('dash');
+  ok(dashOk === true && T.elite().ability.dashUntil > T.getT(), 'la habilidad se activa desde el juego y modifica el mundo');
+  ok(T.getEliteRun().abilitiesUsed >= 1, 'usar una habilidad queda registrado en el vuelo');
+  ok(G.getElite().cosmetic === null || G.getElite().cosmetic === undefined || typeof G.getElite().cosmetic === 'string',
+    'el cosmético equipado se resuelve sin errores');
+
+  // Persistencia real del códice y de los ajustes nuevos.
+  ELITE.discoverPersistent(SAVE.get(), 'postal');
+  SAVE.setSetting('volA', 0.5);
+  SAVE.setSetting('cam', 'cine');
+  SAVE.save();
+  SAVE.load();
+  ok(SAVE.get().elite.codex.indexOf('postal') !== -1, 'el códice sobrevive a guardar y cargar');
+  ok(near(SAVE.get().set.volA, 0.5, 0.001) && SAVE.get().set.cam === 'cine',
+    'el volumen ambiental y el modo de cámara se guardan');
+  ok(SAVE.defaults().set.volA === 1 && SAVE.defaults().set.cam === 'auto',
+    'los ajustes nuevos tienen valores por defecto válidos');
 }
 
 /* ---------------- Resumen ---------------- */
