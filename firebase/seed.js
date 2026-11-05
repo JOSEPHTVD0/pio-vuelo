@@ -140,6 +140,81 @@ function catalogDocs(db, type, list) {
   });
 }
 
+/* Clave canónica de nombre: la misma que usan js/save.js y js/cloud.js. */
+function nameKey(name) {
+  const nm = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
+  if (!nm) return '';
+  let key = nm;
+  try { key = nm.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) { key = nm; }
+  key = key.toLowerCase().replace(/\s+/g, ' ').trim();
+  return 'n_' + encodeURIComponent(key);
+}
+
+/* Reserva los nombres de los jugadores que ya existen en el ranking.
+   No pisa reservas hechas después: si el documento ya existe, se respeta.
+   Si dos cuentas comparten nombre, conserva la de más puntos. */
+async function seedNames(db) {
+  const byUid = new Map();
+  /* Tableros reales del juego (js/cloud.js). Los padres pueden no existir
+     como documentos, así que no basta con listar la colección. */
+  const boardIds = ['global', 'xp', 'coins', 'wins', 'challenges'];
+  const listed = await db.collection('leaderboards').get();
+  listed.docs.forEach(function (doc) {
+    if (boardIds.indexOf(doc.id) === -1) boardIds.push(doc.id);
+  });
+  for (const boardId of boardIds) {
+    const snap = await db.collection('leaderboards').doc(boardId).collection('entries').get();
+    snap.forEach(function (doc) {
+      const d = doc.data() || {};
+      const uid = String(d.uid || doc.id || '');
+      const name = String(d.name || '').replace(/\s+/g, ' ').trim();
+      if (!uid || name.length < 2 || name.length > 16) return;
+      const at = (d.updatedAt && d.updatedAt.toMillis) ? d.updatedAt.toMillis() : 0;
+      const prev = byUid.get(uid);
+      if (!prev || at >= prev.at) {
+        byUid.set(uid, { uid: uid, name: name, at: at, best: Number(d.best) || 0 });
+      }
+    });
+  }
+
+  const owners = new Map();
+  const conflicts = [];
+  Array.from(byUid.values()).sort(function (a, b) {
+    return (b.best - a.best) || (a.at - b.at) || a.uid.localeCompare(b.uid);
+  }).forEach(function (p) {
+    const key = nameKey(p.name);
+    if (!key) return;
+    if (owners.has(key)) { conflicts.push({ key: key, loser: p, winner: owners.get(key) }); return; }
+    owners.set(key, p);
+  });
+
+  let created = 0;
+  let kept = 0;
+  for (const entry of owners) {
+    const ref = db.collection('names').doc(entry[0]);
+    const snap = await ref.get();
+    if (snap.exists) { kept++; continue; }
+    const p = entry[1];
+    await ref.set({
+      key: entry[0],
+      name: p.name,
+      uid: p.uid,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    created++;
+  }
+
+  console.log('  names: ' + created + ' reservados, ' + kept + ' ya existían');
+  if (conflicts.length) {
+    console.log('  nombres duplicados en el ranking: ' + conflicts.length +
+      ' (se conserva el jugador con más puntos)');
+    conflicts.slice(0, 10).forEach(function (c) {
+      console.log('    · "' + c.loser.name + '" (' + c.loser.uid + ') ya es de ' + c.winner.uid);
+    });
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Datos                                                               */
 /* ------------------------------------------------------------------ */
@@ -232,7 +307,7 @@ async function main() {
   /* 1. Configuración de la app */
   await db.collection('config').doc('app').set({
     app: 'pio-vuelo',
-    version: '3.1',
+    version: '3.4',
     schema: 1,
     minVersion: '2.5.0',
     maintenance: false,
@@ -326,6 +401,9 @@ async function main() {
     await rtdb.ref().update(updates);
     console.log('  ranking demo: ' + entries.length + ' (Firestore + RTDB)');
   }
+
+  /* 6. Nombres únicos globales de los jugadores existentes */
+  await seedNames(db);
 
   console.log('');
   console.log('Listo. Catálogo: ' + totalCatalog + ' documentos.');

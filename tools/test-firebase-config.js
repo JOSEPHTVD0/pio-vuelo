@@ -83,6 +83,7 @@ const firestoreRules = read('firestore.rules');
 [
   'players/{uid}',
   'players/{uid}/runs/{runId}',
+  'names/{key}',
   'leaderboards/{boardId}/entries/{uid}',
   'catalog/{type}/items/{itemId}',
   'seasons/{seasonKey}',
@@ -130,6 +131,9 @@ ok(syntax('js/firebase-config.js'), 'js/firebase-config.js compila');
 ok(syntax('js/cloud.js'), 'js/cloud.js compila');
 ok(syntax('firebase/seed.js'), 'firebase/seed.js compila');
 ok(syntax('js/ui.js'), 'js/ui.js compila');
+ok(syntax('js/save.js'), 'js/save.js compila');
+ok(syntax('js/game.js'), 'js/game.js compila');
+ok(syntax('js/expansion-ui.js'), 'js/expansion-ui.js compila');
 
 const configText = read('js/firebase-config.js');
 const cloudEnabled = /enabled:\s*true/.test(configText);
@@ -147,6 +151,15 @@ const cloudText = read('js/cloud.js');
 ok(cloudText.indexOf('signInAnonymously') !== -1, 'usa autenticación anónima');
 ok(cloudText.indexOf('QUEUE_KEY') !== -1, 'tiene cola local para vuelos offline');
 ok(cloudText.indexOf('SAVE.endRun') !== -1 || cloudText.indexOf('S.endRun') !== -1, 'engancha el fin de vuelo');
+ok(cloudText.indexOf('function claimName') !== -1 && cloudText.indexOf('runTransaction') !== -1,
+  'reserva los nombres con una transacción real');
+ok(cloudText.indexOf('nameconflict') !== -1, 'avisa a la interfaz si el nombre ya estaba ocupado');
+ok(read('js/save.js').indexOf('function checkName') !== -1, 'el guardado valida los nombres antes de la nube');
+ok(firestoreRules.indexOf('match /names/{key}') !== -1, 'las reglas protegen la colección de nombres');
+ok(firestoreRules.indexOf('request.resource.data.uid == request.auth.uid') !== -1,
+  'cada jugador solo puede reservar un nombre a su propio UID');
+ok(read('index.html').indexOf('id="homeCoinChip"') !== -1, 'la moneda del inicio abre el panel de administración');
+ok(read('index.html').indexOf('293031') !== -1, 'el panel usa la clave solicitada');
 
 /* ---------- Integración en la app ---------- */
 console.log('\nIntegración');

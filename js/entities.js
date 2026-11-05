@@ -715,33 +715,408 @@ window.ENTS = (function () {
     ctx.restore();
   }
 
-  /* ============ MASCOTA (cosmética) ============ */
-  function drawPet(ctx, pet, x, y, t, level) {
+  /* ============ MASCOTA (cosmética, arte vectorial animado) ============ */
+  // Cada especie se dibuja con formas reales y se mueve con el tiempo: alas,
+  // cola, orejas, parpadeo y respiración. Nada de PNG ni emoji estático.
+
+  function petEye(ctx, ex, ey, r, open) {
+    ctx.fillStyle = '#2b1b12';
+    if (open < 0.35) {
+      ctx.fillRect(ex - r, ey - r * 0.22, r * 2, Math.max(1.2, r * 0.44));
+      return;
+    }
+    ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.beginPath(); ctx.arc(ex - r * 0.32, ey - r * 0.36, r * 0.34, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function petStar(ctx, outer, inner) {
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 5;
+      const rr = i % 2 ? inner : outer;
+      if (i === 0) ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      else ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+    ctx.closePath();
+  }
+
+  function drawChickPet(ctx, t, ph, blink) {
+    const flap = Math.sin(t * 12 + ph);
+    // patitas
+    ctx.strokeStyle = '#ef6c00'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-4, 9); ctx.lineTo(-6, 13); ctx.moveTo(4, 9); ctx.lineTo(6, 13); ctx.stroke();
+    // alitas
+    ctx.fillStyle = '#ffb300';
+    ctx.save(); ctx.translate(-8, 1); ctx.rotate(-0.35 + flap * 0.5);
+    ctx.beginPath(); ctx.ellipse(0, 0, 4.6, 7, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(8, 1); ctx.rotate(0.35 - flap * 0.5);
+    ctx.beginPath(); ctx.ellipse(0, 0, 4.6, 7, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    // cuerpo
+    ctx.fillStyle = '#ffd54f';
+    ctx.beginPath(); ctx.ellipse(0, 2, 10, 8.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff3c4';
+    ctx.beginPath(); ctx.ellipse(0, 4.5, 6.2, 5.2, 0, 0, Math.PI * 2); ctx.fill();
+    // cabeza
+    ctx.fillStyle = '#ffd54f';
+    ctx.beginPath(); ctx.arc(0, -6.5, 7.6, 0, Math.PI * 2); ctx.fill();
+    // plumita
+    ctx.strokeStyle = '#ffb300'; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(0, -13.5); ctx.quadraticCurveTo(2.5, -16, 0.5, -17.5); ctx.stroke();
+    // pico
+    ctx.fillStyle = '#ff8f00';
+    ctx.beginPath(); ctx.moveTo(-2.2, -5.2); ctx.lineTo(2.2, -5.2); ctx.lineTo(0, -2.4); ctx.closePath(); ctx.fill();
+    petEye(ctx, -3.1, -7.5, 1.55, blink);
+    petEye(ctx, 3.1, -7.5, 1.55, blink);
+    // mejillas
+    ctx.fillStyle = 'rgba(255,112,67,.45)';
+    ctx.beginPath(); ctx.arc(-5, -4.4, 1.7, 0, Math.PI * 2); ctx.arc(5, -4.4, 1.7, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawCatPet(ctx, t, ph, blink) {
+    const sway = Math.sin(t * 3.1 + ph);
+    const twitch = Math.sin(t * 7.3 + ph) * 0.18;
+    // cola
+    ctx.strokeStyle = '#ffb74d'; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(7, 5);
+    ctx.quadraticCurveTo(17 + sway * 2, 6 + sway * 4, 14 + sway * 3, -7 + sway * 2); ctx.stroke();
+    ctx.strokeStyle = '#ffa726'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(14 + sway * 3, -7 + sway * 2); ctx.lineTo(15 + sway * 3, -10 + sway * 2); ctx.stroke();
+    // cuerpo
+    ctx.fillStyle = '#ffb74d';
+    ctx.beginPath(); ctx.ellipse(0, 3, 9.4, 8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffe0b2';
+    ctx.beginPath(); ctx.ellipse(0, 5, 5.6, 5.2, 0, 0, Math.PI * 2); ctx.fill();
+    // cabeza
+    ctx.fillStyle = '#ffb74d';
+    ctx.beginPath(); ctx.arc(0, -6, 7.4, 0, Math.PI * 2); ctx.fill();
+    // orejas
+    ctx.fillStyle = '#ffb74d';
+    ctx.save(); ctx.translate(-5.2, -11.4); ctx.rotate(-0.18 + twitch);
+    ctx.beginPath(); ctx.moveTo(-3.6, 2.4); ctx.lineTo(0, -5.4); ctx.lineTo(3.6, 2.4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ff8a80'; ctx.beginPath(); ctx.moveTo(-1.9, 1.2); ctx.lineTo(0, -2.9); ctx.lineTo(1.9, 1.2); ctx.closePath(); ctx.fill(); ctx.restore();
+    ctx.fillStyle = '#ffb74d';
+    ctx.save(); ctx.translate(5.2, -11.4); ctx.rotate(0.18 - twitch);
+    ctx.beginPath(); ctx.moveTo(-3.6, 2.4); ctx.lineTo(0, -5.4); ctx.lineTo(3.6, 2.4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ff8a80'; ctx.beginPath(); ctx.moveTo(-1.9, 1.2); ctx.lineTo(0, -2.9); ctx.lineTo(1.9, 1.2); ctx.closePath(); ctx.fill(); ctx.restore();
+    // ojos y hocico
+    petEye(ctx, -2.9, -6.8, 1.65, blink);
+    petEye(ctx, 2.9, -6.8, 1.65, blink);
+    ctx.fillStyle = '#ef6c00';
+    ctx.beginPath(); ctx.moveTo(-1.5, -3.9); ctx.lineTo(1.5, -3.9); ctx.lineTo(0, -2.4); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(-1, -2.9); ctx.quadraticCurveTo(-3.4, -1.9, -4.6, -2.5);
+    ctx.moveTo(1, -2.9); ctx.quadraticCurveTo(3.4, -1.9, 4.6, -2.5); ctx.stroke();
+  }
+
+  function drawFoxPet(ctx, t, ph, blink) {
+    const sway = Math.sin(t * 2.4 + ph);
+    // cola tupida
+    ctx.fillStyle = '#ff7043';
+    ctx.beginPath(); ctx.moveTo(6, 5);
+    ctx.quadraticCurveTo(16, 4 + sway * 2, 17, -6 + sway * 3);
+    ctx.quadraticCurveTo(20, -10 + sway * 3, 15, -11 + sway * 2);
+    ctx.quadraticCurveTo(13, -5 + sway * 2, 9, 1); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fff8e1';
+    ctx.beginPath(); ctx.moveTo(15, -11 + sway * 2); ctx.quadraticCurveTo(20, -10 + sway * 3, 17, -6 + sway * 3);
+    ctx.quadraticCurveTo(16.5, -8.5 + sway * 2, 15, -11 + sway * 2); ctx.closePath(); ctx.fill();
+    // cuerpo
+    ctx.fillStyle = '#ff7043';
+    ctx.beginPath(); ctx.ellipse(0, 3, 8.6, 7.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff8e1';
+    ctx.beginPath(); ctx.ellipse(0, 5.2, 4.8, 4.4, 0, 0, Math.PI * 2); ctx.fill();
+    // patas
+    ctx.fillStyle = '#3e2723';
+    ctx.beginPath(); ctx.ellipse(-4.5, 10, 2.2, 1.5, 0, 0, Math.PI * 2); ctx.ellipse(4.5, 10, 2.2, 1.5, 0, 0, Math.PI * 2); ctx.fill();
+    // cabeza + orejas
+    ctx.fillStyle = '#ff7043';
+    ctx.beginPath(); ctx.arc(0, -6, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-6.4, -9.5); ctx.lineTo(-4.2, -17); ctx.lineTo(-1.2, -11.4); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(6.4, -9.5); ctx.lineTo(4.2, -17); ctx.lineTo(1.2, -11.4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#3e2723';
+    ctx.beginPath(); ctx.moveTo(-5.7, -10.2); ctx.lineTo(-4.4, -14.6); ctx.lineTo(-2.6, -11.2); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(5.7, -10.2); ctx.lineTo(4.4, -14.6); ctx.lineTo(2.6, -11.2); ctx.closePath(); ctx.fill();
+    // hocico blanco
+    ctx.fillStyle = '#fff8e1';
+    ctx.beginPath(); ctx.ellipse(0, -3.4, 4.4, 3.4, 0, 0, Math.PI * 2); ctx.fill();
+    petEye(ctx, -2.6, -7, 1.5, blink);
+    petEye(ctx, 2.6, -7, 1.5, blink);
+    ctx.fillStyle = '#3e2723';
+    ctx.beginPath(); ctx.arc(0, -3.2, 1.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawTurtlePet(ctx, t, ph, blink) {
+    const paddle = Math.sin(t * 5 + ph);
+    const stretch = 0.5 + 0.5 * Math.sin(t * 2.1 + ph);
+    // aletas
+    ctx.fillStyle = '#81c784';
+    ctx.save(); ctx.translate(-8, 3); ctx.rotate(-0.5 + paddle * 0.45);
+    ctx.beginPath(); ctx.ellipse(0, 0, 4.6, 2.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(8, 3); ctx.rotate(0.5 - paddle * 0.45);
+    ctx.beginPath(); ctx.ellipse(0, 0, 4.6, 2.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(-5.5, 9); ctx.rotate(0.3 - paddle * 0.25);
+    ctx.beginPath(); ctx.ellipse(0, 0, 3.6, 1.9, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(5.5, 9); ctx.rotate(-0.3 + paddle * 0.25);
+    ctx.beginPath(); ctx.ellipse(0, 0, 3.6, 1.9, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    // caparazón
+    ctx.fillStyle = '#2e7d32';
+    ctx.beginPath(); ctx.ellipse(0, 2, 9.6, 8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#66bb6a';
+    ctx.beginPath(); ctx.ellipse(0, 1, 7.6, 6.4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(27,94,32,.75)'; ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.ellipse(0, 1, 5.2, 4.4, 0, 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3 + 0.3;
+      ctx.beginPath(); ctx.moveTo(Math.cos(a) * 2.6, 1 + Math.sin(a) * 2.2);
+      ctx.lineTo(Math.cos(a) * 7.2, 1 + Math.sin(a) * 6.1); ctx.stroke();
+    }
+    // cabeza asomando
+    const hy = -6 - stretch * 2.4;
+    ctx.fillStyle = '#a5d6a7';
+    ctx.beginPath(); ctx.ellipse(0, hy, 4.2, 3.8, 0, 0, Math.PI * 2); ctx.fill();
+    petEye(ctx, -1.6, hy - 0.6, 1.15, blink);
+    petEye(ctx, 1.6, hy - 0.6, 1.15, blink);
+    ctx.strokeStyle = '#2e7d32'; ctx.lineWidth = 0.9;
+    ctx.beginPath(); ctx.arc(0, hy + 1.2, 1.2, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+  }
+
+  function drawBatPet(ctx, t, ph, blink) {
+    const flap = Math.sin(t * 10 + ph);
+    // alas
+    ctx.fillStyle = '#7e57c2';
+    ctx.save(); ctx.translate(-3, 0); ctx.rotate(flap * 0.35);
+    ctx.beginPath(); ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(-9, -7 - flap * 4, -15, -1 - flap * 2);
+    ctx.quadraticCurveTo(-11, 0, -12, 4 + flap * 2);
+    ctx.quadraticCurveTo(-7, 2, 0, 5); ctx.closePath(); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(3, 0); ctx.rotate(-flap * 0.35);
+    ctx.beginPath(); ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(9, -7 - flap * 4, 15, -1 - flap * 2);
+    ctx.quadraticCurveTo(11, 0, 12, 4 + flap * 2);
+    ctx.quadraticCurveTo(7, 2, 0, 5); ctx.closePath(); ctx.fill(); ctx.restore();
+    // cuerpo
+    ctx.fillStyle = '#5e35b1';
+    ctx.beginPath(); ctx.ellipse(0, 2, 5.8, 7, 0, 0, Math.PI * 2); ctx.fill();
+    // orejas
+    ctx.fillStyle = '#5e35b1';
+    ctx.beginPath(); ctx.moveTo(-4.6, -5); ctx.lineTo(-5.7, -12); ctx.lineTo(-1.2, -8); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(4.6, -5); ctx.lineTo(5.7, -12); ctx.lineTo(1.2, -8); ctx.closePath(); ctx.fill();
+    // ojos
+    ctx.fillStyle = '#ffe082';
+    ctx.beginPath(); ctx.arc(-2.1, -4.4, 1.4, 0, Math.PI * 2); ctx.arc(2.1, -4.4, 1.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#2b1b12';
+    ctx.beginPath(); ctx.arc(-2.1, -4.4, 0.62, 0, Math.PI * 2); ctx.arc(2.1, -4.4, 0.62, 0, Math.PI * 2); ctx.fill();
+    // colmillos
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.moveTo(-1.7, 2.6); ctx.lineTo(-0.9, 4.3); ctx.lineTo(0, 2.6); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(1.7, 2.6); ctx.lineTo(0.9, 4.3); ctx.lineTo(0, 2.6); ctx.closePath(); ctx.fill();
+  }
+
+  function drawDragonPet(ctx, t, ph, blink) {
+    const flap = Math.sin(t * 6 + ph);
+    const sway = Math.sin(t * 2.8 + ph);
+    // cola
+    ctx.strokeStyle = '#26a69a'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(6, 6);
+    ctx.quadraticCurveTo(14, 9 + sway * 2, 17, 3 + sway * 3); ctx.stroke();
+    ctx.fillStyle = '#ffd54f';
+    ctx.beginPath(); ctx.moveTo(17, 3 + sway * 3); ctx.lineTo(21, 0 + sway * 3); ctx.lineTo(18, 6 + sway * 3); ctx.closePath(); ctx.fill();
+    // alas
+    ctx.fillStyle = 'rgba(0,150,136,.9)';
+    ctx.save(); ctx.translate(-4, -2); ctx.rotate(-0.15 + flap * 0.28);
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(-8, -8, -13, -2);
+    ctx.quadraticCurveTo(-9, 1, -10, 5); ctx.quadraticCurveTo(-5, 3, 0, 4); ctx.closePath(); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(4, -2); ctx.rotate(0.15 - flap * 0.28);
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(8, -8, 13, -2);
+    ctx.quadraticCurveTo(9, 1, 10, 5); ctx.quadraticCurveTo(5, 3, 0, 4); ctx.closePath(); ctx.fill(); ctx.restore();
+    // cuerpo
+    ctx.fillStyle = '#26a69a';
+    ctx.beginPath(); ctx.ellipse(0, 2, 8.2, 8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#b2dfdb';
+    ctx.beginPath(); ctx.ellipse(0, 4.4, 4.8, 4.8, 0, 0, Math.PI * 2); ctx.fill();
+    // cabeza
+    ctx.fillStyle = '#26a69a';
+    ctx.beginPath(); ctx.arc(0, -7, 6.8, 0, Math.PI * 2); ctx.fill();
+    // cuernos
+    ctx.fillStyle = '#ffd54f';
+    ctx.beginPath(); ctx.moveTo(-4.6, -11.4); ctx.lineTo(-6.4, -16.4); ctx.lineTo(-2.2, -12.8); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(4.6, -11.4); ctx.lineTo(6.4, -16.4); ctx.lineTo(2.2, -12.8); ctx.closePath(); ctx.fill();
+    // hocico
+    ctx.fillStyle = '#80cbc4';
+    ctx.beginPath(); ctx.ellipse(0, -3.4, 3.8, 2.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#004d40';
+    ctx.beginPath(); ctx.arc(-1, -4.1, 0.55, 0, Math.PI * 2); ctx.arc(1, -4.1, 0.55, 0, Math.PI * 2); ctx.fill();
+    petEye(ctx, -2.5, -8, 1.35, blink);
+    petEye(ctx, 2.5, -8, 1.35, blink);
+    // llamita
+    const flick = Math.sin(t * 9 + ph) * 1.2;
+    ctx.fillStyle = 'rgba(255,112,67,.9)';
+    ctx.beginPath(); ctx.moveTo(5.5, -2.5); ctx.quadraticCurveTo(8 + flick, -3.5, 8 + flick, -6.5);
+    ctx.quadraticCurveTo(10, -3.2, 7, -1.4); ctx.closePath(); ctx.fill();
+  }
+
+  function drawStarPet(ctx, t, ph, blink) {
+    const pulse = 1 + Math.sin(t * 4.2 + ph) * 0.08;
+    ctx.save(); ctx.rotate(Math.sin(t * 1.4 + ph) * 0.16);
+    ctx.scale(pulse, pulse);
+    // halo
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#ffe082';
+    ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    // estrella
+    const grad = ctx.createLinearGradient(0, -13, 0, 13);
+    grad.addColorStop(0, '#fff59d'); grad.addColorStop(1, '#ffb300');
+    ctx.fillStyle = grad;
+    petStar(ctx, 10.5, 4.8); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,143,0,.55)'; ctx.lineWidth = 0.9; ctx.stroke();
+    // carita
+    petEye(ctx, -3, -1.4, 1.15, blink);
+    petEye(ctx, 3, -1.4, 1.15, blink);
+    ctx.strokeStyle = '#6d4c00'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0.6, 2.2, 0.12 * Math.PI, 0.88 * Math.PI); ctx.stroke();
+    ctx.restore();
+    // destellos girando
+    for (let i = 0; i < 3; i++) {
+      const a = t * 1.5 + i * Math.PI * 2 / 3;
+      const rr = 13 + Math.sin(t * 3 + i) * 1.8;
+      ctx.globalAlpha = 0.5 + 0.4 * Math.sin(t * 5 + i);
+      ctx.fillStyle = '#fff9c4';
+      ctx.beginPath(); ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, 1.35, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawGhostPet(ctx, t, ph, blink) {
+    const float = Math.sin(t * 2.2 + ph);
+    const wave = Math.sin(t * 3.4 + ph) * 1.2;
+    ctx.globalAlpha = 0.82;
+    const grad = ctx.createLinearGradient(0, -14, 0, 13);
+    grad.addColorStop(0, '#ede7f6'); grad.addColorStop(1, '#b39ddb');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(-8.5, 11);
+    ctx.quadraticCurveTo(-8.5 + wave, 15, -4, 12);
+    ctx.quadraticCurveTo(-1 + wave, 15.5, 2, 12);
+    ctx.quadraticCurveTo(5 - wave, 15, 8.5, 11);
+    ctx.lineTo(8.5, -3);
+    ctx.arc(0, -3, 8.5, 0, Math.PI, true);
+    ctx.closePath(); ctx.fill();
+    // bracitos
+    ctx.strokeStyle = '#d1c4e9'; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-8, 1); ctx.quadraticCurveTo(-12, 2 + float, -11, 5 + float); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(8, 1); ctx.quadraticCurveTo(12, 2 - float, 11, 5 - float); ctx.stroke();
+    // ojos y boca
+    petEye(ctx, -3, -4.6, 1.65, blink);
+    petEye(ctx, 3, -4.6, 1.65, blink);
+    ctx.fillStyle = '#5e35b1';
+    ctx.beginPath(); ctx.ellipse(0, 0.6, 1.8, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawPhoenixPet(ctx, t, ph, blink) {
+    const flap = Math.sin(t * 8 + ph);
+    const flick = Math.sin(t * 11 + ph);
+    // alas de fuego
+    for (let side = -1; side <= 1; side += 2) {
+      ctx.save(); ctx.translate(side * 5, -1); ctx.rotate(side * (0.2 + flap * 0.3));
+      const g = ctx.createLinearGradient(0, -6, 0, 8);
+      g.addColorStop(0, '#ffd54f'); g.addColorStop(0.55, '#ff7043'); g.addColorStop(1, 'rgba(255,87,34,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(side * 9, -9 - flap * 3, side * 13, -2 - flick);
+      ctx.quadraticCurveTo(side * 9, 2, side * 8, 7 + flick);
+      ctx.quadraticCurveTo(side * 4, 4, 0, 5); ctx.closePath(); ctx.fill(); ctx.restore();
+    }
+    // cola de fuego
+    const g2 = ctx.createLinearGradient(0, 4, 0, 17);
+    g2.addColorStop(0, '#ffb300'); g2.addColorStop(1, 'rgba(255,61,0,0)');
+    ctx.fillStyle = g2;
+    ctx.beginPath(); ctx.moveTo(-4, 6);
+    ctx.quadraticCurveTo(-2 + flick, 14, 0, 18);
+    ctx.quadraticCurveTo(2 - flick, 14, 4, 6); ctx.closePath(); ctx.fill();
+    // cuerpo
+    ctx.fillStyle = '#ff7043';
+    ctx.beginPath(); ctx.ellipse(0, 2, 7.4, 7.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffe082';
+    ctx.beginPath(); ctx.ellipse(0, 4.2, 3.8, 4, 0, 0, Math.PI * 2); ctx.fill();
+    // cabeza
+    ctx.fillStyle = '#ff8a65';
+    ctx.beginPath(); ctx.arc(0, -6.5, 6.4, 0, Math.PI * 2); ctx.fill();
+    // cresta
+    ctx.fillStyle = '#ffd54f';
+    ctx.beginPath(); ctx.moveTo(-2, -12); ctx.quadraticCurveTo(-1 + flick, -17, 2, -13.5);
+    ctx.quadraticCurveTo(1.5, -15.5, 4, -12.5); ctx.closePath(); ctx.fill();
+    // pico
+    ctx.fillStyle = '#ffca28';
+    ctx.beginPath(); ctx.moveTo(-1.8, -5.4); ctx.lineTo(1.8, -5.4); ctx.lineTo(0, -3); ctx.closePath(); ctx.fill();
+    petEye(ctx, -2.6, -7.4, 1.35, blink);
+    petEye(ctx, 2.6, -7.4, 1.35, blink);
+    // chispas
+    for (let i = 0; i < 4; i++) {
+      const a = t * 2.2 + i * 1.57;
+      ctx.globalAlpha = 0.35 + 0.35 * Math.sin(t * 7 + i);
+      ctx.fillStyle = i % 2 ? '#ffd54f' : '#ff8a65';
+      ctx.beginPath(); ctx.arc(Math.cos(a) * 12, Math.sin(a) * 10 - 2, 1.2, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawPet(ctx, pet, x, y, t, level, opts) {
+    opts = opts || {};
     const lv = Math.max(1, Math.min(5, Math.floor(level || 1)));
-    const size = 15 + lv * 1.6;
-    const bob = Math.sin(t * 3.4) * 3;
+    const phase = opts.phase || 0;
+    const scale = (opts.scale || (0.92 + lv * 0.055)) * (opts.size || 1);
+    const bob = opts.still ? 0 : Math.sin(t * 3.2 + phase) * (2.2 + lv * 0.25);
+    const blink = (Math.sin(t * 1.55 + phase * 1.7) + 1) / 2 > 0.975 ? 0.12 : 1;
+    const id = String(pet && pet.id || '');
+
     ctx.save();
     ctx.translate(x, y + bob);
-    // aura de nivel
-    ctx.globalAlpha = 0.18 + lv * 0.04;
-    ctx.fillStyle = pet.color || '#ffd54f';
-    ctx.beginPath(); ctx.arc(0, 0, size * (0.95 + 0.06 * Math.sin(t * 4)), 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.font = '900 ' + Math.round(size * 1.55) + 'px "Segoe UI Emoji", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(pet.icon || '🐥', 0, 0);
+    ctx.scale(scale, scale);
+
+    // aura de nivel (se nota más a partir del nivel 2)
+    if (!opts.noAura) {
+      ctx.globalAlpha = (opts.menu ? 0.10 : 0.16) + lv * 0.035;
+      ctx.fillStyle = (pet && pet.color) || '#ffd54f';
+      ctx.beginPath();
+      ctx.arc(0, 0, (16 + lv * 1.4) * (0.95 + 0.06 * Math.sin(t * 4 + phase)), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // sombra de contacto suave (solo en el juego)
+    if (!opts.menu) {
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.ellipse(0, 15, 10, 2.8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    if (id.indexOf('gato') !== -1) drawCatPet(ctx, t, phase, blink);
+    else if (id.indexOf('zorro') !== -1) drawFoxPet(ctx, t, phase, blink);
+    else if (id.indexOf('tortuga') !== -1) drawTurtlePet(ctx, t, phase, blink);
+    else if (id.indexOf('murci') !== -1) drawBatPet(ctx, t, phase, blink);
+    else if (id.indexOf('dragon') !== -1) drawDragonPet(ctx, t, phase, blink);
+    else if (id.indexOf('estrella') !== -1) drawStarPet(ctx, t, phase, blink);
+    else if (id.indexOf('fantasma') !== -1) drawGhostPet(ctx, t, phase, blink);
+    else if (id.indexOf('fenix') !== -1) drawPhoenixPet(ctx, t, phase, blink);
+    else drawChickPet(ctx, t, phase, blink);
+
     // destellos por nivel (2+)
     if (lv >= 2) {
-      ctx.fillStyle = pet.color || '#ffd54f';
-      for (let i = 0; i < Math.min(4, lv - 1); i++) {
-        const a = t * 1.8 + i * (Math.PI * 2 / Math.min(4, lv - 1));
+      const n = Math.min(4, lv - 1);
+      ctx.fillStyle = (pet && pet.color) || '#ffd54f';
+      for (let i = 0; i < n; i++) {
+        const a = t * 1.8 + i * (Math.PI * 2 / n) + phase;
         ctx.globalAlpha = 0.55 + 0.35 * Math.sin(t * 5 + i);
         ctx.beginPath();
-        ctx.arc(Math.cos(a) * size * 0.95, Math.sin(a) * size * 0.7, 1.8, 0, Math.PI * 2);
+        ctx.arc(Math.cos(a) * (14 + lv), Math.sin(a) * (11 + lv * 0.6), 1.5, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.globalAlpha = 1;
     }
+
     ctx.restore();
   }
 

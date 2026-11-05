@@ -68,6 +68,14 @@ window.APP = (function () {
     } else if (SAVE.lastSaveError && SAVE.lastSaveError()) {
       setTimeout(() => UI.toast('⚠️ El progreso no se está guardando en este dispositivo.', 'warning'), 1200);
     }
+    // La nube avisa si el nombre local ya estaba reservado por otro jugador.
+    window.addEventListener('piovuelo:nameconflict', (ev) => {
+      const d = (ev && ev.detail) || {};
+      setTimeout(() => {
+        UI.toast('⚠️ El nombre «' + (d.name || SAVE.getProfile().name) +
+          '» ya lo usa otro jugador. Cámbialo en Perfil.', 'warning');
+      }, 1400);
+    });
     const st = SAVE.get().set;
     SND.setSfx(st.sfx);
     SND.setMusic(st.music);
@@ -164,8 +172,8 @@ window.APP = (function () {
     }, { passive: true });
   }
 
-  /* --- Panel de administración (3 dedos + PIN) --- */
-  const ADMIN_PIN = '5102';
+  /* --- Panel de administración (3 dedos o clic en la moneda + PIN) --- */
+  const ADMIN_PIN = '293031';
   let adminUnlocked = false;
   let adminPausedGame = false;
 
@@ -203,6 +211,21 @@ window.APP = (function () {
   }
 
   function bindAdmin() {
+    // Acceso en PC (y también en móvil) tocando la moneda superior izquierda.
+    const coinChip = $('homeCoinChip');
+    if (coinChip) {
+      coinChip.onclick = (ev) => {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        openAdmin();
+      };
+      coinChip.onkeydown = (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+          ev.preventDefault();
+          openAdmin();
+        }
+      };
+    }
+
     $('adminUnlock').onclick = () => {
       const pin = ($('adminPin').value || '').trim();
       if (pin === ADMIN_PIN) {

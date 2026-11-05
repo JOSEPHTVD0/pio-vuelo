@@ -283,6 +283,12 @@ window.CLOUD = (function () {
       await syncProfile();
       await syncLeaderboard();
       await flushQueue();
+      // Registra el nombre actual si aún no estaba reservado. Si otro jugador
+      // lo ocupó antes, la interfaz puede avisar del conflicto.
+      try {
+        const nc = await claimName(localProfile().name);
+        if (nc && nc.taken) emit('nameconflict', { name: localProfile().name, owner: nc.owner });
+      } catch (e) { /* la nube es opcional */ }
       if (OPT.presence) startPresence();
       return status();
     })().catch(function (err) {
@@ -369,6 +375,96 @@ window.CLOUD = (function () {
     } catch (err) {
       warn('syncProfile:', err);
       return false;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Nombres únicos a nivel global                                        */
+  /* ------------------------------------------------------------------ */
+
+  function nameKey(name) {
+    if (window.SAVE && typeof window.SAVE.nameKey === 'function') return window.SAVE.nameKey(name);
+    const nm = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
+    if (!nm) return '';
+    let key = nm;
+    try { key = nm.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) { key = nm; }
+    key = key.toLowerCase().replace(/\s+/g, ' ').trim();
+    try { return 'n_' + encodeURIComponent(key); } catch (e) { return ''; }
+  }
+
+  /* Consulta si un nombre está libre. No reserva nada. */
+  async function checkName(name) {
+    if (!configured()) return { ok: true, available: true, local: true };
+    const key = nameKey(name);
+    if (!key) return { ok: false, available: false, msg: 'Nombre no válido.' };
+    try {
+      if (!state.ready) await init();
+      if (!state.ready || !db) return { ok: true, available: true, offline: true, key: key };
+      const snap = await M.fsMod.getDoc(M.fsMod.doc(db, 'names', key));
+      if (!snap.exists()) return { ok: true, available: true, key: key };
+      const d = snap.data() || {};
+      if (d.uid && d.uid !== state.uid) {
+        return { ok: false, available: false, taken: true, owner: String(d.name || ''), key: key };
+      }
+      return { ok: true, available: true, mine: true, key: key };
+    } catch (err) {
+      warn('checkName:', err);
+      return { ok: true, available: true, offline: true, error: String((err && err.message) || err), key: key };
+    }
+  }
+
+  /* Reserva el nombre de forma transaccional y libera el anterior del mismo
+     uid. Si otro jugador ya lo tiene, devuelve { ok:false, taken:true }. */
+  async function claimName(name) {
+    if (!configured()) return { ok: true, local: true };
+    const key = nameKey(name);
+    if (!key) return { ok: false, msg: 'Nombre no válido.' };
+    try {
+      if (!state.ready) await init();
+      if (!state.ready || !db || !state.uid) return { ok: true, offline: true, key: key };
+
+      const prev = localProfile();
+      const oldKey = prev && prev.name ? nameKey(prev.name) : '';
+      let taken = false;
+      let owner = '';
+
+      await M.fsMod.runTransaction(db, async function (tx) {
+        const newRef = M.fsMod.doc(db, 'names', key);
+        const oldRef = (oldKey && oldKey !== key) ? M.fsMod.doc(db, 'names', oldKey) : null;
+        const newSnap = await tx.get(newRef);
+        const oldSnap = oldRef ? await tx.get(oldRef) : null;
+
+        if (newSnap.exists()) {
+          const d = newSnap.data() || {};
+          if (d.uid && d.uid !== state.uid) {
+            taken = true;
+            owner = String(d.name || '');
+            return;
+          }
+          if (oldSnap && oldSnap.exists() && (oldSnap.data() || {}).uid === state.uid) tx.delete(oldRef);
+          tx.set(newRef, {
+            key: key, name: name, uid: state.uid,
+            createdAt: d.createdAt || M.fsMod.serverTimestamp(),
+            updatedAt: M.fsMod.serverTimestamp()
+          }, { merge: true });
+          return;
+        }
+
+        if (oldSnap && oldSnap.exists() && (oldSnap.data() || {}).uid === state.uid) tx.delete(oldRef);
+        tx.set(newRef, {
+          key: key, name: name, uid: state.uid,
+          createdAt: M.fsMod.serverTimestamp(),
+          updatedAt: M.fsMod.serverTimestamp()
+        });
+      });
+
+      if (taken) return { ok: false, taken: true, owner: owner, key: key };
+      return { ok: true, key: key };
+    } catch (err) {
+      // Sin red no se puede verificar: se permite el guardado local y la UI
+      // avisa de que la unicidad global se comprobará al reconectar.
+      warn('claimName:', err);
+      return { ok: true, offline: true, error: String((err && err.message) || err), key: key };
     }
   }
 
@@ -861,6 +957,9 @@ window.CLOUD = (function () {
     status: status,
     syncProfile: syncProfile,
     syncLeaderboard: syncLeaderboard,
+    checkName: checkName,
+    claimName: claimName,
+    nameKey: nameKey,
     submitRun: submitRun,
     flushQueue: flushQueue,
     leaderboard: leaderboard,

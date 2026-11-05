@@ -6,6 +6,7 @@ rules_version = '2';
    Modelo:
      players/{uid}                         perfil y resumen de progreso (privado)
      players/{uid}/runs/{runId}            historial de vuelos (privado, inmutable)
+     names/{claveNormalizada}              reserva global de nombres (único por clave)
      leaderboards/{boardId}/entries/{uid}  ranking público (solo tu entrada)
      catalog/{type}/items/{itemId}         catálogo del juego (solo lectura)
      seasons/{seasonKey}                   pase y recompensas (solo lectura)
@@ -121,6 +122,33 @@ service cloud.firestore {
           && request.resource.data.createdAt == request.time
           && (!('verified' in request.resource.data) || request.resource.data.verified is bool);
       }
+    }
+
+    /* ---------- Nombres únicos globales ----------
+       Cada nombre ocupa un documento names/{clave}. El cliente lo reserva en
+       una transacción: si el documento existe con otro uid, el nombre está
+       ocupado. Solo puedes crear una reserva a tu propio uid; el update y el
+       delete también son solo del dueño. Los nombres de jugadores que ya
+       existían se siembran con el Admin SDK (firebase/seed.js), que no pasa
+       por estas reglas. */
+    match /names/{key} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['key', 'name', 'uid', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['key', 'name', 'uid', 'createdAt', 'updatedAt'])
+        && request.resource.data.key == key
+        && validName(request.resource.data.name)
+        && request.resource.data.uid == request.auth.uid;
+
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.keys().hasOnly(['key', 'name', 'uid', 'createdAt', 'updatedAt'])
+        && request.resource.data.key == key
+        && validName(request.resource.data.name);
+
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
     /* ---------- Ranking público ---------- */

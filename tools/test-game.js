@@ -32,6 +32,7 @@ function makeCtx() {
     save() { }, restore() { }, setTransform() { }, resetTransform() { },
     clearRect() { }, fillRect() { }, strokeRect() { }, translate() { }, scale() { }, rotate() { },
     beginPath() { }, closePath() { }, moveTo() { }, lineTo() { }, arc() { }, arcTo() { }, ellipse() { }, rect() { },
+    quadraticCurveTo() { }, bezierCurveTo() { },
     fill() { }, stroke() { }, clip() { }, setLineDash() { },
     createLinearGradient() { return grad; }, createRadialGradient() { return grad; },
     createPattern() { return null; }, drawImage() { },
@@ -1738,6 +1739,134 @@ section('25. ÉLITE v3.3: calidad, IA, habilidades, eventos, rangos y postal');
     'el volumen ambiental y el modo de cámara se guardan');
   ok(SAVE.defaults().set.volA === 1 && SAVE.defaults().set.cam === 'auto',
     'los ajustes nuevos tienen valores por defecto válidos');
+}
+
+/* ---------------- 26. Actualización v3.4 ---------------- */
+section('26. v3.4: nombres únicos, pajaritos del modo libre y mascotas animadas');
+{
+  /* --- Nombres: clave canónica y validación local --- */
+  SAVE.reset(); SAVE.load();
+  const nk1 = SAVE.nameKey('  Pío  Vuelo ');
+  const nk2 = SAVE.nameKey('pio vuelo');
+  const nk3 = SAVE.nameKey('PIO   VUELO');
+  ok(nk1 && nk1.indexOf('n_') === 0, 'la clave de nombre usa un prefijo seguro', nk1);
+  ok(nk1 === nk2 && nk2 === nk3, 'la clave ignora mayúsculas, tildes y espacios de más');
+  ok(SAVE.nameKey('Ñandú') === SAVE.nameKey('nandu'), 'la tilde de la Ñ no cambia la clave');
+  ok(SAVE.nameKey('') === '' && SAVE.nameKey('   ') === '', 'un nombre vacío no genera clave');
+
+  ok(!SAVE.checkName('A').ok, 'checkName rechaza un nombre demasiado corto');
+  ok(!SAVE.checkName('Nombre$Raro').ok, 'checkName rechaza caracteres ilegales');
+  const cn = SAVE.checkName('Jugador Único');
+  ok(cn.ok && cn.name === 'Jugador Único' && cn.key === SAVE.nameKey('Jugador Único'),
+    'checkName devuelve el nombre limpio y su clave', JSON.stringify(cn));
+
+  ok(SAVE.rename('PajaroUno').ok, 'se guarda el nombre base de la prueba');
+  const same = SAVE.checkName('PajaroUno');
+  ok(same.ok && same.unchanged === true, 'repetir tu propio nombre se marca como sin cambios');
+  ok(SAVE.rename('PajaroDos').ok, 'se guarda un segundo nombre para probar duplicados');
+  const dupLocal = SAVE.checkName('pajarouno');
+  ok(!dupLocal.ok && /uso/i.test(dupLocal.msg), 'checkName detecta el duplicado local sin distinguir mayúsculas');
+  ok(SAVE.nameKey(SAVE.get().profile.name) === SAVE.nameKey('pajarodos'),
+    'el nombre guardado comparte clave con su variante en minúsculas');
+
+  /* --- Modo libre sin meteoros, con pajaritos ambientales --- */
+  G.setMode('free');
+  G.startPlay('free');
+  for (let i = 0; i < 600; i++) T.updateMeteorSpawn(1 / 60, 260);
+  ok(T.getMeteors().length === 0, 'el modo libre no genera meteoros automáticamente', T.getMeteors().length);
+  ok(T.getSpawnMeteorDist() === 0, 'el contador de meteoros ni siquiera avanza en modo libre', T.getSpawnMeteorDist());
+  for (let i = 0; i < 600; i++) T.updateAmbBirds(1 / 60, 260);
+  const birds = T.getAmbBirds();
+  ok(birds.length >= 1, 'el modo libre sí genera pajaritos ambientales', birds.length);
+  ok(birds.every(b => b.r > 0 && b.a >= 0 && b.a <= 1), 'los pajaritos tienen tamaño y opacidad válidos');
+
+  /* La niebla de visibilidad: se desvanecen en tramos estrechos y cuerpos. */
+  const wide = [{ x: 100, w: 60, gap: 200, gapHalf: 100 }];
+  const narrow = [{ x: 100, w: 60, gap: 200, gapHalf: 60 }];
+  ok(T.ambBirdTarget(130, 200, 4, wide) === 1, 'un pajarito en el centro de un hueco amplio se ve');
+  ok(T.ambBirdTarget(130, 200, 4, narrow) === 0, 'en un tramo estrecho el pajarito desaparece');
+  ok(T.ambBirdTarget(130, 60, 4, wide) === 0, 'dentro del cuerpo de un tubo el pajarito desaparece');
+  ok(T.ambBirdTarget(-300, 200, 4, narrow) === 1, 'lejos de los tubos el pajarito vuelve a verse');
+
+  // En los demás modos los meteoros siguen existiendo con normalidad.
+  G.goMenu();
+  G.setMode('challenge');
+  G.startPlay('challenge');
+  for (let i = 0; i < 600; i++) T.updateMeteorSpawn(1 / 60, 260);
+  ok(T.getMeteors().length >= 1, 'fuera del modo libre los meteoros siguen generándose', T.getMeteors().length);
+  G.goMenu();
+
+  // El evento de meteoros no entra en el sorteo del modo libre.
+  const realRandom = Math.random;
+  try {
+    ELITE.startRun({ mapId: 'day', mode: 'free' });
+    const freeRun = ELITE.activeRun();
+    freeRun.nextEventAt = 0;
+    Math.random = () => 0.21;
+    const freeEv = ELITE.tick(1 / 60, { distance: 120, score: 20 });
+    ok(freeEv.started && freeEv.started.id !== 'meteor',
+      'el sorteo de eventos del modo libre excluye los meteoros', freeEv.started && freeEv.started.id);
+
+    ELITE.startRun({ mapId: 'day', mode: 'classic' });
+    const normalRun = ELITE.activeRun();
+    normalRun.nextEventAt = 0;
+    const normalEv = ELITE.tick(1 / 60, { distance: 120, score: 20 });
+    ok(normalEv.started && normalEv.started.id === 'meteor',
+      'en los demás modos el evento de meteoros sigue disponible', normalEv.started && normalEv.started.id);
+  } finally {
+    Math.random = realRandom;
+  }
+  G.goMenu();
+
+  /* --- Mascotas: arte vectorial animado, no imágenes estáticas --- */
+  const petSandbox = { window: {}, Math, String, Number, Object, Array, isFinite, isNaN };
+  vm.createContext(petSandbox);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/entities.js'), 'utf8'), petSandbox, { filename: 'js/entities.js' });
+  const PETS = petSandbox.window.ENTS;
+  ok(!!PETS && typeof PETS.drawPet === 'function', 'el dibujante de mascotas está disponible');
+
+  function recorder() {
+    const base = makeCtx();
+    const calls = [];
+    return {
+      calls,
+      ctx: new Proxy(base, {
+        get(target, prop) {
+          const val = target[prop];
+          if (typeof val !== 'function') return val;
+          return function () {
+            const args = Array.prototype.slice.call(arguments);
+            calls.push(String(prop) + ':' + args.map(a => (typeof a === 'number' ? a.toFixed(3) : String(a))).join('|'));
+            return val.apply(target, args);
+          };
+        }
+      })
+    };
+  }
+
+  const ids = ['pet-pollito', 'pet-gato', 'pet-zorro', 'pet-tortuga', 'pet-murcielago',
+    'pet-dragon', 'pet-estrella', 'pet-fantasma', 'pet-fenix'];
+  let allDrawn = true;
+  ids.forEach(id => {
+    const rec = recorder();
+    PETS.drawPet(rec.ctx, { id: id, color: '#ffd54f' }, 0, 0, 1.3, 3, { phase: 0.4 });
+    if (rec.calls.length < 12) allDrawn = false;
+  });
+  ok(allDrawn, 'las nueve especies se dibujan con formas vectoriales reales');
+
+  const a = recorder();
+  const b = recorder();
+  PETS.drawPet(a.ctx, { id: 'pet-gato', color: '#ffb74d' }, 0, 0, 0, 2, {});
+  PETS.drawPet(b.ctx, { id: 'pet-gato', color: '#ffb74d' }, 0, 0, 1.1, 2, {});
+  ok(a.calls.length > 12 && b.calls.length > 12, 'la mascota dibuja cuerpo, ojos, orejas y detalles');
+  ok(a.calls.join('\n') !== b.calls.join('\n'),
+    'entre dos instantes el dibujo cambia: la mascota está animada de verdad');
+  const ph1 = recorder();
+  const ph2 = recorder();
+  PETS.drawPet(ph1.ctx, { id: 'pet-fenix', color: '#ff7043' }, 0, 0, 0.7, 4, { phase: 0 });
+  PETS.drawPet(ph2.ctx, { id: 'pet-fenix', color: '#ff7043' }, 0, 0, 0.7, 4, { phase: 2.1 });
+  ok(ph1.calls.join('\n') !== ph2.calls.join('\n'),
+    'cada mascota tiene una fase propia para no moverse todas a la vez');
 }
 
 /* ---------------- Resumen ---------------- */

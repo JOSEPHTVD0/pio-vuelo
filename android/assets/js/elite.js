@@ -601,7 +601,9 @@ window.ELITE = (function () {
     } else if (run.eventCool > 0) {
       run.eventCool = Math.max(0, run.eventCool - dt);
     } else if (d >= run.nextEventAt && !info.dead) {
-      const ev = EVENTS[Math.floor(Math.random() * EVENTS.length)];
+      // El modo libre no tiene meteoros: se excluye ese evento de su sorteo.
+      const pool = run.mode === 'free' ? EVENTS.filter(e => e.id !== 'meteor') : EVENTS;
+      const ev = pool[Math.floor(Math.random() * pool.length)];
       run.event = { id: ev.id, name: ev.name, icon: ev.icon, color: ev.color, left: ev.dur, total: ev.dur };
       run.nextEventAt = d + 210 + Math.random() * 140;
       run.eventsSeen++;

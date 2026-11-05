@@ -13,6 +13,7 @@ window.EXPUI = (function () {
   let currentKind = '';
   let badgeTab = 'badges';
   let inited = false;
+  let petRaf = 0;
 
   /* ---------------- utilidades ---------------- */
   function esc(s) {
@@ -70,6 +71,47 @@ window.EXPUI = (function () {
   }
   function xpBar(pct, col) {
     return '<div class="exp-bar"><i style="width:' + Math.max(0, Math.min(100, pct)) + '%;background:' + (col || '#69f0ae') + '"></i></div>';
+  }
+
+  /* Canvas animados de las tarjetas de mascotas. Un solo bucle para todas y
+     se detiene en cuanto las tarjetas salen de pantalla (render distinto). */
+  function stopPetLoop() {
+    if (petRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(petRaf);
+    petRaf = 0;
+  }
+
+  function startPetLoop() {
+    stopPetLoop();
+    if (typeof requestAnimationFrame !== 'function' || typeof ENTS === 'undefined') return;
+    const tick = (ts) => {
+      petRaf = 0;
+      const list = document.querySelectorAll('#genBody canvas[data-pet-canvas]');
+      let alive = false;
+      const tt = ts / 1000;
+      for (let i = 0; i < list.length; i++) {
+        const cv = list[i];
+        if (!cv || cv.isConnected === false) continue;
+        alive = true;
+        const id = cv.getAttribute('data-pet-canvas');
+        const pet = EXP.getPet(id);
+        const lv = SAVE.petLevelOf(id);
+        const w = 64, h = 64;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+          cv.width = Math.round(w * dpr);
+          cv.height = Math.round(h * dpr);
+        }
+        const c = cv.getContext('2d');
+        if (!c) continue;
+        c.setTransform(dpr, 0, 0, dpr, 0, 0);
+        c.clearRect(0, 0, w, h);
+        ENTS.drawPet(c, pet, w / 2, h / 2 + 3, tt, lv, {
+          scale: 1.55, menu: true, phase: (i % 5) * 0.8
+        });
+      }
+      if (alive) petRaf = requestAnimationFrame(tick);
+    };
+    petRaf = requestAnimationFrame(tick);
   }
 
   /* ---------------- PERSONAJES + ACCESORIOS ---------------- */
@@ -160,7 +202,9 @@ window.EXPUI = (function () {
       else if (price > 0) btn = '<button class="exp-btn buy' + (s.coins < price ? ' poor' : '') + '" data-pet="' + p.id + '">Comprar · ' + price + ' 🪙</button>';
       else btn = '<button class="exp-btn buy" data-pet="' + p.id + '">Reclamar</button>';
       html += '<article class="exp-card' + (eq ? ' eq' : '') + (owned ? '' : ' locked') + '">' +
-        '<div class="exp-ico" style="--pc:' + (p.color || '#888') + '">' + p.icon + '</div>' +
+        '<div class="exp-ico pet" style="--pc:' + (p.color || '#888') + '">' +
+          '<canvas class="exp-pet-canvas" data-pet-canvas="' + p.id + '" width="64" height="64" aria-hidden="true"></canvas>' +
+        '</div>' +
         '<div class="exp-name">' + esc(p.name) + '</div>' + rarity(p.rarity) +
         '<p class="exp-desc">' + esc(p.desc) + '</p>' +
         '<div class="exp-lvl">Nv. ' + lv + (next ? ' · ' + xp + '/' + next + ' XP' : ' · MÁX') + '</div>' +
@@ -182,6 +226,7 @@ window.EXPUI = (function () {
       else { SND.sfx.deny(); toast(r.msg, 'warning'); }
     });
     on('[data-locked]', el => toast('Bloqueado: ' + el.getAttribute('data-locked'), 'warning'));
+    startPetLoop();
   }
 
   /* ---------------- HABILIDADES ---------------- */
@@ -663,6 +708,7 @@ window.EXPUI = (function () {
 
   /* ---------------- RENDER PRINCIPAL ---------------- */
   function render(kind) {
+    stopPetLoop();
     currentKind = kind;
     const bodyEl = $('genBody');
     if (!bodyEl) return;

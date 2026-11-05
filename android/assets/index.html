@@ -81,7 +81,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
     <div class="home-amb" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="home-top">
       <div class="home-wallet">
-        <div class="coin-chip"><div class="coin-ico"></div><span id="homeCoins">0</span></div>
+        <div class="coin-chip" id="homeCoinChip" role="button" tabindex="0" aria-label="Monedas · abrir panel de administración"><div class="coin-ico"></div><span id="homeCoins">0</span></div>
         <div class="parts-chip" title="Piezas 🔩: material para mejorar herramientas de nivel alto. Ganas 1 por vuelo, +1 con 20+ puntos y +1 si bates tu récord.">
           <span class="parts-ico">🔩</span><span id="homeParts">0</span>
         </div>
@@ -270,7 +270,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
       <button class="btn" data-nav="settings">&#9881; Ajustes</button>
       <button class="btn" data-nav="records">&#127942; Récords</button>
       <button class="btn btn-danger" id="btnExit">&#8962; Salir</button>
-      <div class="panel-note">P&#237;o Vuelo v3.3.0 · Temporada 2026 🌍</div>
+      <div class="panel-note">P&#237;o Vuelo v3.4.0 · Temporada 2026 🌍</div>
     </div>
   </div>
 
@@ -359,7 +359,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
   <!-- Si el jugador escucha, mensaje de arranque -->
   <div id="start-hint" class="hidden">Toca la pantalla para volar</div>
 
-  <!-- PANEL DE ADMINISTRACIÓN (se abre pasando 3 dedos) -->
+  <!-- PANEL DE ADMINISTRACIÓN (3 dedos en táctil o clic en la moneda del inicio) -->
   <div id="adminModal" class="screen hidden">
     <div class="panel admin-panel">
       <div class="panel-title">🛠 Panel de Administración</div>
@@ -370,7 +370,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
           <button id="adminUnlock" class="chip on">🔓 Desbloquear</button>
           <button id="adminClose1" class="chip">✖ Cerrar</button>
         </div>
-        <div class="i-desc" style="margin-top:10px;font-size:11px;color:#9fb6cc">Pista: &#53;&#65039;&#8419; &#49;&#65039;&#8419; &#48;&#65039;&#8419; &#50;&#65039;&#8419;</div>
+        <div class="i-desc" style="margin-top:10px;font-size:11px;color:#9fb6cc">Pista: <b>293031</b></div>
       </div>
       <div id="adminPerks" class="hidden">
         <div style="margin:6px 0 2px;font-size:13px;color:#b8ffd0"><b>Acceso concedido</b> — elige una ventaja:</div>

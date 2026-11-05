@@ -126,6 +126,48 @@ function makeClient(ws) {
     ok(await evalJs("SAVE.get().coins >= 0"), 'el guardado existe y tiene saldo válido');
     ok(await evalJs("!document.getElementById('homeScreen') || getComputedStyle(document.getElementById('homeScreen')).display !== 'none'"), 'la portada es visible al arrancar');
 
+    // Panel de administración en PC: clic en la moneda superior izquierda.
+    await evalJs("document.getElementById('homeCoinChip').click()");
+    await sleep(250);
+    const adminOpen = await evalJs("(function(){var m=document.getElementById('adminModal'),l=document.getElementById('adminLock'),p=document.getElementById('adminPerks');return {open:!!m&&!m.classList.contains('hidden'),locked:!!l&&!l.classList.contains('hidden'),perks:!!p&&!p.classList.contains('hidden')}})()");
+    ok(adminOpen.open && adminOpen.locked && !adminOpen.perks, 'la moneda del inicio abre el panel de administración bloqueado', JSON.stringify(adminOpen));
+    await evalJs("document.getElementById('adminPin').value='111111'; document.getElementById('adminUnlock').click()");
+    await sleep(200);
+    const adminBad = await evalJs("(function(){var l=document.getElementById('adminLock'),p=document.getElementById('adminPerks');return {locked:!!l&&!l.classList.contains('hidden'),perks:!!p&&!p.classList.contains('hidden')}})()");
+    ok(adminBad.locked && !adminBad.perks, 'un PIN incorrecto no desbloquea el panel', JSON.stringify(adminBad));
+    await evalJs("document.getElementById('adminPin').value='293031'; document.getElementById('adminUnlock').click()");
+    await sleep(250);
+    const adminOk = await evalJs("(function(){var l=document.getElementById('adminLock'),p=document.getElementById('adminPerks');return {locked:!!l&&!l.classList.contains('hidden'),perks:!!p&&!p.classList.contains('hidden')}})()");
+    ok(!adminOk.locked && adminOk.perks, 'la clave 293031 desbloquea las herramientas de administración', JSON.stringify(adminOk));
+    await evalJs("document.getElementById('adminClose1').click()");
+    await sleep(250);
+    ok(await evalJs("document.getElementById('adminModal').classList.contains('hidden')"), 'el panel de administración se cierra y vuelve al inicio');
+
+    // Mascotas: cada tarjeta usa un canvas animado de verdad.
+    await evalJs("UI.openGeneric('pets')");
+    await sleep(450);
+    const petInfo = await evalJs(`(function(){
+      var cvs=[].slice.call(document.querySelectorAll('#genBody canvas[data-pet-canvas]'));
+      var cv=cvs[0];
+      if(!cv) return Promise.resolve({n:0});
+      var a=cv.toDataURL();
+      var before=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;
+      var painted=false;
+      for(var i=0;i<before.length;i+=4){ if(before[i+3]!==0){ painted=true; break; } }
+      return new Promise(function(res){
+        setTimeout(function(){
+          var b=cv.toDataURL();
+          res({n:cvs.length,w:cv.width,h:cv.height,anim:a!==b,painted:painted,
+            canvas:!!cv && cv.classList.contains('exp-pet-canvas')});
+        },400);
+      });
+    })()`);
+    ok(petInfo.n >= 9 && petInfo.canvas, 'la pantalla de mascotas usa canvas animados', JSON.stringify({n:petInfo.n,canvas:petInfo.canvas}));
+    ok(petInfo.w >= 64 && petInfo.painted, 'cada mascota se dibuja con píxeles reales, no es una imagen vacía', JSON.stringify({w:petInfo.w,painted:petInfo.painted}));
+    ok(petInfo.anim, 'el dibujo de la mascota cambia con el tiempo: está viva');
+    await evalJs("UI.closeGeneric()");
+    await sleep(250);
+
     // Partida real: Jugar → modo libre
     await evalJs("document.getElementById('btnPlay').click()");
     await sleep(300);
@@ -134,6 +176,9 @@ function makeClient(ws) {
     await sleep(1200);
     const state = await evalJs("G.getState()");
     ok(state === 'play', 'el modo libre inicia una partida real', state);
+    const freeSky = await evalJs("(function(){for(var i=0;i<600;i++)G.__test.updateMeteorSpawn(1/60,260);for(var j=0;j<600;j++)G.__test.updateAmbBirds(1/60,260);return {meteors:G.__test.getMeteors().length,birds:G.__test.getAmbBirds().length};})()");
+    ok(freeSky.meteors === 0, 'el modo libre no genera meteoros en el navegador', String(freeSky.meteors));
+    ok(freeSky.birds > 0, 'el modo libre sí llena el cielo de pajaritos ambientales', String(freeSky.birds));
     await evalJs("G.setPaused(true)");
     await sleep(200);
     ok(await evalJs("G.isPaused()"), 'la partida se puede pausar');
@@ -224,6 +269,44 @@ function makeClient(ws) {
       const cloudStatus = await evalJs("CLOUD.init().then(function(s){return {status:s.status, ready:s.ready, error:s.error, configured:s.configured}}).catch(function(e){return {status:'error', ready:false, error:String(e)}})");
       ok(cloudStatus && cloudStatus.configured, 'la nube de Firebase está configurada');
       ok(cloudStatus && cloudStatus.ready && cloudStatus.status === 'online', 'Firebase conecta con sesión anónima', cloudStatus && (cloudStatus.status + (cloudStatus.error ? ' · ' + cloudStatus.error : '')));
+
+      // Unicidad global real: el nombre de otro jugador del ranking está
+      // reservado en names y no se puede reclamar.
+      const nameGlobal = await evalJs(`(async function(){
+        var rows=await CLOUD.leaderboard('global',100);
+        var mine=SAVE.getProfile().name.toLowerCase();
+        var other=rows.filter(function(r){return !r.me && r.name && r.name.toLowerCase()!==mine})[0];
+        if(!other) return {skip:true,rows:rows.length};
+        var chk=await CLOUD.checkName(other.name);
+        if(!chk || !chk.taken) return {skip:true,rows:rows.length,name:other.name,available:!!(chk&&chk.available)};
+        var res=await CLOUD.claimName(other.name);
+        return {rows:rows.length,name:other.name,taken:!!(res&&res.taken),ok:!!(res&&res.ok)};
+      })()`);
+      ok(nameGlobal && !nameGlobal.skip && nameGlobal.taken,
+        'un nombre de otro jugador está reservado globalmente y no se puede reclamar', JSON.stringify(nameGlobal));
+
+      // La interfaz muestra el error explícito si la nube dice que está ocupado.
+      const nameUi = await evalJs(`(async function(){
+        var old=CLOUD.claimName;
+        CLOUD.claimName=async function(){return {ok:false,taken:true,owner:'OtroJugador'}};
+        try{
+          UI.openGeneric('profile');
+          await new Promise(function(r){setTimeout(r,120)});
+          var input=document.querySelector('.profile-input');
+          var btn=document.querySelector('.profile-actions .btn-primary');
+          var msg=document.querySelector('.profile-msg');
+          if(!input||!btn||!msg) return {panel:false};
+          input.value='Ocupado'+Math.floor(Math.random()*999);
+          btn.click();
+          await new Promise(function(r){setTimeout(r,250)});
+          return {panel:true,text:msg.textContent,cls:msg.className};
+        } finally { CLOUD.claimName=old; }
+      })()`);
+      ok(nameUi && nameUi.panel && /ya lo tiene otro jugador/i.test(nameUi.text) && /bad/.test(nameUi.cls),
+        'la interfaz avisa claramente de que otro jugador tiene ese nombre', JSON.stringify(nameUi));
+      await evalJs("UI.closeGeneric()");
+      await sleep(250);
+
       await evalJs("UI.openGeneric('records')");
       await sleep(1500);
       const board = await evalJs("(function(){var s=document.querySelector('.lb-cloud');return s?{panel:true,state:s.querySelector('.lb-cloud-state').getAttribute('data-state'),text:s.querySelector('.lb-cloud-state').textContent,rows:s.querySelectorAll('.lb-row').length,hasMe:!!s.querySelector('.lb-me'),retry:!!s.querySelector('.lb-retry')}:{panel:false}})()");
@@ -343,12 +426,15 @@ function makeClient(ws) {
       var back=document.getElementById('btnModeBack');
       var hint=document.getElementById('mpScrollHint');
       var rows=[].slice.call(document.querySelectorAll('#screen-modepick .mode-btn'));
+      // El modo evento solo existe cuando hay evento activo: se mide lo visible.
+      rows=rows.filter(function(b){return b.getBoundingClientRect().width>0});
       var lefts=rows.map(function(b){return Math.round(b.getBoundingClientRect().left)});
       var widths=rows.map(function(b){return Math.round(b.getBoundingClientRect().width)});
-      var sr=sc.getBoundingClientRect();
       sc.scrollTop=sc.scrollHeight;
       for(var w=0;w<8;w++){ await new Promise(function(r){requestAnimationFrame(function(){r()})}); }
       await new Promise(function(r){setTimeout(r,120)});
+      // La caja se mide al final: así no influye la animación de entrada.
+      var sr=sc.getBoundingClientRect();
       var last=rows[rows.length-1].getBoundingClientRect();
       var br=back.getBoundingClientRect();
       return {
@@ -358,11 +444,16 @@ function makeClient(ws) {
         wideRows:Math.min.apply(null,widths)>200,
         lastVisible:last.top>=sr.top-1&&last.bottom<=sr.bottom+2,
         backVisible:br.top>=0&&br.bottom<=innerHeight+1,
-        hint:!!hint && !hint.classList.contains('hidden')
+        hint:!!hint && !hint.classList.contains('hidden'),
+        leftRange:[Math.min.apply(null,lefts),Math.max.apply(null,lefts)],
+        widthMin:Math.min.apply(null,widths),
+        lastBox:{top:Math.round(last.top),bottom:Math.round(last.bottom),h:Math.round(last.height)},
+        scrollBox:{top:Math.round(sr.top),bottom:Math.round(sr.bottom),h:Math.round(sr.height),
+          sh:sc.scrollHeight,st:Math.round(sc.scrollTop),inner:innerHeight}
       };
     })()`);
-    ok(mp && mp.count === 15 && mp.scrollable && mp.oneColumn && mp.wideRows && mp.lastVisible && mp.backVisible && mp.hint,
-      'el selector de modo muestra los 15 modos en una lista desplazable', JSON.stringify(mp));
+    ok(mp && mp.count >= 14 && mp.scrollable && mp.oneColumn && mp.wideRows && mp.lastVisible && mp.backVisible && mp.hint,
+      'el selector de modo muestra todos los modos en una lista desplazable', JSON.stringify(mp));
     await evalJs("try{document.getElementById('btnModeBack').click()}catch(e){}");
     await sleep(120);
 
@@ -399,7 +490,7 @@ function makeClient(ws) {
       (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error')
     ).map(e => {
       if (e.method === 'Runtime.exceptionThrown') return e.params.exceptionDetails.text + ' ' + ((e.params.exceptionDetails.exception && e.params.exceptionDetails.exception.description) || '');
-      if (e.method === 'Log.entryAdded') return e.params.entry.text;
+      if (e.method === 'Log.entryAdded') return (e.params.entry.url ? e.params.entry.url + ' → ' : '') + e.params.entry.text;
       return e.params.args.map(a => a.value || a.description).join(' ');
     }).filter(msg =>
       /* La prueba apaga la red a propósito: esos fallos de red no son errores

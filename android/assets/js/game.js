@@ -73,6 +73,9 @@ window.G = (function () {
   let futureUntil = 0;      // multiplicador x3 de la legendaria Futurista
   let meteors = [];
   let spawnMeteorDist = 0;
+  /* Pajaritos ambientales del modo libre (decorativos, sin colisión). */
+  let ambBirds = [];
+  let ambBirdSpawn = 0;
   let nextSecretDist = 0;
   let bossCfg = null;
   let bossAttackAt = 0;
@@ -308,6 +311,7 @@ function difficultyFor(sc, diffc) {
     legendaryReady = !!(SAVE.get().legendary && SAVE.get().legendaryOwned.indexOf(SAVE.get().legendary) !== -1);
     futureUntil = 0;
     meteors = []; secretPortals = [];
+    ambBirds = []; ambBirdSpawn = 0;
     spawnMeteorDist = 0; nextSecretDist = 0;
     bossAttackAt = 0; bossKills = 0;
     pipeFreezeUntil = 0; enemiesFrozenUntil = 0;
@@ -707,8 +711,10 @@ function difficultyFor(sc, diffc) {
       for (let i = 0; i < 3; i++) spawnChain();
       FX.text(bird.x, bird.y - bird.r - 84, '🪙 ¡Fiebre de monedas!', 18, '#ffd54f');
     } else if (ev.id === 'meteor') {
-      for (let i = 0; i < 3; i++) spawnMeteor();
-      FX.text(bird.x, bird.y - bird.r - 84, '☄️ ¡Lluvia de meteoros!', 18, '#ff7043');
+      if (mode !== 'free') {
+        for (let i = 0; i < 3; i++) spawnMeteor();
+        FX.text(bird.x, bird.y - bird.r - 84, '☄️ ¡Lluvia de meteoros!', 18, '#ff7043');
+      }
     } else if (ev.id === 'solar') {
       wind.on = true; wind.t0 = t; wind.dur = ev.total; wind.dir = rng() < 0.5 ? -1 : 1;
       FX.text(bird.x, bird.y - bird.r - 84, '🌞 ¡Viento solar!', 18, '#81d4fa');
@@ -971,10 +977,108 @@ function difficultyFor(sc, diffc) {
     return m;
   }
 
+  /* --- Modo libre: pajaritos ambientales decorativos ------------------- */
+  function spawnAmbBird() {
+    const r = 3.4 + rng() * 2.8;
+    ambBirds.push({
+      x: W + 26 + rng() * 90,
+      y: 74 + rng() * Math.max(60, H - groundH - 190),
+      r: r,
+      vx: 16 + rng() * 30,
+      drift: 5 + rng() * 10,
+      ph: rng() * Math.PI * 2,
+      fs: 5.5 + rng() * 4.5,
+      a: 0,
+      target: 1
+    });
+  }
+
+  /* Visibilidad objetivo (0..1) de un pajarito según los tubos cercanos.
+     Se desvanece en tramos estrechos y dentro del cuerpo de un tubo: así no
+     tapa ni distrae justo donde el personaje necesita ver el hueco. */
+  function ambBirdTarget(x, y, r, list) {
+    const pipesNow = list || pipes;
+    for (let j = 0; j < pipesNow.length; j++) {
+      const p = pipesNow[j];
+      const nearX = x > p.x - 70 && x < p.x + p.w + 70;
+      if (!nearX) continue;
+      const narrow = (p.gapHalf * 2) < 168;
+      const insideBody = y < p.gap - p.gapHalf - r || y > p.gap + p.gapHalf + r;
+      if (narrow || insideBody) return 0;
+    }
+    return 1;
+  }
+
+  function updateAmbBirds(dt, spd) {
+    if (mode !== 'free' || state !== 'play') { ambBirds.length = 0; ambBirdSpawn = 0; return; }
+    ambBirdSpawn += spd * dt;
+    if (ambBirds.length < 8 && ambBirdSpawn >= 240) { ambBirdSpawn = 0; spawnAmbBird(); }
+
+    const playTop = 54;
+    const playBot = H - groundH - 34;
+    for (let i = ambBirds.length - 1; i >= 0; i--) {
+      const b = ambBirds[i];
+      b.x -= (spd * 0.30 + b.vx) * dt;
+      b.y += Math.sin(t * 1.35 + b.ph) * b.drift * dt;
+      if (b.y < playTop) { b.y = playTop; b.drift = Math.abs(b.drift); }
+      if (b.y > playBot) { b.y = playBot; b.drift = -Math.abs(b.drift); }
+
+      b.target = ambBirdTarget(b.x, b.y, b.r);
+      b.a += (b.target - b.a) * Math.min(1, dt * 3.4);
+      if (b.x < -46) ambBirds.splice(i, 1);
+    }
+  }
+
+  function ambBirdColor() {
+    const id = String(BG.getMap() || '');
+    const dark = ['night', 'space', 'magia', 'aurora', 'tormenta', 'cometa', 'luna',
+      'volcano', 'ciudad', 'cyber', 'arcade', 'volt', 'rubi', 'prisma', 'premium',
+      'mitologia', 'oceano', 'pantano', 'ruinas'];
+    return dark.indexOf(id) !== -1 ? '#e6f4ff' : '#37474f';
+  }
+
+  function drawAmbBirds(ctx) {
+    if (mode !== 'free' || !ambBirds.length) return;
+    const col = ambBirdColor();
+    for (let i = 0; i < ambBirds.length; i++) {
+      const b = ambBirds[i];
+      if (b.a < 0.03) continue;
+      const flap = Math.sin(t * b.fs + b.ph);
+      const r = b.r;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.globalAlpha = b.a * 0.62;
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.lineWidth = Math.max(1, r * 0.34);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      // silueta de pájaro: dos alas que aletean
+      ctx.beginPath();
+      ctx.moveTo(-r * 1.7, flap * r * 0.2);
+      ctx.quadraticCurveTo(-r * 0.9, -r * 0.85 - flap * r * 0.75, -r * 0.15, -r * 0.05);
+      ctx.quadraticCurveTo(r * 0.9, -r * 0.85 - flap * r * 0.75, r * 1.7, flap * r * 0.2);
+      ctx.stroke();
+      // cuerpo pequeño
+      ctx.beginPath();
+      ctx.ellipse(0, r * 0.18, r * 0.42, r * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   function spawnMeteor() {
     const r = 12 + rng() * 8;
     const x = clamp(bird.x + 140 + rng() * Math.max(160, W - bird.x - 160), 34, W - 34);
     meteors.push({ x: x, y: -r - 16, r: r, vy: 190 + rng() * 170, vx: -24 - rng() * 52, ph: rng() * Math.PI * 2, spin: rng() * 6.28 });
+  }
+
+  /* El modo libre no tiene meteoros: solo pajaritos ambientales. */
+  function updateMeteorSpawn(dt, spd) {
+    if (mode === 'free') return;
+    spawnMeteorDist += spd * dt;
+    const meteorEvery = dyn.feature === 'meteor' ? 520 : (eventId ? 900 : 1500);
+    if (spawnMeteorDist >= meteorEvery) { spawnMeteorDist = 0; if (meteors.length < 14) spawnMeteor(); }
   }
 
   function updateMeteors(dt, spd) {
@@ -1379,10 +1483,9 @@ function difficultyFor(sc, diffc) {
         if (eliteSpawnZone >= 2150) { eliteSpawnZone = 0; spawnZone(); }
       }
 
-      /* --- Expansión: mapa dinámico (meteoros, puertas secretas) --- */
-      spawnMeteorDist += spd * dt;
-      const meteorEvery = dyn.feature === 'meteor' ? 520 : (eventId ? 900 : 1500);
-      if (spawnMeteorDist >= meteorEvery) { spawnMeteorDist = 0; if (meteors.length < 14) spawnMeteor(); }
+      /* --- Expansión: mapa dinámico (meteoros, puertas secretas) ---
+         El modo libre queda limpio: solo pajaritos ambientales, sin meteoros. */
+      updateMeteorSpawn(dt, spd);
       nextSecretDist += spd * dt;
       const secretEvery = dyn.feature === 'secret' ? 2100 : 4200;
       if (nextSecretDist >= secretEvery) { nextSecretDist = 0; spawnPortal(); }
@@ -1473,7 +1576,9 @@ function difficultyFor(sc, diffc) {
       // mover y recoger monedas
       if (state !== 'play') { FX.update(dt); updateHUD(); render(); rafId = requestAnimationFrame(loop); return; }
       updateCoins(dt, spd);
-      updateMeteors(dt, spd);
+      if (mode === 'free') updateAmbBirds(dt, spd);
+      else { ambBirds.length = 0; ambBirdSpawn = 0; }
+      if (mode !== 'free') updateMeteors(dt, spd);
       updatePortals(dt, spd);
       if (state === 'play' && typeof ELITE !== 'undefined' && ELITE) {
         updateEliteWorld(dt, spd, pipeFreezeUntil > t);
@@ -2355,6 +2460,9 @@ function difficultyFor(sc, diffc) {
       eliteZones.forEach(z => eliteDraw.drawZone(ctx, z, t));
     }
 
+    // Pajaritos ambientales del modo libre: detrás de los tubos.
+    drawAmbBirds(ctx);
+
     pipes.forEach(p => ENTS.drawPipe(ctx, p, BG.getMap(), groundH, W, H));
     if (expOk) drawBossFaces(ctx);
     if (rt.mirilla && state === 'play') drawMirilla(ctx);
@@ -2380,7 +2488,10 @@ function difficultyFor(sc, diffc) {
       if (style === 'orbit') { px = bird.x - 26 + Math.cos(t * 1.7) * 52; py = bird.y + Math.sin(t * 1.7) * 44; }
       else if (style === 'zigzag') { px = bird.x - 62 + Math.sin(t * 4.4) * 16; py = bird.y + 24 + Math.cos(t * 3.1) * 10; }
       else if (style === 'float') { py = bird.y + 36 + Math.sin(t * 1.9) * 10; }
-      ENTS.drawPet(ctx, pet, px, py, t, lvl);
+      ENTS.drawPet(ctx, pet, px, py, t, lvl, {
+        phase: ((pet.id || '').length % 7) * 0.7,
+        scale: 1.04 + lvl * 0.035
+      });
     }
 
     // Competitivo: fantasma de tu propio récord real (sin rivales inventados)
@@ -2939,6 +3050,7 @@ function difficultyFor(sc, diffc) {
       scoreGain: scoreGain,
       spawnMeteor: spawnMeteor,
       updateMeteors: updateMeteors,
+      updateMeteorSpawn: updateMeteorSpawn,
       spawnPortal: spawnPortal,
       updatePortals: updatePortals,
       useLegendary: useLegendary,
@@ -2964,6 +3076,11 @@ function difficultyFor(sc, diffc) {
         legendaryUsed: legendaryUsed, dyn: Object.assign({}, dyn), buffs: Object.assign({}, buffs)
       }),
       getMeteors: () => meteors,
+      getAmbBirds: () => ambBirds.map(b => ({ x: b.x, y: b.y, r: b.r, a: b.a, target: b.target })),
+      spawnAmbBird: spawnAmbBird,
+      updateAmbBirds: updateAmbBirds,
+      ambBirdTarget: ambBirdTarget,
+      getSpawnMeteorDist: () => spawnMeteorDist,
       getPortals: () => secretPortals,
       setRunState: patch => {
         patch = patch || {};

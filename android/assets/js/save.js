@@ -713,7 +713,19 @@ window.SAVE = (function () {
   }
 
   // Cambia el nombre validando vacío, longitud, caracteres y duplicados locales.
-  function rename(raw) {
+  // Clave canónica para reservar el nombre en la nube. Ignora mayúsculas y
+  // tildes, y se codifica para que sea un ID de documento seguro.
+  function nameKey(raw) {
+    const nm = cleanName(raw);
+    if (!nm) return '';
+    let key = nm;
+    try { key = nm.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) { key = nm; }
+    key = key.toLowerCase().replace(/\s+/g, ' ').trim();
+    try { return 'n_' + encodeURIComponent(key); } catch (e) { return ''; }
+  }
+
+  // Validación local (sin red). La nube se consulta aparte con CLOUD.claimName.
+  function checkName(raw) {
     const original = typeof raw === 'string' ? raw : '';
     const trimmed = original.replace(/\s+/g, ' ').trim();
     if (!trimmed) return { ok: false, msg: 'El nombre no puede estar vacío.' };
@@ -721,8 +733,18 @@ window.SAVE = (function () {
     if (trimmed.length > NAME_MAX) return { ok: false, msg: 'Máximo ' + NAME_MAX + ' caracteres.' };
     const nm = cleanName(original);
     if (!nm || nm !== trimmed) return { ok: false, msg: 'Solo letras, números, espacios, punto, guion y guion bajo.' };
-    if (nm.toLowerCase() === data.profile.name.toLowerCase()) return { ok: true, name: nm, unchanged: true };
+    if (nm.toLowerCase() === data.profile.name.toLowerCase()) {
+      return { ok: true, name: nm, key: nameKey(nm), unchanged: true };
+    }
     if (nameTaken(nm)) return { ok: false, msg: 'Ese nombre ya está en uso en este dispositivo.' };
+    return { ok: true, name: nm, key: nameKey(nm), unchanged: false };
+  }
+
+  function rename(raw) {
+    const c = checkName(raw);
+    if (!c.ok) return c;
+    const nm = c.name;
+    if (c.unchanged) return { ok: true, name: nm, key: c.key, unchanged: true };
     data.profile.name = nm;
     if (!data.knownNames.some(n => n.toLowerCase() === nm.toLowerCase())) data.knownNames.push(nm);
     const me = data.players.find(p => p.id === data.profile.id);
@@ -1796,7 +1818,7 @@ window.SAVE = (function () {
     nestDecor, isDecorOwned, buyDecor, equipDecor,
     eggSlotsFree, eggIncubating, buyEgg, hatchEgg,
     // perfil, ranking local y escudos persistentes
-    getProfile, rename, randomName, cleanName, leaderboard,
+    getProfile, rename, randomName, cleanName, checkName, nameKey, leaderboard,
     shieldCount, addShield, useShield,
     // expansión v4
     buyChar, equipChar, charPerk,

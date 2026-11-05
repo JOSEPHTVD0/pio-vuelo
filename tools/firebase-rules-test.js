@@ -8,6 +8,7 @@
    Comprueba con el SDK real del cliente (no Admin) que:
      · El dueño puede crear su perfil, sus vuelos y su entrada de ranking.
      · Nadie puede escribir el perfil de otro ni bajar su récord.
+     · Cada jugador solo reserva su nombre y no puede robar el de otro.
      · El catálogo es de solo lectura.
      · Presencia y ranking en vivo respetan el UID.
      · Un invitado puede unirse a un duelo sin tocar los datos del anfitrión.
@@ -18,7 +19,7 @@ const admin = require('firebase-admin');
 const { initializeApp } = require('firebase/app');
 const { getAuth, connectAuthEmulator, signInAnonymously } = require('firebase/auth');
 const {
-  getFirestore, connectFirestoreEmulator, doc, setDoc, getDoc,
+  getFirestore, connectFirestoreEmulator, doc, setDoc, getDoc, deleteDoc,
   collection, addDoc, serverTimestamp
 } = require('firebase/firestore');
 const {
@@ -293,6 +294,50 @@ async function main() {
   const credB = await signInAnonymously(b.auth);
   const uidB = credB.user.uid;
   console.log('UID B: ' + uidB);
+
+  console.log('\nFirestore · nombres únicos');
+  const nameDoc = function (key) { return doc(a.db, 'names', key); };
+  await expectOk('cada jugador reserva su nombre', function () {
+    return setDoc(nameDoc('n_testera'), {
+      key: 'n_testera', name: 'TesterA', uid: uidA,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+    });
+  });
+  await expectOk('otro jugador puede consultar la reserva', function () {
+    return getDoc(doc(b.db, 'names', 'n_testera'));
+  });
+  await expectDenied('sin sesión no se consultan los nombres', function () {
+    return getDoc(doc(publicApp.db, 'names', 'n_testera'));
+  });
+  await expectDenied('no se puede reservar un nombre a nombre de otro UID', function () {
+    return setDoc(doc(b.db, 'names', 'n_intruso'), {
+      key: 'n_intruso', name: 'Intruso', uid: uidA,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+    });
+  });
+  await expectDenied('un nombre ya reservado no se puede robar', function () {
+    return setDoc(nameDoc('n_testera'), {
+      key: 'n_testera', name: 'TesterA', uid: uidB,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+    });
+  });
+  await expectOk('el jugador B reserva un nombre distinto', function () {
+    return setDoc(doc(b.db, 'names', 'n_testerb'), {
+      key: 'n_testerb', name: 'TesterB', uid: uidB,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+    });
+  });
+  await expectOk('el dueño actualiza su propia reserva', function () {
+    return setDoc(nameDoc('n_testera'), {
+      name: 'TesterA', updatedAt: serverTimestamp()
+    }, { merge: true });
+  });
+  await expectDenied('nadie borra la reserva de otro', function () {
+    return deleteDoc(doc(b.db, 'names', 'n_testera'));
+  });
+  await expectOk('el dueño libera su nombre al borrarlo', function () {
+    return deleteDoc(doc(b.db, 'names', 'n_testerb'));
+  });
 
   await expectOk('un invitado se une al duelo', function () {
     return update(ref(b.rtdb, 'duels/' + code), {

@@ -2138,8 +2138,54 @@ window.UI = (function () {
     actions.appendChild(rndBtn);
     panel.appendChild(actions);
 
-    const commit = (candidate) => {
-      const r = SAVE.rename(candidate);
+    let nameBusy = false;
+    const commit = async (candidate) => {
+      if (nameBusy) return;
+
+      // 1) Validación local (formato y nombres ya usados en este dispositivo).
+      const c = SAVE.checkName(candidate);
+      if (!c.ok) {
+        msg.textContent = '⚠️ ' + c.msg;
+        msg.className = 'profile-msg bad';
+        SND.sfx.deny();
+        return;
+      }
+      input.value = c.name;
+      if (c.unchanged) {
+        msg.textContent = 'ℹ️ Ese ya es tu nombre.';
+        msg.className = 'profile-msg';
+        SND.sfx.click();
+        return;
+      }
+
+      // 2) Reserva global: si otro jugador ya lo tiene, se muestra el error.
+      let offline = false;
+      nameBusy = true;
+      const oldLabel = saveBtn.textContent;
+      saveBtn.disabled = true;
+      saveBtn.textContent = '⏳ Comprobando…';
+      msg.textContent = 'Comprobando si el nombre está libre en todo el mundo…';
+      msg.className = 'profile-msg';
+      try {
+        if (window.CLOUD && typeof CLOUD.claimName === 'function' && CLOUD.configured && CLOUD.configured()) {
+          const claim = await CLOUD.claimName(c.name);
+          if (claim && claim.taken) {
+            msg.textContent = '❌ Ese nombre ya lo tiene otro jugador' +
+              (claim.owner ? ' (' + claim.owner + ')' : '') + '. Elige otro nombre.';
+            msg.className = 'profile-msg bad';
+            SND.sfx.deny();
+            return;
+          }
+          offline = !!(claim && claim.offline);
+        }
+      } finally {
+        nameBusy = false;
+        saveBtn.disabled = false;
+        saveBtn.textContent = oldLabel;
+      }
+
+      // 3) Guardado local definitivo.
+      const r = SAVE.rename(c.name);
       if (!r.ok) {
         msg.textContent = '⚠️ ' + r.msg;
         msg.className = 'profile-msg bad';
@@ -2158,6 +2204,10 @@ window.UI = (function () {
         SND.sfx.level();
         toast('✏️ Ahora eres ' + r.name, 'good');
         renderProfile();
+      }
+      if (offline) {
+        toast('⚠️ Sin conexión: no se pudo comprobar el nombre en la nube', 'warning');
+        msg.textContent += ' (sin conexión: se comprobará al reconectar)';
       }
       if (r.saved === false) toast('⚠️ No se pudo guardar en este dispositivo', 'warning');
     };
