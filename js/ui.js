@@ -2211,134 +2211,6 @@ window.UI = (function () {
       : { account: false, anonymous: false, signedIn: false, username: '' };
     body.appendChild(profileAccount(prof));
 
-    const panel = document.createElement('div');
-    panel.className = 'profile-panel';
-    const h = document.createElement('h3');
-    h.textContent = sess.account ? '👤 TU NOMBRE DE JUGADOR' : '✏️ TU NOMBRE';
-    panel.appendChild(h);
-    const hint = document.createElement('div');
-    hint.className = 'profile-hint';
-    hint.textContent = sess.account
-      ? 'Tu nombre es tu usuario y está protegido por tu cuenta. Para usar otro nombre tendrías que crear una cuenta nueva.'
-      : 'De 2 a 16 caracteres. Letras, números, espacio, punto, guion y guion bajo.';
-    panel.appendChild(hint);
-
-    const input = document.createElement('input');
-    input.className = 'profile-input';
-    input.type = 'text';
-    input.maxLength = 16;
-    input.value = prof.name;
-    input.setAttribute('autocomplete', 'off');
-    input.setAttribute('aria-label', 'Nombre de jugador');
-    if (sess.account) {
-      input.disabled = true;
-      input.title = 'El nombre de una cuenta no se puede cambiar desde aquí.';
-    }
-    panel.appendChild(input);
-
-    const msg = document.createElement('div');
-    msg.className = 'profile-msg';
-    panel.appendChild(msg);
-
-    const actions = document.createElement('div');
-    actions.className = 'profile-actions';
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'btn btn-primary';
-    saveBtn.textContent = '💾 Guardar nombre';
-    const rndBtn = document.createElement('button');
-    rndBtn.className = 'btn btn-ghost';
-    rndBtn.textContent = '🎲 Nombre aleatorio';
-    if (!sess.account) {
-      actions.appendChild(saveBtn);
-      actions.appendChild(rndBtn);
-      panel.appendChild(actions);
-    }
-
-    let nameBusy = false;
-    const commit = async (candidate) => {
-      if (sess.account) return;
-      if (nameBusy) return;
-
-      // 1) Validación local (formato y nombres ya usados en este dispositivo).
-      const c = SAVE.checkName(candidate);
-      if (!c.ok) {
-        msg.textContent = '⚠️ ' + c.msg;
-        msg.className = 'profile-msg bad';
-        SND.sfx.deny();
-        return;
-      }
-      input.value = c.name;
-      if (c.unchanged) {
-        msg.textContent = 'ℹ️ Ese ya es tu nombre.';
-        msg.className = 'profile-msg';
-        SND.sfx.click();
-        return;
-      }
-
-      // 2) Reserva global: si otro jugador ya lo tiene, se muestra el error.
-      let offline = false;
-      nameBusy = true;
-      const oldLabel = saveBtn.textContent;
-      saveBtn.disabled = true;
-      saveBtn.textContent = '⏳ Comprobando…';
-      msg.textContent = 'Comprobando si el nombre está libre en todo el mundo…';
-      msg.className = 'profile-msg';
-      try {
-        if (window.CLOUD && typeof CLOUD.claimName === 'function' && CLOUD.configured && CLOUD.configured()) {
-          const claim = await CLOUD.claimName(c.name);
-          if (claim && claim.taken) {
-            msg.textContent = '❌ Ese nombre ya lo tiene otro jugador' +
-              (claim.owner ? ' (' + claim.owner + ')' : '') + '. Elige otro nombre.';
-            msg.className = 'profile-msg bad';
-            SND.sfx.deny();
-            return;
-          }
-          offline = !!(claim && claim.offline);
-        }
-      } finally {
-        nameBusy = false;
-        saveBtn.disabled = false;
-        saveBtn.textContent = oldLabel;
-      }
-
-      // 3) Guardado local definitivo.
-      const r = SAVE.rename(c.name);
-      if (!r.ok) {
-        msg.textContent = '⚠️ ' + r.msg;
-        msg.className = 'profile-msg bad';
-        SND.sfx.deny();
-        return;
-      }
-      input.value = r.name;
-      refreshHome();
-      if (r.unchanged) {
-        msg.textContent = 'ℹ️ Ese ya es tu nombre.';
-        msg.className = 'profile-msg';
-        SND.sfx.click();
-      } else {
-        msg.textContent = '✅ Nombre guardado. Tus récords se mantienen.';
-        msg.className = 'profile-msg good';
-        SND.sfx.level();
-        toast('✏️ Ahora eres ' + r.name, 'good');
-        renderProfile();
-      }
-      if (offline) {
-        toast('⚠️ Sin conexión: no se pudo comprobar el nombre en la nube', 'warning');
-        msg.textContent += ' (sin conexión: se comprobará al reconectar)';
-      }
-      if (r.saved === false) toast('⚠️ No se pudo guardar en este dispositivo', 'warning');
-    };
-
-    saveBtn.onclick = () => { SND.sfx.click(); commit(input.value); };
-    input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { SND.sfx.click(); commit(input.value); } });
-    rndBtn.onclick = () => {
-      input.value = SAVE.randomName();
-      msg.textContent = '🎲 Nombre propuesto. Pulsa «Guardar nombre» para usarlo.';
-      msg.className = 'profile-msg';
-      SND.sfx.click();
-    };
-    body.appendChild(panel);
-
     const sh = document.createElement('div');
     sh.className = 'profile-panel';
     sh.innerHTML = '<h3>🛡️ INVENTARIO DE ESCUDOS</h3>' +
@@ -3031,7 +2903,7 @@ window.UI = (function () {
     const about = document.createElement('div');
     about.className = 'prog-card';
     about.style.textAlign = 'center';
-    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.3 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.3.1 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
     body.appendChild(about);
   }
 

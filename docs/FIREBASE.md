@@ -323,7 +323,7 @@ firebase emulators:start --only firestore,database,auth
 - Inicia sesión anónima para invitados y permite crear una cuenta con usuario
   y contraseña. Al crear la cuenta se vincula la sesión anónima (mismo UID) y
   se guarda una copia completa del progreso en `accounts/{uid}`.
-- Engancha `SAVE.endRun` y `SAVE.rename` sin tocar la lógica del juego.
+- Engancha `SAVE.endRun` sin tocar la lógica del juego.
 - Sube cada vuelo a `players/{uid}/runs` y actualiza el ranking.
 - Mantiene una cola local (`piovuelo_cloud_queue`) para vuelos sin conexión.
 - Publica presencia y ranking en vivo en Realtime Database.
@@ -359,8 +359,9 @@ Comportamiento online:
 - La sesión de invitado es anónima: Firebase genera un UID aleatorio. Las
   cuentas usan un correo interno derivado del usuario (`u_…@piovuelo.local`)
   que nunca se muestra ni recibe mensajes; la contraseña la guarda Firebase.
-- El nombre visible lo elige el jugador y es único a nivel global mediante
-  `names/{clave}`. Al crear la cuenta, el usuario pasa a ser su nombre.
+- El nombre de una cuenta se define al crearla y ya no se puede editar desde
+  el perfil. Es único a nivel global mediante `names/{clave}`. Los invitados
+  usan un nombre local aleatorio no editable.
 - El progreso local sigue siendo la fuente de verdad. Las cuentas guardan una
   copia completa en `accounts/{uid}` y la restauran al entrar en otro
   dispositivo. Sin cuenta, si borras los datos del sitio se pierde el vínculo

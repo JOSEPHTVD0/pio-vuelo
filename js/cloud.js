@@ -585,14 +585,8 @@ window.CLOUD = (function () {
       await syncProfile();
       await syncLeaderboard();
       await flushQueue();
-      // Registra el nombre actual si aún no estaba reservado. Si otro jugador
-      // lo ocupó antes, la interfaz puede avisar del conflicto.
-      if (!state.account) {
-        try {
-          const nc = await claimName(localProfile().name);
-          if (nc && nc.taken) emit('nameconflict', { name: localProfile().name, owner: nc.owner });
-        } catch (e) { /* la nube es opcional */ }
-      }
+      // Los invitados ya no reservan nombres: el nombre solo se fija al crear
+      // una cuenta, y la sección para cambiarlo se retiró del perfil.
       if (OPT.presence) startPresence();
       return status();
 

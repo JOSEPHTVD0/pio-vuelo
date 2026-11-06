@@ -284,9 +284,9 @@ function makeClient(ws) {
 
       await evalJs("UI.openGeneric('profile')");
       await sleep(400);
-      const accProfile = await evalJs("(function(){var b=document.getElementById('genBody');var t=b.textContent;var out=false;Array.prototype.forEach.call(b.querySelectorAll('button'),function(x){if(x.textContent.indexOf('Cerrar sesión')!==-1)out=true});return {signed:t.indexOf('Sesión iniciada')!==-1,locked:!!b.querySelector('.profile-input[disabled]'),logout:out}})()");
+      const accProfile = await evalJs("(function(){var b=document.getElementById('genBody');var t=b.textContent;var out=false;Array.prototype.forEach.call(b.querySelectorAll('button'),function(x){if(x.textContent.indexOf('Cerrar sesión')!==-1)out=true});return {signed:t.indexOf('Sesión iniciada')!==-1,nameSection:t.indexOf('TU NOMBRE')!==-1,editor:!!b.querySelector('.profile-input[aria-label=\"Nombre de jugador\"]'),logout:out}})()");
       ok(accProfile.signed && accProfile.logout, 'el perfil muestra la sesión y el botón de cerrar sesión');
-      ok(accProfile.locked, 'el nombre no se puede editar mientras hay sesión');
+      ok(!accProfile.nameSection && !accProfile.editor, 'la sección para cambiar el nombre ya no existe');
       await evalJs("UI.closeGeneric()");
       await sleep(300);
 

@@ -68,12 +68,12 @@ window.APP = (function () {
     } else if (SAVE.lastSaveError && SAVE.lastSaveError()) {
       setTimeout(() => UI.toast('⚠️ El progreso no se está guardando en este dispositivo.', 'warning'), 1200);
     }
-    // La nube avisa si el nombre local ya estaba reservado por otro jugador.
+    // La nube avisa si el nombre de la cuenta ya estaba reservado.
     window.addEventListener('piovuelo:nameconflict', (ev) => {
       const d = (ev && ev.detail) || {};
       setTimeout(() => {
         UI.toast('⚠️ El nombre «' + (d.name || SAVE.getProfile().name) +
-          '» ya lo usa otro jugador. Cámbialo en Perfil.', 'warning');
+          '» ya lo usa otro jugador.', 'warning');
       }, 1400);
     });
     // Hay dos progresos distintos (dispositivo y cuenta): se pregunta cuál usar.

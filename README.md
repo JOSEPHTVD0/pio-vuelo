@@ -58,18 +58,24 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
 
+## Novedades de la versión 3.3.1
+
+- **Se retiró la sección «TU NOMBRE» del perfil:** el nombre ya no se puede cambiar desde el juego. Solo se define al crear la cuenta; los invitados conservan un nombre local aleatorio no editable.
+- **Limpieza de récords:** se eliminaron los rankings, el historial de vuelos, los perfiles y los nombres reservados anteriores para empezar de cero. Se conservan catálogo, temporadas, retos diarios y configuración.
+- **Sin reserva automática para invitados:** los nombres solo se reservan al registrar una cuenta, así que la colección `names` no se vuelve a llenar con nombres de invitados.
+
 ## Novedades de la versión 3.3
 
 - **Cuenta con usuario y contraseña:** el nombre del jugador pasa a ser su usuario. Al crear la cuenta se vincula la sesión anónima actual, así que se conservan el nombre, el progreso y el `uid` sin empezar de cero.
 - **Progreso completo en la nube:** cada cuenta guarda una copia JSON de todo el progreso (`accounts/{uid}`) y la actualiza sola al jugar. En un dispositivo nuevo se descarga automáticamente al entrar.
 - **Elección si hay dos progresos:** si el dispositivo ya tenía partidas y la cuenta tiene otro progreso distinto, el juego pregunta cuál conservar (cuenta o dispositivo) antes de descargar o subir nada.
 - **Cierre de sesión seguro:** al salir se guarda una última copia en la cuenta y el dispositivo sigue jugando en modo local, sin crear un invitado nuevo.
-- **Nombre protegido:** con la sesión iniciada el nombre no se puede editar desde el perfil; la unicidad global la garantiza la cuenta y la reserva `names/{clave}`.
+- **Nombre fijo:** la sección para cambiar el nombre se retiró del perfil. El nombre solo se define al crear la cuenta y la unicidad global la garantizan la cuenta y la reserva `names/{clave}`. Los invitados conservan un nombre local aleatorio que no se puede editar.
 - **Reglas privadas:** solo el dueño puede leer o escribir `accounts/{uid}`; la copia no se puede borrar desde el cliente y tiene un límite de tamaño.
 
 ## Novedades de la versión 3.2
 
-- **Nombres únicos globales:** cada nombre se reserva en Firestore con una transacción (`names/{clave}`). Si otro jugador ya lo tiene, al guardar aparece un error explícito y no se cambia el perfil. La clave ignora mayúsculas y tildes y los nombres históricos se siembran con el Admin SDK.
+- **Nombres únicos globales:** cada nombre de cuenta se reserva en Firestore con una transacción (`names/{clave}`). Si otro jugador ya lo tiene, la creación de la cuenta se rechaza con un mensaje explícito. La clave ignora mayúsculas y tildes y los nombres históricos se siembran con el Admin SDK.
 - **Pase de Vuelo más largo y exigente:** sube de 14 a **20 niveles**, con umbrales de XP más altos (hasta 12.350 XP), 9 recompensas de herramienta, piezas, escudos y un cosmético de temporada.
 - **Pase Prémium más costoso:** ahora cuesta **6000 🪙** e incluye 20 recompensas exclusivas, con el ave **Eterna**, los sombreros **Aurora Boreal** y **Yelmo Cósmico**, la estela **Cuásar** y el mapa **Cielo de Cuásar**.
 - **Tienda ampliada:** 6 aves nuevas (Tucán, Búho, Colibrí, Pavo Real, Garza y Pelícano), 4 mapas con mecánicas propias (Jardín Secreto, Distrito Industrial, Sabana Dorada y Arrecife), 6 herramientas, 5 sombreros, 6 estelas, 2 huevos y 8 decoraciones.
@@ -238,7 +244,7 @@ Esos binarios, los APK y las claves locales están excluidos del repositorio med
 ## Datos y privacidad
 
 - Por defecto el progreso se guarda solo en `localStorage` bajo la clave `piovuelo_v1`.
-- No hay cuentas con correo ni contraseña. Con Firebase activo se usa una **sesión anónima** para sincronizar perfil, vuelos, ranking global, presencia y duelos. El progreso local sigue siendo la fuente de verdad y solo se publica el nombre, nivel y mejor marca en el ranking.
+- Con Firebase activo se usa una **sesión anónima** para invitados y una **cuenta con usuario y contraseña** para quienes quieran guardar su progreso en la nube. El progreso local sigue siendo la fuente de verdad y solo se publica el nombre, nivel y mejor marca en el ranking.
 - Borrar los datos del sitio elimina el progreso local y el vínculo con el UID anónimo de Firebase.
 - Los anuncios son opcionales y tolerantes a fallos; si el proveedor no carga, el juego sigue funcionando.
 - La `apiKey` web de Firebase no es un secreto; la protección real son las reglas de `firestore.rules` y `database.rules.json`. Las cuentas de servicio nunca se incluyen en el cliente.
