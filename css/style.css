@@ -444,6 +444,16 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .profile-msg.good { color:#69f0ae; }
 .profile-actions { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
 .profile-actions .btn { flex:1; min-width:140px; font-size:13px; padding:10px 8px; border-radius:13px; }
+.profile-account-block { margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,.12); }
+.profile-field-label { font-size:11px; font-weight:900; letter-spacing:.6px; color:#b3e5fc; text-transform:uppercase; }
+.profile-account-line { display:flex; align-items:center; gap:10px; margin:8px 0; padding:10px; border-radius:13px; background:rgba(105,240,174,.1); border:1px solid rgba(105,240,174,.35); }
+.profile-account-ico { font-size:24px; }
+.profile-account-info { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.profile-account-info b { font-size:16px; color:#fff; word-break:break-word; }
+.profile-ok { font-size:10px; font-weight:900; color:#69f0ae; letter-spacing:.4px; }
+.profile-sep { height:1px; background:rgba(255,255,255,.12); margin:12px 0 2px; }
+.profile-warn { font-size:10px; line-height:1.45; color:#ffcc80; margin-top:8px; }
+.profile-input[disabled] { opacity:.75; cursor:not-allowed; }
 .profile-shield-line { display:flex; align-items:center; gap:6px; margin-top:6px; font-size:13px; color:#dbe7ff; }
 .profile-shield-line b { font-size:24px; color:#b3e5fc; }
 .profile-shield-ico { font-size:22px; }

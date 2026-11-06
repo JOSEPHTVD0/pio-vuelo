@@ -7,6 +7,7 @@
 
    Comprueba con el SDK real del cliente (no Admin) que:
      · El dueño puede crear su perfil, sus vuelos y su entrada de ranking.
+     · Solo el dueño puede leer y escribir la copia de progreso de su cuenta.
      · Nadie puede escribir el perfil de otro ni bajar su récord.
      · El catálogo es de solo lectura.
      · Presencia y ranking en vivo respetan el UID.
@@ -143,6 +144,21 @@ function presencePayload(name) {
     lastSeen: Date.now(),
     board: 'global',
     best: 0
+  };
+}
+
+function accountPayload(uid, username, save) {
+  return {
+    uid: uid,
+    username: username,
+    nameKey: 'n_' + username.toLowerCase(),
+    save: JSON.stringify(save || { level: 4, coins: 320, profile: { name: username } }),
+    saveLevel: 4,
+    saveBest: 12,
+    saveFlights: 3,
+    saveAt: Date.now(),
+    updatedAt: serverTimestamp(),
+    schema: 1
   };
 }
 
@@ -316,6 +332,49 @@ async function main() {
   });
   await expectOk('el dueño puede borrar su propia reserva', function () {
     return deleteDoc(doc(b.db, 'names', 'n_testerb'));
+  });
+
+  console.log('\nFirestore · copia de progreso de la cuenta');
+  await expectOk('la cuenta crea su copia de progreso', function () {
+    return setDoc(doc(a.db, 'accounts', uidA), accountPayload(uidA, 'TesterA'));
+  });
+  await expectOk('la cuenta lee su propia copia', function () {
+    return getDoc(doc(a.db, 'accounts', uidA));
+  });
+  await expectOk('la cuenta actualiza su propia copia', function () {
+    return setDoc(doc(a.db, 'accounts', uidA), {
+      save: JSON.stringify({ level: 5, coins: 410 }),
+      saveLevel: 5,
+      saveBest: 20,
+      saveFlights: 4,
+      saveAt: Date.now(),
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  });
+  await expectDenied('otro jugador NO puede leer la copia de una cuenta', function () {
+    return getDoc(doc(b.db, 'accounts', uidA));
+  });
+  await expectDenied('otro jugador NO puede escribir la copia de una cuenta', function () {
+    return setDoc(doc(b.db, 'accounts', uidA), accountPayload(uidA, 'TesterA'));
+  });
+  await expectDenied('nadie puede escribir la copia de otro UID', function () {
+    return setDoc(doc(a.db, 'accounts', 'otro-uid'), accountPayload('otro-uid', 'Intruso'));
+  });
+  await expectDenied('una copia con campos extra se rechaza', function () {
+    const p = accountPayload(uidA, 'TesterA');
+    p.admin = true;
+    return setDoc(doc(a.db, 'accounts', uidA), p);
+  });
+  await expectDenied('un nivel fuera de rango se rechaza', function () {
+    return setDoc(doc(a.db, 'accounts', uidA), Object.assign(accountPayload(uidA, 'TesterA'), { saveLevel: 5000 }), { merge: true });
+  });
+  await expectDenied('un guardado gigante se rechaza', function () {
+    return setDoc(doc(a.db, 'accounts', uidA), Object.assign(accountPayload(uidA, 'TesterA'), {
+      save: 'x'.repeat(960000)
+    }), { merge: true });
+  });
+  await expectDenied('nadie puede borrar la copia de la cuenta', function () {
+    return deleteDoc(doc(a.db, 'accounts', uidA));
   });
 
   await expectOk('un invitado se une al duelo', function () {

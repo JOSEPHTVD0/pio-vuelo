@@ -85,6 +85,7 @@ const firestoreRules = read('firestore.rules');
   'players/{uid}/runs/{runId}',
   'leaderboards/{boardId}/entries/{uid}',
   'names/{key}',
+  'accounts/{uid}',
   'catalog/{type}/items/{itemId}',
   'seasons/{seasonKey}',
   'dailyChallenges/{date}',
@@ -96,6 +97,10 @@ ok(firestoreRules.indexOf('allow read, write: if false') !== -1, 'tiene denegaci
 ok(firestoreRules.indexOf('request.resource.data.best >= resource.data.best') !== -1, 'impide bajar el récord del ranking');
 ok(firestoreRules.indexOf('request.resource.data.uid == request.auth.uid') !== -1, 'solo reserva nombres a tu propio UID');
 ok(firestoreRules.indexOf('resource.data.uid == request.auth.uid') !== -1, 'solo el dueño modifica o borra su nombre');
+ok(firestoreRules.indexOf("match /accounts/{uid}") !== -1, 'la copia de progreso está en accounts/{uid}');
+ok(firestoreRules.indexOf('request.resource.data.save.size() <= 950000') !== -1, 'la copia de progreso tiene límite de tamaño');
+const accountsBlock = firestoreRules.slice(firestoreRules.indexOf('match /accounts/{uid}'), firestoreRules.indexOf('match /catalog'));
+ok(accountsBlock.indexOf('allow delete: if false') !== -1, 'la copia de progreso no se borra desde el cliente');
 
 /* ---------- Reglas de Realtime Database ---------- */
 console.log('\nReglas de Realtime Database');

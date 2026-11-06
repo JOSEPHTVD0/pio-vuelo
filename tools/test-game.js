@@ -457,6 +457,27 @@ ok(!SAVE.checkName('NombreUno').ok, 'checkName rechaza un nombre ya usado en el 
 const cnSame = SAVE.checkName(curName);
 ok(cnSame.ok && cnSame.unchanged === true, 'checkName reconoce el nombre actual como sin cambios');
 
+// Nombre vinculado a una cuenta: no usa la lista del dispositivo, porque la
+// unicidad global la garantiza la cuenta en la nube.
+let savedEvents = 0;
+const oldDispatch = sandbox.dispatchEvent;
+sandbox.dispatchEvent = function (ev) {
+  if (ev && ev.type === 'piovuelo:saved') savedEvents++;
+  return true;
+};
+const sp1 = SAVE.setProfileName('CuentaOficial');
+ok(sp1.ok && SAVE.getProfile().name === 'CuentaOficial', 'setProfileName fija el nombre de la cuenta', JSON.stringify(sp1));
+ok(savedEvents >= 1, 'cada guardado correcto emite el aviso para la nube', String(savedEvents));
+const sp2 = SAVE.setProfileName('CuentaDos');
+ok(sp2.ok && SAVE.getProfile().name === 'CuentaDos' && sp2.key === SAVE.nameKey('CuentaDos'),
+  'setProfileName acepta otro nombre válido y devuelve su clave');
+ok(!SAVE.setProfileName('A').ok && !SAVE.setProfileName('Nombre$Raro').ok && !SAVE.setProfileName('   ').ok,
+  'setProfileName rechaza nombres inválidos');
+ok(SAVE.setProfileName(' CuentaTres ').ok && SAVE.getProfile().name === 'CuentaTres',
+  'setProfileName recorta los espacios exteriores');
+ok(SAVE.getProfile().name === 'CuentaTres', 'los nombres inválidos no cambian el perfil');
+sandbox.dispatchEvent = oldDispatch;
+
 /* ---------------- 6. Récords y clasificación ---------------- */
 section('6. RÉCORDS: guardado, orden y recarga');
 const runsBefore = SAVE.get().runs.length;

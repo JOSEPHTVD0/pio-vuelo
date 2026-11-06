@@ -3,7 +3,11 @@
    --------------------------------------------------------------------------
    Firestore  → perfil, historial de vuelos, ranking y catálogo.
    Realtime   → presencia, ranking en vivo y duelos.
-   Auth       → sesión anónima (sin correo ni contraseña).
+   Auth       → sesión anónima (invitado) o cuenta con usuario/contraseña.
+
+   La cuenta guarda una copia completa del progreso en accounts/{uid}. Al
+   iniciar sesión en otro dispositivo se puede restaurar ese progreso; si el
+   dispositivo ya tenía partidas, la interfaz pregunta cuál conservar.
 
    Reglas de oro de este archivo:
      · Si `PIO_FIREBASE.enabled` es false, NO se carga el SDK ni se hace red.
@@ -30,6 +34,9 @@ window.CLOUD = (function () {
   const QUEUE_MAX = 50;
   const BOARD_CACHE_KEY = 'piovuelo_cloud_board_v1';
   const BOARD_CACHE_MAX = 25;
+  const SIGNED_OUT_KEY = 'piovuelo_signed_out';
+  const ACCOUNT_SCHEMA = 1;
+  const ACCOUNT_SAVE_MAX = 900000;   // bytes; el documento de Firestore admite 1 MB
   const VALID_MODES = ['free', 'zen', 'boss', 'wind', 'challenge', 'duel', 'replay'];
 
   const state = {
@@ -37,6 +44,11 @@ window.CLOUD = (function () {
     ready: false,
     uid: null,
     name: '',
+    account: false,      // sesión con usuario/contraseña (no anónima)
+    username: '',
+    hasAccount: false,   // existe accounts/{uid} en Firestore
+    pending: false,      // hay que elegir entre progreso local y de la nube
+    restoring: false,    // se está importando el progreso de la nube
     error: null,
     lastSync: 0
   };
@@ -52,6 +64,8 @@ window.CLOUD = (function () {
   let presenceTimer = null;
   let presenceRef = null;
   let presenceHooked = false;
+  let saveTimer = null;
+  let pendingLogin = null;      // { username, cloudRaw, local, cloud }
 
   /* ------------------------------------------------------------------ */
   /* Utilidades                                                          */
@@ -95,18 +109,271 @@ window.CLOUD = (function () {
       : { id: '', name: 'Jugador', created: 0 };
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Utilidades de cuenta (usuario + contraseña, sin correo visible)     */
+  /* ------------------------------------------------------------------ */
+
+  function canonicalUser(name) {
+    let s = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
+    try { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) { }
+    return s.toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
+  // Firebase Auth exige un correo. Se deriva del usuario de forma determinista
+  // y nunca se muestra ni se usa para enviar mensajes: es solo el identificador
+  // interno de la cuenta. La contraseña la guarda Firebase, nunca este código.
+  function base64Url(text) {
+    let bin = '';
+    try { bin = unescape(encodeURIComponent(text)); }
+    catch (e) { bin = text; }
+    let out = '';
+    try { out = btoa(bin); }
+    catch (e) {
+      out = '';
+      for (let i = 0; i < bin.length; i++) out += String.fromCharCode(bin.charCodeAt(i));
+      out = btoa(out);
+    }
+    return out.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
+
+  function emailFor(name) {
+    return 'u_' + base64Url(canonicalUser(name)) + '@piovuelo.local';
+  }
+
+  function cleanUser(raw) {
+    const original = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+    if (!original) return { ok: false, msg: 'Escribe tu usuario.' };
+    if (original.length < 2) return { ok: false, msg: 'El usuario debe tener al menos 2 caracteres.' };
+    if (original.length > 16) return { ok: false, msg: 'El usuario admite como máximo 16 caracteres.' };
+    const nm = (window.SAVE && typeof window.SAVE.cleanName === 'function')
+      ? window.SAVE.cleanName(original)
+      : original;
+    if (!nm || nm !== original) {
+      return { ok: false, msg: 'Solo letras, números, espacios, punto, guion y guion bajo.' };
+    }
+    return { ok: true, name: nm, key: nameKey(nm) };
+  }
+
+  function passwordOk(pass) {
+    return typeof pass === 'string' && pass.length >= 6 && pass.length <= 128;
+  }
+
+  function authMessage(err) {
+    const code = String((err && err.code) || '');
+    if (code === 'auth/email-already-in-use' || code === 'auth/credential-already-in-use' || code === 'auth/account-exists-with-different-credential') {
+      return 'Ese usuario ya existe. Elige otro nombre o inicia sesión.';
+    }
+    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found' || code === 'auth/invalid-login-credentials') {
+      return 'Usuario o contraseña incorrectos.';
+    }
+    if (code === 'auth/weak-password') return 'La contraseña debe tener al menos 6 caracteres.';
+    if (code === 'auth/too-many-requests') return 'Demasiados intentos. Espera un momento y vuelve a probar.';
+    if (code === 'auth/network-request-failed') return 'Sin conexión. Revisa tu red e inténtalo de nuevo.';
+    if (code === 'auth/operation-not-allowed') return 'El acceso con usuario y contraseña no está activado en el servidor.';
+    if (code === 'auth/requires-recent-login') return 'Por seguridad, vuelve a iniciar sesión.';
+    if (code === 'auth/user-disabled') return 'Esta cuenta está desactivada.';
+    return 'No se pudo completar la operación' + (code ? ' (' + code + ')' : '') + '.';
+  }
+
+  function safeParse(raw) {
+    try {
+      const obj = JSON.parse(String(raw || ''));
+      return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : null;
+    } catch (e) { return null; }
+  }
+
+  function totalXpOf(save) {
+    const s = save || {};
+    const level = Math.max(1, Math.floor(Number(s.level) || 1));
+    let sum = 0;
+    for (let l = 1; l < level; l++) sum += Math.floor(55 * Math.pow(l, 1.35) + 30);
+    return sum + Math.max(0, Math.floor(Number(s.xp) || 0));
+  }
+
+  function saveStats(save) {
+    return (save && save.stats && typeof save.stats === 'object') ? save.stats : {};
+  }
+
+  function isFreshSave(save) {
+    if (!save) return true;
+    const st = saveStats(save);
+    return !(Number(st.flights) > 0)
+      && !(Number(st.best) > 0)
+      && !(Number(save.level) > 1)
+      && !(Number(save.xp) > 0)
+      && !(Number(save.coinsEarned) > 0)
+      && !(Number(save.parts) > 0);
+  }
+
+  function summarizeSave(save) {
+    const s = save || {};
+    const st = saveStats(s);
+    return {
+      name: String((s.profile && s.profile.name) || 'Jugador'),
+      level: Math.max(1, Math.floor(Number(s.level) || 1)),
+      xp: totalXpOf(s),
+      coins: Math.max(0, Math.floor(Number(s.coins) || 0)),
+      best: Math.max(0, Math.floor(Number(st.best) || 0)),
+      flights: Math.max(0, Math.floor(Number(st.flights) || 0))
+    };
+  }
+
+  // Compara dos progresos de la MISMA cuenta/dispositivo. Solo se usan
+  // contadores que nunca bajan al jugar (vuelos, XP, récord, monedas ganadas).
+  function compareSaves(a, b) {
+    const va = progressVector(a);
+    const vb = progressVector(b);
+    for (let i = 0; i < va.length; i++) {
+      if (va[i] !== vb[i]) return va[i] < vb[i] ? -1 : 1;
+    }
+    return 0;
+  }
+
+  function progressVector(save) {
+    const s = save || {};
+    const st = saveStats(s);
+    return [
+      Math.max(0, Math.floor(Number(st.flights) || 0)),
+      totalXpOf(s),
+      Math.max(0, Math.floor(Number(st.best) || 0)),
+      Math.max(0, Math.floor(Number(st.coinsGot) || 0)) + Math.max(0, Math.floor(Number(st.spent) || 0)),
+      Math.max(0, Math.floor(Number(st.pipes) || 0)),
+      Math.max(0, Math.floor(Number(st.dist) || 0))
+    ];
+  }
+
+  function byteLength(text) {
+    const s = String(text || '');
+    if (typeof TextEncoder !== 'undefined') {
+      try { return new TextEncoder().encode(s).length; } catch (e) { }
+    }
+    return s.length * 2;
+  }
+
+  // La copia de la nube no puede pasar de 1 MB. Si el guardado crece (replay,
+  // historial), se recortan primero los datos prescindibles.
+  function serializeSave(save) {
+    let copy = JSON.parse(JSON.stringify(save));
+    let raw = JSON.stringify(copy);
+    if (byteLength(raw) <= ACCOUNT_SAVE_MAX) return raw;
+    if (copy.replay) {
+      copy.replay = { score: copy.replay.score, seed: copy.replay.seed, date: copy.replay.date, map: copy.replay.map, taps: [] };
+      raw = JSON.stringify(copy);
+      if (byteLength(raw) <= ACCOUNT_SAVE_MAX) return raw;
+    }
+    copy.replay = null;
+    if (Array.isArray(copy.knownNames)) copy.knownNames = copy.knownNames.slice(-100);
+    if (Array.isArray(copy.history)) copy.history = copy.history.slice(0, 10);
+    if (Array.isArray(copy.runs)) copy.runs = copy.runs.slice(0, 10);
+    if (Array.isArray(copy.players)) copy.players = copy.players.slice(0, 5);
+    raw = JSON.stringify(copy);
+    return byteLength(raw) <= ACCOUNT_SAVE_MAX ? raw : '';
+  }
+
+  function restoreCloud(cloudRaw) {
+    const local = localSave();
+    if (local && JSON.stringify(local) === cloudRaw) return false;
+    state.restoring = true;
+    try {
+      const r = (window.SAVE && typeof window.SAVE.importData === 'function')
+        ? window.SAVE.importData(cloudRaw)
+        : { ok: false };
+      if (!r || !r.ok) { state.restoring = false; return false; }
+      if (state.username && window.SAVE && typeof window.SAVE.setProfileName === 'function') {
+        window.SAVE.setProfileName(state.username);
+      }
+      setTimeout(function () {
+        try { if (typeof location !== 'undefined' && typeof location.reload === 'function') location.reload(); }
+        catch (e) { }
+      }, 60);
+      return true;
+    } catch (err) {
+      state.restoring = false;
+      warn('restoreCloud:', err);
+      return false;
+    }
+  }
+
+  async function readAccount() {
+    if (!db || !state.uid) return null;
+    const snap = await M.fsMod.getDoc(M.fsMod.doc(db, 'accounts', state.uid));
+    return snap.exists() ? (snap.data() || null) : null;
+  }
+
+  async function writeAccount(username) {
+    if (!state.account || !db || !state.uid) return false;
+    const save = localSave();
+    if (!save) return false;
+    const raw = serializeSave(save);
+    if (!raw) {
+      warn('El guardado es demasiado grande para la nube.');
+      return false;
+    }
+    const st = saveStats(save);
+    const name = String(username || state.username || (save.profile && save.profile.name) || 'Jugador').slice(0, 16);
+    try {
+      await M.fsMod.setDoc(M.fsMod.doc(db, 'accounts', state.uid), {
+        uid: state.uid,
+        username: name,
+        nameKey: nameKey(name),
+        save: raw,
+        saveLevel: Math.max(1, Math.min(999, Math.floor(Number(save.level) || 1))),
+        saveBest: Math.max(0, Math.min(10000000, Math.floor(Number(st.best) || 0))),
+        saveFlights: Math.max(0, Math.min(100000000, Math.floor(Number(st.flights) || 0))),
+        saveAt: Date.now(),
+        updatedAt: M.fsMod.serverTimestamp(),
+        schema: ACCOUNT_SCHEMA
+      }, { merge: true });
+      state.hasAccount = true;
+      state.lastSync = Date.now();
+      return true;
+    } catch (err) {
+      warn('writeAccount:', err);
+      return false;
+    }
+  }
+
+  async function uploadSave() {
+    if (!state.account || state.pending || state.restoring) return false;
+    return writeAccount(state.username);
+  }
+
+  function scheduleSaveSync() {
+    if (!state.account || !state.ready || state.pending || state.restoring) return;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      saveTimer = null;
+      uploadSave();
+    }, 2500);
+  }
+
   function status() {
     return {
       status: state.status,
       ready: state.ready,
       uid: state.uid,
       name: state.name,
+      account: state.account,
+      username: state.username,
+      hasAccount: state.hasAccount,
+      pending: state.pending,
       error: state.error,
       lastSync: state.lastSync,
       configured: configured(),
       online: (typeof navigator === 'undefined' || navigator.onLine !== false),
       board: OPT.board || 'global'
     };
+  }
+
+  function signedOutFlag() {
+    try { return localStorage.getItem(SIGNED_OUT_KEY) === '1'; } catch (e) { return false; }
+  }
+
+  function setSignedOutFlag(on) {
+    try {
+      if (on) localStorage.setItem(SIGNED_OUT_KEY, '1');
+      else localStorage.removeItem(SIGNED_OUT_KEY);
+    } catch (e) { }
   }
 
   /* Limpia una fila antes de pintarla o guardarla en la caché local. */
@@ -221,6 +488,14 @@ window.CLOUD = (function () {
         app = existing.length ? appMod.getApp() : appMod.initializeApp(CONF);
       }
       auth = authMod.getAuth(app);
+      /* El emulador de Auth se conecta ANTES de tocar la persistencia: al
+         recargar con una sesión guardada, Firebase intenta restaurarla y, si
+         el emulador aún no está conectado, la petición se iría a producción
+         con la apiKey de demo y la sesión se perdería. */
+      if (CFG.emulators && CFG.emulators.auth) {
+        try { authMod.connectAuthEmulator(auth, CFG.emulators.auth, { disableWarnings: true }); }
+        catch (e) { warn('emulador auth:', e); }
+      }
       try {
         await authMod.setPersistence(auth, authMod.browserLocalPersistence);
       } catch (e) { /* algunos navegadores privados lo bloquean */ }
@@ -238,17 +513,58 @@ window.CLOUD = (function () {
       rtdb = rtdbMod.getDatabase(app);
       M = { appMod: appMod, authMod: authMod, fsMod: fsMod, rtdbMod: rtdbMod };
 
-      if (!auth.currentUser) await authMod.signInAnonymously(auth);
-      state.uid = auth.currentUser.uid;
+      /* Solo para pruebas locales: permite apuntar a los emuladores sin
+         tocar la configuración de producción. Auth ya se conectó arriba. */
+      if (CFG.emulators) {
+        try {
+          if (CFG.emulators.firestore) {
+            const hp = String(CFG.emulators.firestore).split(':');
+            fsMod.connectFirestoreEmulator(db, hp[0], Number(hp[1] || 8080));
+          }
+        } catch (e) { warn('emulador firestore:', e); }
+        try {
+          if (CFG.emulators.database) {
+            const hp = String(CFG.emulators.database).split(':');
+            rtdbMod.connectDatabaseEmulator(rtdb, hp[0], Number(hp[1] || 9000));
+          }
+        } catch (e) { warn('emulador database:', e); }
+      }
+
+      /* Con la sesión cerrada a propósito no se crea un invitado anónimo:
+         el jugador sigue en modo local hasta que vuelva a iniciar sesión. */
+      if (!auth.currentUser && !signedOutFlag()) await authMod.signInAnonymously(auth);
+
       state.name = localProfile().name || 'Jugador';
 
       authMod.onAuthStateChanged(auth, function (user) {
         state.uid = user ? user.uid : null;
+        state.account = !!(user && !user.isAnonymous);
         if (!user) {
           state.ready = false;
           state.status = 'off';
+          state.username = '';
+          state.hasAccount = false;
         }
       });
+
+      if (!auth.currentUser) {
+        state.uid = null;
+        state.account = false;
+        state.username = '';
+        state.hasAccount = false;
+        state.ready = false;
+        state.status = 'off';
+        state.error = null;
+        emit('cloudstatus', status());
+        return status();
+      }
+
+      state.uid = auth.currentUser.uid;
+      state.account = !auth.currentUser.isAnonymous;
+      if (state.account) {
+        /* El nombre de la cuenta se completa al leer accounts/{uid}. */
+        state.username = '';
+      }
 
       await ensurePlayer();
       state.ready = true;
@@ -259,17 +575,27 @@ window.CLOUD = (function () {
       emit('cloudready', status());
       emit('cloudstatus', status());
 
+      if (state.account) {
+        const boot = await bootAccount();
+        if (boot && boot.stop) return status();
+      } else {
+        state.username = '';
+      }
+
       await syncProfile();
       await syncLeaderboard();
       await flushQueue();
       // Registra el nombre actual si aún no estaba reservado. Si otro jugador
       // lo ocupó antes, la interfaz puede avisar del conflicto.
-      try {
-        const nc = await claimName(localProfile().name);
-        if (nc && nc.taken) emit('nameconflict', { name: localProfile().name, owner: nc.owner });
-      } catch (e) { /* la nube es opcional */ }
+      if (!state.account) {
+        try {
+          const nc = await claimName(localProfile().name);
+          if (nc && nc.taken) emit('nameconflict', { name: localProfile().name, owner: nc.owner });
+        } catch (e) { /* la nube es opcional */ }
+      }
       if (OPT.presence) startPresence();
       return status();
+
     })().catch(function (err) {
       state.status = 'error';
       state.ready = false;
@@ -442,6 +768,309 @@ window.CLOUD = (function () {
       warn('claimName:', err);
       return { ok: true, offline: true, error: String((err && err.message) || err), key: key };
     }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Cuenta: registro, inicio de sesión y progreso completo en la nube   */
+  /* ------------------------------------------------------------------ */
+
+  function accountPayloadSummary(save) {
+    return summarizeSave(save);
+  }
+
+  /* Decide qué hacer al arrancar con una cuenta ya recordada por el SDK. */
+  async function bootAccount() {
+    let acc = null;
+    try { acc = await readAccount(); }
+    catch (err) { warn('bootAccount:', err); }
+
+    if (!acc) {
+      // Cuenta autenticada sin copia en la nube (por ejemplo, creada antes de
+      // esta versión): se sube el progreso actual como primera copia.
+      state.username = (localProfile().name || 'Jugador').slice(0, 16);
+      await writeAccount(state.username);
+      return { stop: false };
+    }
+
+    state.hasAccount = true;
+    state.username = String(acc.username || (localProfile().name || 'Jugador')).slice(0, 16);
+    const cloudRaw = (typeof acc.save === 'string' && acc.save) ? acc.save : '';
+    const cloudSave = safeParse(cloudRaw);
+    const local = localSave();
+
+    if (!cloudSave) {
+      await writeAccount(state.username);
+      return { stop: false };
+    }
+    if (!local) return { stop: false };
+
+    if (JSON.stringify(local) === cloudRaw) return { stop: false };
+
+    // Un dispositivo nuevo (sin partidas) recupera la cuenta sin preguntar.
+    if (isFreshSave(local)) {
+      if (restoreCloud(cloudRaw)) return { stop: true };
+      await writeAccount(state.username);
+      return { stop: false };
+    }
+
+    const sameDevice = !!(local.profile && cloudSave.profile && local.profile.id && local.profile.id === cloudSave.profile.id);
+    if (sameDevice) {
+      // Mismo jugador: el progreso más avanzado manda sin molestar.
+      if (compareSaves(local, cloudSave) < 0) {
+        if (restoreCloud(cloudRaw)) return { stop: true };
+      }
+      await writeAccount(state.username);
+      return { stop: false };
+    }
+
+    // Dos progresos distintos: se pregunta antes de descartar ninguno.
+    pendingLogin = {
+      username: state.username,
+      cloudRaw: cloudRaw,
+      local: summarizeSave(local),
+      cloud: summarizeSave(cloudSave),
+      reason: 'boot'
+    };
+    state.pending = true;
+    emit('accountchoice', {
+      reason: 'boot',
+      username: state.username,
+      local: pendingLogin.local,
+      cloud: pendingLogin.cloud
+    });
+    return { stop: true };
+  }
+
+  async function finishLogin(username) {
+    state.pending = false;
+    pendingLogin = null;
+    // Reclama el nombre antes de cambiarlo en local, para liberar la reserva
+    // anterior del mismo uid (por ejemplo, el nombre aleatorio de invitado).
+    const claim = await claimName(username);
+    if (window.SAVE && typeof window.SAVE.setProfileName === 'function') {
+      window.SAVE.setProfileName(username);
+    }
+    state.name = username;
+    state.username = username;
+    await writeAccount(username);
+    await syncProfile();
+    await syncLeaderboard();
+    await flushQueue();
+    if (OPT.presence) startPresence();
+    if (claim && claim.taken) {
+      emit('nameconflict', { name: username, owner: claim.owner });
+      return { ok: true, warning: 'name_taken' };
+    }
+    return { ok: true };
+  }
+
+  /* Crea una cuenta nueva vinculando la sesión anónima actual (mismo uid),
+     de modo que el nombre y el progreso que ya existen no se pierdan. */
+  async function register(rawName, password) {
+    if (!configured()) return { ok: false, msg: 'La nube no está configurada.' };
+    await init();
+    const u = cleanUser(rawName);
+    if (!u.ok) return u;
+    if (!passwordOk(password)) return { ok: false, msg: 'La contraseña debe tener entre 6 y 128 caracteres.' };
+    if (!M || !auth || !db) return { ok: false, msg: 'Sin conexión con la nube. Revisa tu red e inténtalo de nuevo.' };
+    if (state.account) return { ok: false, msg: 'Ya hay una sesión iniciada. Cierra sesión para crear otra cuenta.' };
+
+    setSignedOutFlag(false);
+    if (!auth.currentUser) {
+      try { await M.authMod.signInAnonymously(auth); }
+      catch (err) { return { ok: false, msg: authMessage(err) }; }
+    }
+    state.uid = auth.currentUser.uid;
+    state.ready = true;
+    state.status = 'online';
+
+    // Comprueba el nombre antes de crear la cuenta: si ya está ocupado no se
+    // deja una cuenta huérfana con un correo interno ya gastado.
+    const chk = await checkName(u.name);
+    if (chk && chk.taken) return { ok: false, msg: 'Ese nombre ya lo usa otro jugador. Elige otro.' };
+    if (chk && chk.offline) return { ok: false, msg: 'Sin conexión: no se pudo comprobar si el nombre está libre.' };
+
+    const email = emailFor(u.name);
+    const cred = M.authMod.EmailAuthProvider.credential(email, password);
+    try {
+      if (auth.currentUser && auth.currentUser.isAnonymous) {
+        await M.authMod.linkWithCredential(auth.currentUser, cred);
+      } else {
+        await M.authMod.createUserWithEmailAndPassword(auth, email, password);
+      }
+    } catch (err) {
+      return { ok: false, msg: authMessage(err), code: String((err && err.code) || '') };
+    }
+
+    state.uid = auth.currentUser.uid;
+    state.account = true;
+    state.ready = true;
+    state.status = 'online';
+    state.error = null;
+    state.username = u.name;
+
+    const claim = await claimName(u.name);
+    if (window.SAVE && typeof window.SAVE.setProfileName === 'function') window.SAVE.setProfileName(u.name);
+    state.name = u.name;
+    await writeAccount(u.name);
+    await syncProfile();
+    await syncLeaderboard();
+    await flushQueue();
+    if (OPT.presence) startPresence();
+    state.hasAccount = true;
+    emit('accountchanged', status());
+
+    if (claim && claim.taken) {
+      emit('nameconflict', { name: u.name, owner: claim.owner });
+      return { ok: true, username: u.name, warning: 'name_taken' };
+    }
+    return { ok: true, username: u.name };
+  }
+
+  /* Inicia sesión en cualquier dispositivo. Devuelve needsChoice cuando hay
+     progreso local y progreso en la nube distintos: la interfaz pregunta. */
+  async function login(rawName, password) {
+    if (!configured()) return { ok: false, msg: 'La nube no está configurada.' };
+    await init();
+    const u = cleanUser(rawName);
+    if (!u.ok) return u;
+    if (!passwordOk(password)) return { ok: false, msg: 'Escribe tu contraseña (mínimo 6 caracteres).' };
+    if (!M || !auth || !db) return { ok: false, msg: 'Sin conexión con la nube. Revisa tu red e inténtalo de nuevo.' };
+
+    setSignedOutFlag(false);
+    if (auth.currentUser && !auth.currentUser.isAnonymous && auth.currentUser.email === emailFor(u.name)) {
+      return { ok: true, username: state.username || u.name, already: true };
+    }
+
+    if (auth.currentUser) {
+      try { await M.authMod.signOut(auth); } catch (e) { }
+    }
+    state.ready = false;
+    state.status = 'connecting';
+    state.error = null;
+
+    try {
+      await M.authMod.signInWithEmailAndPassword(auth, emailFor(u.name), password);
+    } catch (err) {
+      // Si el intento falla, se recupera una sesión de invitado para que el
+      // juego y el ranking sigan funcionando sin obligar a nada.
+      try {
+        if (!auth.currentUser) await M.authMod.signInAnonymously(auth);
+        state.uid = auth.currentUser ? auth.currentUser.uid : null;
+        state.account = false;
+        state.ready = !!state.uid;
+        state.status = state.uid ? 'online' : 'off';
+      } catch (e2) { state.ready = false; state.status = 'off'; }
+      return { ok: false, msg: authMessage(err), code: String((err && err.code) || '') };
+    }
+
+    state.uid = auth.currentUser.uid;
+    state.account = true;
+    state.ready = true;
+    state.status = 'online';
+    state.error = null;
+
+    let acc = null;
+    try { acc = await readAccount(); } catch (err) { warn('login/readAccount:', err); }
+    const username = String((acc && acc.username) || u.name).slice(0, 16);
+    state.username = username;
+    state.hasAccount = !!acc;
+
+    const cloudRaw = (acc && typeof acc.save === 'string' && acc.save) ? acc.save : '';
+    const cloudSave = safeParse(cloudRaw);
+    const local = localSave();
+
+    if (!cloudSave) {
+      const done = await finishLogin(username);
+      return { ok: true, username: username, needsChoice: false, warning: done.warning };
+    }
+
+    const localJson = (function () {
+      try { return localStorage.getItem('piovuelo_v1') || ''; } catch (e) { return ''; }
+    })();
+
+    if (isFreshSave(local) && localJson !== cloudRaw) {
+      if (restoreCloud(cloudRaw)) return { ok: true, username: username, restored: true };
+    }
+    if (localJson === cloudRaw) {
+      const done = await finishLogin(username);
+      return { ok: true, username: username, needsChoice: false, warning: done.warning };
+    }
+
+    pendingLogin = {
+      username: username,
+      cloudRaw: cloudRaw,
+      local: summarizeSave(local),
+      cloud: summarizeSave(cloudSave),
+      reason: 'login'
+    };
+    state.pending = true;
+    emit('accountchanged', status());
+    return {
+      ok: true,
+      username: username,
+      needsChoice: true,
+      local: pendingLogin.local,
+      cloud: pendingLogin.cloud
+    };
+  }
+
+  /* Resuelve la elección de progreso: 'cloud' descarga la copia de la cuenta
+     y 'local' sube la copia de este dispositivo. */
+  async function resolveLogin(mode) {
+    if (!pendingLogin) return { ok: false, msg: 'No hay ningún progreso pendiente.' };
+    const p = pendingLogin;
+    if (mode === 'cloud') {
+      if (restoreCloud(p.cloudRaw)) {
+        pendingLogin = null;
+        state.pending = false;
+        return { ok: true, restoring: true };
+      }
+      pendingLogin = null;
+      state.pending = false;
+      return { ok: false, msg: 'No se pudo cargar el progreso de la cuenta.' };
+    }
+    const done = await finishLogin(p.username);
+    setTimeout(function () {
+      try { if (typeof location !== 'undefined' && typeof location.reload === 'function') location.reload(); }
+      catch (e) { }
+    }, 80);
+    return { ok: true, warning: done.warning };
+  }
+
+  async function logout() {
+    if (!state.account) return { ok: false, msg: 'No hay ninguna sesión iniciada.' };
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    await writeAccount(state.username);      // última copia antes de salir
+    stopPresence();
+    try { if (M && auth) await M.authMod.signOut(auth); } catch (e) { }
+    setSignedOutFlag(true);
+    pendingLogin = null;
+    state.pending = false;
+    state.account = false;
+    state.username = '';
+    state.hasAccount = false;
+    state.uid = null;
+    state.ready = false;
+    state.status = 'off';
+    state.error = null;
+    emit('accountchanged', status());
+    emit('cloudstatus', status());
+    return { ok: true };
+  }
+
+  function session() {
+    return {
+      signedIn: !!state.uid,
+      account: !!state.account,
+      anonymous: !!state.uid && !state.account,
+      username: state.username || '',
+      name: localProfile().name || 'Jugador',
+      hasAccount: !!state.hasAccount,
+      pending: !!state.pending,
+      configured: configured(),
+      status: state.status
+    };
   }
 
   /* ------------------------------------------------------------------ */
@@ -650,7 +1279,7 @@ window.CLOUD = (function () {
     const s = localSave() || {};
     const st = s.stats || {};
     return {
-      name: localProfile().name || 'Jugador',
+      name: state.username || localProfile().name || 'Jugador',
       level: clampInt(s.level, 1, 999),
       online: true,
       lastSeen: Date.now(),
@@ -692,6 +1321,19 @@ window.CLOUD = (function () {
     }
 
     updateLiveBoard();
+  }
+
+  function stopPresence() {
+    if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
+    if (presenceRef && M && M.rtdbMod) {
+      try {
+        const d = presenceData();
+        d.online = false;
+        M.rtdbMod.set(presenceRef, d);
+        M.rtdbMod.onDisconnect(presenceRef).cancel();
+      } catch (e) { }
+    }
+    presenceRef = null;
   }
 
   function updateLiveBoard() {
@@ -902,6 +1544,15 @@ window.CLOUD = (function () {
     });
     window.addEventListener('offline', function () { emit('cloudstatus', status()); });
     window.addEventListener('piovuelo:saveerror', function () { if (state.ready) syncProfile(); });
+    window.addEventListener('piovuelo:saved', function () { scheduleSaveSync(); });
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden' && state.account && !state.pending) {
+          if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+          uploadSave();
+        }
+      });
+    }
   }
 
   if (configured()) {
@@ -918,6 +1569,12 @@ window.CLOUD = (function () {
     init: init,
     retry: retry,
     status: status,
+    session: session,
+    register: register,
+    login: login,
+    logout: logout,
+    resolveLogin: resolveLogin,
+    uploadSave: uploadSave,
     syncProfile: syncProfile,
     syncLeaderboard: syncLeaderboard,
     checkName: checkName,

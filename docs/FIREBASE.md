@@ -26,7 +26,7 @@ El proyecto **`pio-vuelo`** ya existe y está conectado:
 |---|---|
 | Firestore `(default)` | Creado en `us-central1`, catálogo cargado (515 documentos) |
 | Realtime Database | `pio-vuelo-default-rtdb` en `us-central1` |
-| Authentication | Proveedor **Anónimo** activo |
+| Authentication | Proveedores **Anónimo** y **Correo/contraseña** activos |
 | App web | `PIO VUELO Web`, configuración en `js/firebase-config.js` |
 | Reglas e índices | Desplegados con `npm run firebase:deploy` |
 
@@ -40,9 +40,10 @@ volver a cargar el catálogo.
 
 1. Entra en <https://console.firebase.google.com> y pulsa **Crear proyecto**.
 2. Nombre sugerido: `pio-vuelo`. Puedes desactivar Google Analytics.
-3. Cuando termine, abre **Compilación → Authentication → Comenzar** y activa el
-   proveedor **Anónimo**. Es el único que necesita el juego: no pide correo,
-   contraseña ni datos personales.
+3. Cuando termine, abre **Compilación → Authentication → Comenzar** y activa
+   los proveedores **Anónimo** y **Correo electrónico/contraseña**. El juego
+   usa la sesión anónima para invitados y el correo interno derivado del
+   usuario para las cuentas; el jugador nunca ve ni escribe un correo.
 4. Abre **Compilación → Firestore Database → Crear base de datos**.
    Elige **modo de producción** y una ubicación cercana (por ejemplo
    `southamerica-east1` o `us-central1`).
@@ -319,7 +320,9 @@ firebase emulators:start --only firestore,database,auth
 ## 7. Qué hace `js/cloud.js`
 
 - Carga el SDK modular **solo** si `enabled: true`.
-- Inicia sesión anónima y crea/actualiza `players/{uid}`.
+- Inicia sesión anónima para invitados y permite crear una cuenta con usuario
+  y contraseña. Al crear la cuenta se vincula la sesión anónima (mismo UID) y
+  se guarda una copia completa del progreso en `accounts/{uid}`.
 - Engancha `SAVE.endRun` y `SAVE.rename` sin tocar la lógica del juego.
 - Sube cada vuelo a `players/{uid}/runs` y actualiza el ranking.
 - Mantiene una cola local (`piovuelo_cloud_queue`) para vuelos sin conexión.
@@ -353,14 +356,15 @@ Comportamiento online:
 
 ## 8. Privacidad y límites
 
-- La autenticación es anónima: Firebase genera un UID aleatorio. No se pide
-  correo, teléfono ni nombre real.
-- El nombre visible lo elige el jugador y se puede repetir. Si más adelante
-  quieres nombres únicos, añade una colección `usernames/{slug}` con una
-  transacción.
-- El progreso local sigue siendo la fuente de verdad. Si borras los datos del
-  sitio, se pierde el UID anónimo y el vínculo con la nube; el juego empieza de
-  cero salvo que importes una copia JSON.
+- La sesión de invitado es anónima: Firebase genera un UID aleatorio. Las
+  cuentas usan un correo interno derivado del usuario (`u_…@piovuelo.local`)
+  que nunca se muestra ni recibe mensajes; la contraseña la guarda Firebase.
+- El nombre visible lo elige el jugador y es único a nivel global mediante
+  `names/{clave}`. Al crear la cuenta, el usuario pasa a ser su nombre.
+- El progreso local sigue siendo la fuente de verdad. Las cuentas guardan una
+  copia completa en `accounts/{uid}` y la restauran al entrar en otro
+  dispositivo. Sin cuenta, si borras los datos del sitio se pierde el vínculo
+  local salvo que importes una copia JSON.
 - Firestore y Realtime Database tienen cuotas gratuitas diarias. Revisa
   **Uso y facturación** antes de abrir el juego a muchos jugadores.
 - No se guardan datos de pago: el Pase Prémium se compra con monedas del juego.
@@ -371,7 +375,7 @@ Comportamiento online:
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
-| `auth/operation-not-allowed` | Falta activar Anónimo | Authentication → Sign-in method → Anónimo |
+| `auth/operation-not-allowed` | Falta activar Anónimo o Correo/contraseña | Authentication → Sign-in method → activa ambos |
 | `permission-denied` al leer el ranking | Reglas sin desplegar | `firebase deploy --only firestore:rules` |
 | `database/permission-denied` | Reglas RTDB sin desplegar | `firebase deploy --only database` |
 | El ranking sale vacío | No hay entradas o falta el índice | Ejecuta `firebase:seed:demo` y revisa los índices |

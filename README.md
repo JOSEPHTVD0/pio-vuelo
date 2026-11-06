@@ -53,10 +53,19 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Monedas, combos, power-ups, jefes y obstáculos.
 - Tienda de aves, sombreros, estelas, herramientas y cajas.
 - Misiones, pase de temporada, mapas y progreso.
-- Perfil local con nombre editable y récord persistente.
+- Perfil local o cuenta con usuario/contraseña y récord persistente.
 - Clasificación local por dispositivo y ranking online opcional con Firebase.
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
+
+## Novedades de la versión 3.3
+
+- **Cuenta con usuario y contraseña:** el nombre del jugador pasa a ser su usuario. Al crear la cuenta se vincula la sesión anónima actual, así que se conservan el nombre, el progreso y el `uid` sin empezar de cero.
+- **Progreso completo en la nube:** cada cuenta guarda una copia JSON de todo el progreso (`accounts/{uid}`) y la actualiza sola al jugar. En un dispositivo nuevo se descarga automáticamente al entrar.
+- **Elección si hay dos progresos:** si el dispositivo ya tenía partidas y la cuenta tiene otro progreso distinto, el juego pregunta cuál conservar (cuenta o dispositivo) antes de descargar o subir nada.
+- **Cierre de sesión seguro:** al salir se guarda una última copia en la cuenta y el dispositivo sigue jugando en modo local, sin crear un invitado nuevo.
+- **Nombre protegido:** con la sesión iniciada el nombre no se puede editar desde el perfil; la unicidad global la garantiza la cuenta y la reserva `names/{clave}`.
+- **Reglas privadas:** solo el dueño puede leer o escribir `accounts/{uid}`; la copia no se puede borrar desde el cliente y tiene un límite de tamaño.
 
 ## Novedades de la versión 3.2
 
@@ -96,8 +105,8 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 
 ## Pase Prémium
 
-- La línea gratuita y la prémium comparten la XP del jugador y sus 14 niveles.
-- El Pase Prémium se compra por temporada (3000 🪙), se activa al instante y no caduca a mitad de temporada.
+- La línea gratuita y la prémium comparten la XP del jugador y sus 20 niveles.
+- El Pase Prémium se compra por temporada (6000 🪙), se activa al instante y no caduca a mitad de temporada.
 - Sus recompensas están marcadas con `exclusive: true` y nunca se venden en la tienda ni entran en cajas.
 - Si ya posees una recompensa exclusiva, reclamarla de nuevo la convierte en 250 🪙 en lugar de duplicarla.
 - Al cambiar la estación se reinician las reclamaciones y hay que desbloquear el pase de la nueva temporada.

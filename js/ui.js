@@ -752,6 +752,36 @@ window.UI = (function () {
     $('modal').classList.remove('hidden');
   }
 
+  /* Elección entre el progreso local y el de la cuenta al iniciar sesión. */
+  function accountChoice(detail) {
+    const d = detail || {};
+    const fmt = (s) => {
+      const x = s || {};
+      return 'Nivel ' + (x.level || 1) + ' · ' + (x.flights || 0) + ' vuelos · récord ' +
+        (x.best || 0) + ' · ' + (x.coins || 0) + ' 🪙';
+    };
+    confirm('☁️ Elige tu progreso',
+      'En este dispositivo:\n' + fmt(d.local) +
+      '\n\nEn tu cuenta:\n' + fmt(d.cloud) +
+      '\n\nEl progreso que no elijas se perderá. Esta decisión no se puede deshacer.',
+      [
+        {
+          label: '☁️ El de mi cuenta', style: 'btn-play', cb: () => {
+            CLOUD.resolveLogin('cloud').then(r => {
+              if (r && !r.ok) toast('❌ ' + r.msg, 'warning');
+            }).catch(() => toast('❌ No se pudo cargar el progreso de la cuenta.', 'warning'));
+          }
+        },
+        {
+          label: '📱 El de este dispositivo', cb: () => {
+            CLOUD.resolveLogin('local').then(r => {
+              if (r && !r.ok) toast('❌ ' + r.msg, 'warning');
+            }).catch(() => toast('❌ No se pudo subir el progreso.', 'warning'));
+          }
+        }
+      ]);
+  }
+
   /* ---------- Navegación genérica ---------- */
   function openGeneric(kind, tab) {
     if (currentGeneric === 'records') {
@@ -1954,6 +1984,202 @@ window.UI = (function () {
     };
   }
 
+  /* ---------- Cuenta: acceso, registro y sesión ---------- */
+  function profileAccount(prof) {
+    const panel = document.createElement('div');
+    panel.className = 'profile-panel';
+    const h = document.createElement('h3');
+    panel.appendChild(h);
+
+    const sess = (window.CLOUD && typeof CLOUD.session === 'function')
+      ? CLOUD.session()
+      : { account: false, anonymous: false, signedIn: false, username: '' };
+
+    if (sess.account) {
+      h.textContent = '🔐 TU CUENTA';
+      const line = document.createElement('div');
+      line.className = 'profile-account-line';
+      const ico = document.createElement('span');
+      ico.className = 'profile-account-ico';
+      ico.textContent = '👤';
+      const info = document.createElement('div');
+      info.className = 'profile-account-info';
+      const uname = document.createElement('b');
+      uname.textContent = sess.username || prof.name;
+      const ok = document.createElement('span');
+      ok.className = 'profile-ok';
+      ok.textContent = 'Sesión iniciada';
+      info.appendChild(uname);
+      info.appendChild(ok);
+      line.appendChild(ico);
+      line.appendChild(info);
+      panel.appendChild(line);
+
+      const hint = document.createElement('div');
+      hint.className = 'profile-hint';
+      hint.textContent = 'Tu nombre es tu usuario. Todo tu progreso (monedas, nivel, aves, Pase, récords…) se guarda en tu cuenta y se recupera al iniciar sesión en otro dispositivo.';
+      panel.appendChild(hint);
+
+      const actions = document.createElement('div');
+      actions.className = 'profile-actions';
+      const out = document.createElement('button');
+      out.className = 'btn btn-ghost';
+      out.textContent = '🚪 Cerrar sesión';
+      out.onclick = () => {
+        SND.sfx.click();
+        confirmAction('Cerrar sesión',
+          'Tu progreso quedará guardado en tu cuenta. En este dispositivo seguirás pudiendo jugar, pero sin copia en la nube hasta que vuelvas a entrar.',
+          async () => {
+            out.disabled = true;
+            const r = await CLOUD.logout();
+            if (r && r.ok) {
+              toast('Has cerrado sesión. Tu progreso sigue en tu cuenta.', 'good');
+              setTimeout(() => { try { location.reload(); } catch (e) { } }, 400);
+            } else {
+              out.disabled = false;
+              toast('No se pudo cerrar sesión. Inténtalo de nuevo.', 'warning');
+            }
+          });
+      };
+      actions.appendChild(out);
+      panel.appendChild(actions);
+      return panel;
+    }
+
+    h.textContent = '🔐 INICIA SESIÓN O CREA TU CUENTA';
+    const intro = document.createElement('div');
+    intro.className = 'profile-hint';
+    intro.textContent = sess.anonymous
+      ? 'Estás jugando como invitado. Crea una cuenta para que tu nombre quede registrado y no perder tu progreso al cambiar de dispositivo.'
+      : 'Inicia sesión para recuperar tu nombre, monedas, nivel y todo tu progreso en cualquier dispositivo.';
+    panel.appendChild(intro);
+
+    /* --- Entrar --- */
+    const login = document.createElement('div');
+    login.className = 'profile-account-block';
+    login.innerHTML =
+      '<div class="profile-field-label">Ya tengo cuenta</div>' +
+      '<input class="profile-input" type="text" maxlength="16" autocomplete="username" placeholder="Usuario">' +
+      '<input class="profile-input" type="password" maxlength="128" autocomplete="current-password" placeholder="Contraseña">' +
+      '<div class="profile-msg"></div>' +
+      '<div class="profile-actions"><button class="btn btn-primary">Entrar</button></div>';
+    const loginUser = login.querySelectorAll('input')[0];
+    const loginPass = login.querySelectorAll('input')[1];
+    const loginMsg = login.querySelector('.profile-msg');
+    const loginBtn = login.querySelector('button');
+    loginUser.value = prof.name;
+    let loginBusy = false;
+    const doLogin = async () => {
+      if (loginBusy) return;
+      loginBusy = true;
+      loginBtn.disabled = true;
+      const old = loginBtn.textContent;
+      loginBtn.textContent = '⏳ Entrando…';
+      loginMsg.className = 'profile-msg';
+      loginMsg.textContent = 'Comprobando tu cuenta…';
+      try {
+        const r = await CLOUD.login(loginUser.value, loginPass.value);
+        if (!r.ok) {
+          loginMsg.className = 'profile-msg bad';
+          loginMsg.textContent = '❌ ' + r.msg;
+          loginPass.value = '';
+          SND.sfx.deny();
+          return;
+        }
+        if (r.restored) return;                 // la nube recarga la página
+        if (r.needsChoice) {
+          accountChoice({ local: r.local, cloud: r.cloud, reason: 'login' });
+          return;
+        }
+        toast('✅ Sesión iniciada como ' + r.username, 'good');
+        SND.sfx.level();
+        setTimeout(() => { try { location.reload(); } catch (e) { } }, 400);
+      } catch (err) {
+        loginMsg.className = 'profile-msg bad';
+        loginMsg.textContent = '❌ No se pudo iniciar sesión. Revisa tu conexión.';
+        SND.sfx.deny();
+      } finally {
+        loginBusy = false;
+        loginBtn.disabled = false;
+        loginBtn.textContent = old;
+      }
+    };
+    loginBtn.onclick = () => { SND.sfx.click(); doLogin(); };
+    [loginUser, loginPass].forEach(el => el.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter') { ev.preventDefault(); SND.sfx.click(); doLogin(); }
+    }));
+    panel.appendChild(login);
+
+    const sep = document.createElement('div');
+    sep.className = 'profile-sep';
+    panel.appendChild(sep);
+
+    /* --- Crear cuenta --- */
+    const reg = document.createElement('div');
+    reg.className = 'profile-account-block';
+    reg.innerHTML =
+      '<div class="profile-field-label">Crear cuenta nueva</div>' +
+      '<input class="profile-input" type="text" maxlength="16" autocomplete="username" placeholder="Tu nombre de jugador">' +
+      '<input class="profile-input" type="password" maxlength="128" autocomplete="new-password" placeholder="Contraseña (mínimo 6)">' +
+      '<input class="profile-input" type="password" maxlength="128" autocomplete="new-password" placeholder="Repite la contraseña">' +
+      '<div class="profile-msg"></div>' +
+      '<div class="profile-actions"><button class="btn btn-play">Crear mi cuenta</button></div>' +
+      '<div class="profile-warn">⚠️ Sin correo no hay recuperación de contraseña. Apunta tu usuario y contraseña en un lugar seguro.</div>';
+    const regUser = reg.querySelectorAll('input')[0];
+    const regPass = reg.querySelectorAll('input')[1];
+    const regPass2 = reg.querySelectorAll('input')[2];
+    const regMsg = reg.querySelector('.profile-msg');
+    const regBtn = reg.querySelector('button');
+    regUser.value = prof.name;
+    let regBusy = false;
+    const doRegister = async () => {
+      if (regBusy) return;
+      regMsg.className = 'profile-msg';
+      if (regPass.value !== regPass2.value) {
+        regMsg.className = 'profile-msg bad';
+        regMsg.textContent = '❌ Las contraseñas no coinciden.';
+        SND.sfx.deny();
+        return;
+      }
+      regBusy = true;
+      regBtn.disabled = true;
+      const old = regBtn.textContent;
+      regBtn.textContent = '⏳ Creando…';
+      regMsg.textContent = 'Reservando tu nombre y creando la cuenta…';
+      try {
+        const r = await CLOUD.register(regUser.value, regPass.value);
+        if (!r.ok) {
+          regMsg.className = 'profile-msg bad';
+          regMsg.textContent = '❌ ' + r.msg;
+          SND.sfx.deny();
+          return;
+        }
+        regMsg.className = 'profile-msg good';
+        regMsg.textContent = '✅ Cuenta creada. Tu progreso ya está vinculado.';
+        SND.sfx.level();
+        toast(r.warning === 'name_taken'
+          ? '⚠️ Cuenta creada, pero tu nombre está reservado por otro jugador.'
+          : '✅ Cuenta creada como ' + r.username, r.warning === 'name_taken' ? 'warning' : 'good');
+        setTimeout(() => { try { location.reload(); } catch (e) { } }, 600);
+      } catch (err) {
+        regMsg.className = 'profile-msg bad';
+        regMsg.textContent = '❌ No se pudo crear la cuenta. Revisa tu conexión.';
+        SND.sfx.deny();
+      } finally {
+        regBusy = false;
+        regBtn.disabled = false;
+        regBtn.textContent = old;
+      }
+    };
+    regBtn.onclick = () => { SND.sfx.click(); doRegister(); };
+    [regUser, regPass, regPass2].forEach(el => el.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter') { ev.preventDefault(); SND.sfx.click(); doRegister(); }
+    }));
+    panel.appendChild(reg);
+
+    return panel;
+  }
+
   /* ---------- Perfil / identidad local ---------- */
   function renderProfile() {
     const body = $('genBody');
@@ -1980,14 +2206,21 @@ window.UI = (function () {
       '<div class="profile-stat"><b>' + s.coins + '</b><span>🪙 Monedas</span></div>';
     body.appendChild(stats);
 
+    const sess = (window.CLOUD && typeof CLOUD.session === 'function')
+      ? CLOUD.session()
+      : { account: false, anonymous: false, signedIn: false, username: '' };
+    body.appendChild(profileAccount(prof));
+
     const panel = document.createElement('div');
     panel.className = 'profile-panel';
     const h = document.createElement('h3');
-    h.textContent = '✏️ TU NOMBRE';
+    h.textContent = sess.account ? '👤 TU NOMBRE DE JUGADOR' : '✏️ TU NOMBRE';
     panel.appendChild(h);
     const hint = document.createElement('div');
     hint.className = 'profile-hint';
-    hint.textContent = 'De 2 a 16 caracteres. Letras, números, espacio, punto, guion y guion bajo.';
+    hint.textContent = sess.account
+      ? 'Tu nombre es tu usuario y está protegido por tu cuenta. Para usar otro nombre tendrías que crear una cuenta nueva.'
+      : 'De 2 a 16 caracteres. Letras, números, espacio, punto, guion y guion bajo.';
     panel.appendChild(hint);
 
     const input = document.createElement('input');
@@ -1997,6 +2230,10 @@ window.UI = (function () {
     input.value = prof.name;
     input.setAttribute('autocomplete', 'off');
     input.setAttribute('aria-label', 'Nombre de jugador');
+    if (sess.account) {
+      input.disabled = true;
+      input.title = 'El nombre de una cuenta no se puede cambiar desde aquí.';
+    }
     panel.appendChild(input);
 
     const msg = document.createElement('div');
@@ -2011,12 +2248,15 @@ window.UI = (function () {
     const rndBtn = document.createElement('button');
     rndBtn.className = 'btn btn-ghost';
     rndBtn.textContent = '🎲 Nombre aleatorio';
-    actions.appendChild(saveBtn);
-    actions.appendChild(rndBtn);
-    panel.appendChild(actions);
+    if (!sess.account) {
+      actions.appendChild(saveBtn);
+      actions.appendChild(rndBtn);
+      panel.appendChild(actions);
+    }
 
     let nameBusy = false;
     const commit = async (candidate) => {
+      if (sess.account) return;
       if (nameBusy) return;
 
       // 1) Validación local (formato y nombres ya usados en este dispositivo).
@@ -2109,9 +2349,11 @@ window.UI = (function () {
     const note = document.createElement('div');
     note.className = 'panel-note';
     const cloudProfile = !!(window.CLOUD && typeof CLOUD.configured === 'function' && CLOUD.configured());
-    note.innerHTML = cloudProfile
-      ? '☁️ Perfil con Firebase opcional: se usa una sesión anónima (sin correo ni contraseña). El progreso local sigue guardándose en este dispositivo y se sincroniza cuando hay conexión.'
-      : '🔒 Perfil local sin cuentas ni contraseñas. El nombre y el récord viven en este navegador; si borras los datos del sitio, se pierden. No se envía nada a ningún servidor.';
+    note.innerHTML = sess.account
+      ? '☁️ Cuenta vinculada: tu nombre y todo tu progreso se guardan en tu cuenta y se restauran al iniciar sesión en cualquier dispositivo. La copia local de este navegador se mantiene como respaldo.'
+      : (cloudProfile
+        ? '☁️ Perfil con Firebase opcional: se usa una sesión anónima (sin correo ni contraseña). El progreso local sigue guardándose en este dispositivo y se sincroniza cuando hay conexión.'
+        : '🔒 Perfil local sin cuentas ni contraseñas. El nombre y el récord viven en este navegador; si borras los datos del sitio, se pierden. No se envía nada a ningún servidor.');
     body.appendChild(note);
   }
 
@@ -2789,7 +3031,7 @@ window.UI = (function () {
     const about = document.createElement('div');
     about.className = 'prog-card';
     about.style.textAlign = 'center';
-    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.2 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.3 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
     body.appendChild(about);
   }
 
@@ -3218,6 +3460,7 @@ window.UI = (function () {
     setHudVisible, showStartHint, setPaused, setResumeCountdown, refreshHudTools, updateEffectTimers,
     showGameOver, showModeClear, toast, confirm, openGeneric, closeGeneric,
     showModePick, closeModePick, isModePickOpen,
+    accountChoice,
     popAch,
     current: () => currentGeneric
   };

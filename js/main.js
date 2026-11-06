@@ -76,6 +76,14 @@ window.APP = (function () {
           '» ya lo usa otro jugador. Cámbialo en Perfil.', 'warning');
       }, 1400);
     });
+    // Hay dos progresos distintos (dispositivo y cuenta): se pregunta cuál usar.
+    window.addEventListener('piovuelo:accountchoice', (ev) => {
+      UI.accountChoice((ev && ev.detail) || {});
+    });
+    // La sesión cambió (registro o cierre): refresca el perfil si está abierto.
+    window.addEventListener('piovuelo:accountchanged', () => {
+      if (UI.current() === 'profile') UI.openGeneric('profile');
+    });
     const st = SAVE.get().set;
     SND.setSfx(st.sfx);
     SND.setMusic(st.music);

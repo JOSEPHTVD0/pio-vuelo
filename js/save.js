@@ -334,6 +334,13 @@ window.SAVE = (function () {
     try {
       localStorage.setItem(KEY, JSON.stringify(data));
       saveError = false;
+      // Aviso interno: la capa de nube lo usa para subir el progreso completo
+      // (con un pequeño retardo) cuando la cuenta está vinculada.
+      try {
+        if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent === 'function') {
+          window.dispatchEvent(new CustomEvent('piovuelo:saved'));
+        }
+      } catch (e2) { }
       return true;
     } catch (e) {
       if (!saveError) {
@@ -541,6 +548,24 @@ window.SAVE = (function () {
     if (me) me.name = nm;
     const ok = save();
     return { ok: true, name: nm, key: c.key, saved: ok };
+  }
+
+  // Nombre vinculado a una cuenta ya autenticada. La unicidad global la
+  // garantiza la cuenta (Firestore names/{clave}); aquí solo se valida el
+  // formato y se actualiza el perfil local sin usar la lista del dispositivo.
+  function setProfileName(raw) {
+    const original = typeof raw === 'string' ? raw : '';
+    const trimmed = original.replace(/\s+/g, ' ').trim();
+    const nm = cleanName(original);
+    if (!nm || nm !== trimmed || nm.length < NAME_MIN || nm.length > NAME_MAX) {
+      return { ok: false, msg: 'Nombre no válido.' };
+    }
+    data.profile.name = nm;
+    if (!data.knownNames.some(n => n.toLowerCase() === nm.toLowerCase())) data.knownNames.push(nm);
+    const me = data.players.find(p => p.id === data.profile.id);
+    if (me) me.name = nm;
+    const ok = save();
+    return { ok: true, name: nm, key: nameKey(nm), saved: ok };
   }
 
   /* --- Escudos persistentes (inventario entre partidas) --- */
@@ -1280,7 +1305,7 @@ window.SAVE = (function () {
     nestDecor, isDecorOwned, buyDecor, equipDecor,
     eggSlotsFree, eggIncubating, buyEgg, hatchEgg,
     // perfil, ranking local y escudos persistentes
-    getProfile, rename, checkName, nameKey, randomName, cleanName, leaderboard,
+    getProfile, rename, setProfileName, checkName, nameKey, randomName, cleanName, leaderboard,
     shieldCount, addShield, useShield,
     lastSaveError, lastLoadError
   };

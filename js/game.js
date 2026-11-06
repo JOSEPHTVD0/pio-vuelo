@@ -658,7 +658,7 @@ function difficultyFor(sc, diffc) {
     const dt = Math.min(rawDt, 0.033);
     // Límite de FPS opcional: se salta el frame de lógica sin tocar lastTime,
     // así el tiempo acumulado se aplica en el siguiente frame (no se pierde).
-    const fpsCap = (window.SAVE && SAVE.get && SAVE.get().set.fps) | 0;
+    const fpsCap = (window.SAVE && SAVE.get && SAVE.get() && SAVE.get().set ? SAVE.get().set.fps : 0) | 0;
     if (fpsCap > 0 && !paused && (ms - lastTime) < (1000 / fpsCap - 1.5)) {
       rafId = requestAnimationFrame(loop);
       return;

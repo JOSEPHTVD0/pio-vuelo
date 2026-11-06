@@ -19,6 +19,7 @@ const ROOT = path.join(__dirname, '..');
 const PORT = 8123;
 const URL = 'http://127.0.0.1:' + PORT + '/';
 const DEBUG_PORT = 9223;
+const EMULATORS = process.env.PIO_EMULATORS === '1';
 
 function findBrowser() {
   const candidates = [
@@ -188,7 +189,9 @@ function makeClient(ws) {
     await sleep(300);
 
     // Ranking online real. Se puede omitir con SKIP_ONLINE=1 en entornos sin red.
-    if (process.env.SKIP_ONLINE !== '1') {
+    // Con PIO_EMULATORS=1 se sustituye por las pruebas de cuenta contra los
+    // emuladores locales (nunca contra producción).
+    if (!EMULATORS && process.env.SKIP_ONLINE !== '1') {
       const cloudStatus = await evalJs("CLOUD.init().then(function(s){return {status:s.status, ready:s.ready, error:s.error, configured:s.configured}}).catch(function(e){return {status:'error', ready:false, error:String(e)}})");
       ok(cloudStatus && cloudStatus.configured, 'la nube de Firebase está configurada');
       ok(cloudStatus && cloudStatus.ready && cloudStatus.status === 'online', 'Firebase conecta con sesión anónima', cloudStatus && (cloudStatus.status + (cloudStatus.error ? ' · ' + cloudStatus.error : '')));
@@ -250,6 +253,76 @@ function makeClient(ws) {
       } else {
         await evalJs("localStorage.setItem('" + cacheKey + "', " + JSON.stringify(cacheBackup) + ")");
       }
+    }
+
+    // Cuenta real contra los emuladores: registro, copia en la nube,
+    // restauración en un "dispositivo nuevo", cierre y login con elección.
+    if (EMULATORS) {
+      const emuUser = 'T' + String(Date.now()).slice(-9);
+      const emuPass = 'Prueba123';
+      const bootCloud = await evalJs("CLOUD.init().then(function(s){return {status:s.status,ready:s.ready,configured:s.configured,session:CLOUD.session()}}).catch(function(e){return {status:'error',ready:false,error:String(e)}})");
+      ok(bootCloud && bootCloud.configured, 'la nube de emuladores está configurada');
+      ok(bootCloud && bootCloud.ready && bootCloud.status === 'online', 'Firebase conecta contra los emuladores', bootCloud && (bootCloud.status + (bootCloud.error ? ' · ' + bootCloud.error : '')));
+      ok(bootCloud && bootCloud.session && bootCloud.session.anonymous, 'la sesión inicial es de invitado');
+
+      await evalJs("UI.openGeneric('profile')");
+      await sleep(400);
+      const guestProfile = await evalJs("(function(){var b=document.getElementById('genBody');return {blocks:b.querySelectorAll('.profile-account-block').length,inputs:b.querySelectorAll('.profile-input').length,text:b.textContent}})()");
+      ok(guestProfile.blocks >= 2 && guestProfile.inputs >= 5, 'el perfil ofrece entrar y crear cuenta', guestProfile.blocks + ' bloques / ' + guestProfile.inputs + ' campos');
+      ok(guestProfile.text.indexOf('Estás jugando como invitado') !== -1, 'el perfil explica que ahora se juega como invitado');
+      await evalJs("UI.closeGeneric()");
+      await sleep(200);
+
+      // Progreso reconocible que debe viajar a la nube al crear la cuenta.
+      await evalJs("SAVE.setLevel(9); SAVE.addCoins(4321);");
+      const before = await evalJs("({level:SAVE.get().level,coins:SAVE.get().coins,name:SAVE.getProfile().name})");
+      const reg = await evalJs("CLOUD.register('" + emuUser + "','" + emuPass + "').then(function(r){return r}).catch(function(e){return {ok:false,msg:String(e)}})");
+      ok(reg && reg.ok, 'el registro crea la cuenta con usuario y contraseña', JSON.stringify(reg));
+      const afterReg = await evalJs("({session:CLOUD.session(),name:SAVE.getProfile().name})");
+      ok(afterReg.session.account && afterReg.session.username === emuUser, 'la cuenta queda iniciada y vinculada', JSON.stringify(afterReg.session));
+      ok(afterReg.name === emuUser, 'el nombre del jugador pasa a ser el usuario');
+
+      await evalJs("UI.openGeneric('profile')");
+      await sleep(400);
+      const accProfile = await evalJs("(function(){var b=document.getElementById('genBody');var t=b.textContent;var out=false;Array.prototype.forEach.call(b.querySelectorAll('button'),function(x){if(x.textContent.indexOf('Cerrar sesión')!==-1)out=true});return {signed:t.indexOf('Sesión iniciada')!==-1,locked:!!b.querySelector('.profile-input[disabled]'),logout:out}})()");
+      ok(accProfile.signed && accProfile.logout, 'el perfil muestra la sesión y el botón de cerrar sesión');
+      ok(accProfile.locked, 'el nombre no se puede editar mientras hay sesión');
+      await evalJs("UI.closeGeneric()");
+      await sleep(300);
+
+      // "Dispositivo nuevo": se borra el guardado local y se recarga. La cuenta
+      // debe restaurar el progreso automáticamente.
+      await evalJs("localStorage.removeItem('piovuelo_v1'); setTimeout(function(){location.reload()},50); true");
+      await sleep(7000);
+      const restored = await evalJs("({level:SAVE.get().level,coins:SAVE.get().coins,name:SAVE.getProfile().name,account:CLOUD.session().account})");
+      ok(restored.level === before.level && restored.coins === before.coins, 'un dispositivo nuevo restaura el progreso de la cuenta', JSON.stringify(restored) + ' vs ' + JSON.stringify(before));
+      ok(restored.name === emuUser && restored.account, 'el nombre y la sesión también se restauran');
+
+      // Cierre de sesión: el juego sigue en local, sin invitado nuevo.
+      const out = await evalJs("CLOUD.logout().then(function(r){return r}).catch(function(e){return {ok:false,msg:String(e)}})");
+      ok(out && out.ok, 'se puede cerrar sesión');
+      const afterOut = await evalJs("({session:CLOUD.session(),level:SAVE.get().level,coins:SAVE.get().coins})");
+      ok(!afterOut.session.account && !afterOut.session.signedIn, 'tras cerrar sesión no hay cuenta activa', JSON.stringify(afterOut.session));
+      ok(afterOut.level === before.level, 'el progreso local se conserva al cerrar sesión');
+
+      // Progreso distinto en este dispositivo: al entrar debe preguntar.
+      await evalJs("SAVE.setLevel(13); SAVE.addCoins(500);");
+      const login = await evalJs("CLOUD.login('" + emuUser + "','" + emuPass + "').then(function(r){return r}).catch(function(e){return {ok:false,msg:String(e)}})");
+      ok(login && login.ok && login.needsChoice, 'al entrar con progreso distinto se pide elegir', JSON.stringify(login));
+      ok(login.local && login.cloud && login.local.level === 13 && login.cloud.level === before.level, 'la elección muestra los dos progresos reales', JSON.stringify(login.local) + ' / ' + JSON.stringify(login.cloud));
+
+      // La interfaz dibuja el modal de elección y la opción de la cuenta
+      // restaura la copia guardada en la nube.
+      await evalJs("UI.accountChoice({local:" + JSON.stringify(login.local) + ",cloud:" + JSON.stringify(login.cloud) + ",reason:'login'})");
+      await sleep(400);
+      const modal = await evalJs("({visible:!document.getElementById('modal').classList.contains('hidden'),text:document.getElementById('modalText').textContent,buttons:document.querySelectorAll('#modalActions .btn').length})");
+      ok(modal.visible && modal.buttons === 2, 'el modal de elección ofrece las dos opciones', String(modal.buttons));
+      ok(modal.text.indexOf('En este dispositivo') !== -1 && modal.text.indexOf('En tu cuenta') !== -1, 'el modal compara los dos progresos');
+      await evalJs("document.querySelector('#modalActions .btn').click(); true");
+      await sleep(7000);
+      const chosen = await evalJs("({level:SAVE.get().level,coins:SAVE.get().coins,name:SAVE.getProfile().name,session:CLOUD.session()})");
+      ok(chosen.level === before.level && chosen.coins === before.coins, 'elegir la cuenta restaura su progreso', JSON.stringify(chosen) + ' vs ' + JSON.stringify(before));
+      ok(chosen.session.account && chosen.session.username === emuUser, 'la sesión queda iniciada tras elegir la cuenta');
     }
 
     // Errores reales de la consola

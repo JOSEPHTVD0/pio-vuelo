@@ -6,6 +6,7 @@ rules_version = '2';
    Modelo:
      players/{uid}                         perfil y resumen de progreso (privado)
      players/{uid}/runs/{runId}            historial de vuelos (privado, inmutable)
+     accounts/{uid}                        copia completa del progreso (privada)
      leaderboards/{boardId}/entries/{uid}  ranking público (solo tu entrada)
      catalog/{type}/items/{itemId}         catálogo del juego (solo lectura)
      seasons/{seasonKey}                   pase y recompensas (solo lectura)
@@ -157,6 +158,38 @@ service cloud.firestore {
         && validName(request.resource.data.name);
 
       allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    /* ---------- Copia completa del progreso de una cuenta ----------
+       Solo el dueño puede leer y escribir su propio documento. El guardado
+       viaja como string JSON (máx. 900 KB) porque Firestore limita cada
+       documento a 1 MB. Nunca se permite borrar la copia desde el cliente. */
+    match /accounts/{uid} {
+      allow read: if isSelf(uid);
+      allow delete: if false;
+
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'username', 'nameKey', 'save', 'saveLevel', 'saveBest',
+          'saveFlights', 'saveAt', 'updatedAt', 'schema'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid', 'username', 'nameKey', 'save', 'saveLevel', 'saveBest',
+          'saveFlights', 'saveAt', 'updatedAt', 'schema'
+        ])
+        && request.resource.data.uid == uid
+        && validName(request.resource.data.username)
+        && request.resource.data.nameKey is string
+        && request.resource.data.nameKey.size() >= 3
+        && request.resource.data.nameKey.size() <= 120
+        && request.resource.data.save is string
+        && request.resource.data.save.size() <= 950000
+        && intIn(request.resource.data.saveLevel, 1, 999)
+        && intIn(request.resource.data.saveBest, 0, 10000000)
+        && intIn(request.resource.data.saveFlights, 0, 100000000)
+        && request.resource.data.saveAt is int
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.schema == 1;
     }
 
     /* ---------- Catálogo, temporadas y configuración (solo lectura) ---------- */
