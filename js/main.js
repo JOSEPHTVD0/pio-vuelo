@@ -68,6 +68,14 @@ window.APP = (function () {
     } else if (SAVE.lastSaveError && SAVE.lastSaveError()) {
       setTimeout(() => UI.toast('⚠️ El progreso no se está guardando en este dispositivo.', 'warning'), 1200);
     }
+    // La nube avisa si el nombre local ya estaba reservado por otro jugador.
+    window.addEventListener('piovuelo:nameconflict', (ev) => {
+      const d = (ev && ev.detail) || {};
+      setTimeout(() => {
+        UI.toast('⚠️ El nombre «' + (d.name || SAVE.getProfile().name) +
+          '» ya lo usa otro jugador. Cámbialo en Perfil.', 'warning');
+      }, 1400);
+    });
     const st = SAVE.get().set;
     SND.setSfx(st.sfx);
     SND.setMusic(st.music);
@@ -259,7 +267,7 @@ window.APP = (function () {
     };
     $('admMaxUpg').onclick = () => {
       SAVE.giveAllUpg();
-      adminToast('Todas las herramientas al nivel 5 ⭐');
+      adminToast('Todas las herramientas al nivel 8 ⭐');
       UI.refreshHome();
     };
     $('admAchAll').onclick = () => {

@@ -58,6 +58,14 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
 
+## Novedades de la versión 3.2
+
+- **Nombres únicos globales:** cada nombre se reserva en Firestore con una transacción (`names/{clave}`). Si otro jugador ya lo tiene, al guardar aparece un error explícito y no se cambia el perfil. La clave ignora mayúsculas y tildes y los nombres históricos se siembran con el Admin SDK.
+- **Pase de Vuelo más largo y exigente:** sube de 14 a **20 niveles**, con umbrales de XP más altos (hasta 12.350 XP), 9 recompensas de herramienta, piezas, escudos y un cosmético de temporada.
+- **Pase Prémium más costoso:** ahora cuesta **6000 🪙** e incluye 20 recompensas exclusivas, con el ave **Eterna**, los sombreros **Aurora Boreal** y **Yelmo Cósmico**, la estela **Cuásar** y el mapa **Cielo de Cuásar**.
+- **Tienda ampliada:** 6 aves nuevas (Tucán, Búho, Colibrí, Pavo Real, Garza y Pelícano), 4 mapas con mecánicas propias (Jardín Secreto, Distrito Industrial, Sabana Dorada y Arrecife), 6 herramientas, 5 sombreros, 6 estelas, 2 huevos y 8 decoraciones.
+- **Herramientas hasta nivel 8:** cada mejora añade **4 puntos de durabilidad** (base 14) y reduce el desgaste por uso. El coste y las piezas suben por nivel y la interfaz muestra la comparativa antes/después.
+
 ## Novedades de la versión 3.1
 
 - **Récords online reales:** ranking global con Firebase, sesión anónima y lectura pública. Solo se publican nombre, nivel y mejor marca; las entradas con 0 puntos se filtran.

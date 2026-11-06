@@ -18,7 +18,7 @@ const admin = require('firebase-admin');
 const { initializeApp } = require('firebase/app');
 const { getAuth, connectAuthEmulator, signInAnonymously } = require('firebase/auth');
 const {
-  getFirestore, connectFirestoreEmulator, doc, setDoc, getDoc,
+  getFirestore, connectFirestoreEmulator, doc, setDoc, getDoc, deleteDoc,
   collection, addDoc, serverTimestamp
 } = require('firebase/firestore');
 const {
@@ -266,6 +266,57 @@ async function main() {
   const credB = await signInAnonymously(b.auth);
   const uidB = credB.user.uid;
   console.log('UID B: ' + uidB);
+
+  console.log('\nFirestore · nombres únicos');
+  function namePayload(uid, name, key, extra) {
+    return Object.assign({
+      key: key, name: name, uid: uid,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+    }, extra || {});
+  }
+  await expectOk('un jugador reserva un nombre libre', function () {
+    return setDoc(doc(a.db, 'names', 'n_testera'), namePayload(uidA, 'TesterA', 'n_testera'));
+  });
+  await expectOk('el dueño actualiza su propia reserva', function () {
+    return setDoc(doc(a.db, 'names', 'n_testera'), {
+      name: 'TesterA', updatedAt: serverTimestamp()
+    }, { merge: true });
+  });
+  await expectOk('otro jugador puede consultar si el nombre está ocupado', function () {
+    return getDoc(doc(b.db, 'names', 'n_testera'));
+  });
+  await expectDenied('nadie reserva un nombre a otro UID', function () {
+    return setDoc(doc(b.db, 'names', 'n_ajeno'), namePayload(uidA, 'Ajeno', 'n_ajeno'));
+  });
+  await expectDenied('nadie escribe la reserva de otro jugador', function () {
+    return setDoc(doc(b.db, 'names', 'n_testera'), {
+      name: 'Robado', updatedAt: serverTimestamp()
+    }, { merge: true });
+  });
+  await expectDenied('nadie borra la reserva de otro jugador', function () {
+    return deleteDoc(doc(b.db, 'names', 'n_testera'));
+  });
+  await expectDenied('la clave del documento debe coincidir', function () {
+    return setDoc(doc(a.db, 'names', 'n_otro'), namePayload(uidA, 'Otro', 'n_distinto'));
+  });
+  await expectDenied('un nombre de 1 carácter no se reserva', function () {
+    return setDoc(doc(a.db, 'names', 'n_corto'), namePayload(uidA, 'X', 'n_corto'));
+  });
+  await expectDenied('una reserva con campos extra se rechaza', function () {
+    return setDoc(doc(a.db, 'names', 'n_extra'),
+      namePayload(uidA, 'Extra', 'n_extra', { admin: true }));
+  });
+  await expectOk('el segundo jugador reserva su propio nombre', function () {
+    return setDoc(doc(b.db, 'names', 'n_testerb'), namePayload(uidB, 'TesterB', 'n_testerb'));
+  });
+  await expectDenied('nadie puede apropiarse de una reserva cambiando el uid', function () {
+    return setDoc(doc(b.db, 'names', 'n_testerb'), {
+      uid: uidA, updatedAt: serverTimestamp()
+    }, { merge: true });
+  });
+  await expectOk('el dueño puede borrar su propia reserva', function () {
+    return deleteDoc(doc(b.db, 'names', 'n_testerb'));
+  });
 
   await expectOk('un invitado se une al duelo', function () {
     return update(ref(b.rtdb, 'duels/' + code), {

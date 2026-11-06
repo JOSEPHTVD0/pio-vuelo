@@ -1251,7 +1251,7 @@ function difficultyFor(sc, diffc) {
     return DAT.MAPS[(day * 7 + now.getMonth() + 3) % DAT.MAPS.length].id;
   }
 
-  // Nivel de mejora de una herramienta (0..5)
+  // Nivel de mejora de una herramienta (0..8)
   function toolLv(k) { return SAVE && SAVE.toolLevel ? SAVE.toolLevel(k) : 0; }
 
   // Herramientas en modo 'auto' se consumen al empezar la partida
@@ -1455,6 +1455,35 @@ function difficultyFor(sc, diffc) {
       rt.flot = true;
       FX.text(bird.x, bird.y - bird.r - 60, '🎈 ¡Flotador! +1 choque', 14, '#ffcc80');
       updateHUD();
+    } else if (key === 'magnetx') {
+      eff.magnet = t + 12 + lv * 1.8;
+      effDur.magnet = 12 + lv * 1.8;
+      FX.text(bird.x, bird.y - bird.r - 60, '🧲 ¡Súper Imán!', 14, '#ff7043');
+      updateHUD();
+    } else if (key === 'slowx') {
+      eff.slow = t + 10 + lv * 1.6;
+      effDur.slow = 10 + lv * 1.6;
+      FX.text(bird.x, bird.y - bird.r - 60, '⏳ ¡Cámara Ultra!', 14, '#ffd54f');
+      updateHUD();
+    } else if (key === 'coinsx') {
+      eff.xc = t + 12 + lv * 1.8;
+      effDur.xc = 12 + lv * 1.8;
+      FX.text(bird.x, bird.y - bird.r - 60, '💰 ¡Monedas Plus+!', 14, '#b2ff59');
+      updateHUD();
+    } else if (key === 'shieldx') {
+      SAVE.addShield(2);
+      FX.text(bird.x, bird.y - bird.r - 60, '🛡️ ¡Doble Escudo! (' + SAVE.shieldCount() + ')', 14, '#29b6f6');
+      updateHUD();
+    } else if (key === 'ghostx') {
+      eff.ghost = t + 7 + lv * 1.2;
+      effDur.ghost = 7 + lv * 1.2;
+      FX.text(bird.x, bird.y - bird.r - 60, '👻 ¡Fantasma Pro!', 14, '#b388ff');
+      updateHUD();
+    } else if (key === 'frenzyx') {
+      eff.frenzy = t + 16 + lv * 2;
+      effDur.frenzy = 16 + lv * 2;
+      FX.text(bird.x, bird.y - bird.r - 60, '🎇 ¡Frenesí Total! +1 por power-up', 14, '#ff8a65');
+      updateHUD();
     } else if (key === 'legend') {
       rt.legend = true;
       FX.text(bird.x, bird.y - bird.r - 60, '🏆 ¡Reliquia del Pase! +1 por tubo y +25% monedas', 14, '#ffe066');
@@ -1462,7 +1491,7 @@ function difficultyFor(sc, diffc) {
     }
   }
 
-  const MANUAL_ORDER = ['magnet', 'coins', 'slow', 'luck', 'boost', 'score', 'sprint', 'start', 'treasure', 'clock', 'turbo', 'combo', 'shield', 'ghost', 'frenzy', 'eco', 'hype', 'bomb', 'aura', 'twin', 'oasis', 'doble', 'runa', 'titan', 'fenix', 'bateria', 'cris', 'ferro', 'para', 'zoom', 'mirilla', 'amuleto', 'rescate', 'ticket', 'radar', 'bala', 'flot', 'legend'];
+  const MANUAL_ORDER = ['magnet', 'coins', 'slow', 'luck', 'boost', 'score', 'sprint', 'start', 'treasure', 'clock', 'turbo', 'combo', 'shield', 'ghost', 'frenzy', 'eco', 'hype', 'bomb', 'aura', 'twin', 'oasis', 'doble', 'runa', 'titan', 'fenix', 'bateria', 'cris', 'ferro', 'para', 'zoom', 'mirilla', 'amuleto', 'rescate', 'ticket', 'radar', 'bala', 'flot', 'magnetx', 'slowx', 'coinsx', 'shieldx', 'ghostx', 'frenzyx', 'legend'];
 
   // Herramientas armadas como 'manual': disponibles en la barra de vuelo
   function manualToolList() {

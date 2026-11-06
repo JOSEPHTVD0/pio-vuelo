@@ -22,10 +22,13 @@ window.DAT = (function () {
       if (typeof base !== 'number' || !isFinite(base) || base <= 0) return 0;
       return this.round5(base * this.mult[this.tier(base)]);
     },
-    // Mejora de herramienta: coste creciente por nivel (base ya reequilibrada)
-    toolUpPrice(level) { return this.round5(90 + Math.max(0, Math.min(4, level | 0)) * 82); },
+    // Mejora de herramienta: coste creciente por nivel, hasta el nivel 8.
+    toolUpPrice(level) {
+      const lv = Math.max(0, Math.min(7, level | 0));
+      return this.round5(110 + lv * 95 + lv * lv * 10);
+    },
     // Materiales (🔩) que pide cada nivel: 1→2 gratis, 2→3 una pieza, ...
-    toolUpParts(level) { return [0, 0, 1, 2, 3][Math.max(0, Math.min(4, level | 0))] || 0; },
+    toolUpParts(level) { return [0, 0, 1, 2, 2, 3, 3, 4, 5][Math.max(0, Math.min(8, level | 0))] || 0; },
     repairPrice(tool, missing, max) {
       // Las herramientas exclusivas tienen precio de venta 0: usan un valor
       // de referencia para que repararlas no sea gratis.
@@ -37,14 +40,15 @@ window.DAT = (function () {
   };
 
   /* --- Durabilidad de herramientas (compartida por tipo) --------------- */
-  const TOOL_DUR = { base: 12, perLevel: 3, wearPerLevel: 0.1, minWear: 0.4 };
+  const TOOL_DUR = { base: 14, perLevel: 4, wearPerLevel: 0.07, minWear: 0.4 };
+  const TOOL_MAX_LEVEL = 8;
   function toolBaseDur(tool) { return (tool && tool.dur) || TOOL_DUR.base; }
   function toolMaxDur(key, level) {
     const t = getTool(key);
-    return toolBaseDur(t) + Math.max(0, Math.min(5, level | 0)) * TOOL_DUR.perLevel;
+    return toolBaseDur(t) + Math.max(0, Math.min(TOOL_MAX_LEVEL, level | 0)) * TOOL_DUR.perLevel;
   }
   function toolWear(key, level) {
-    return Math.max(TOOL_DUR.minWear, 1 - Math.max(0, Math.min(5, level | 0)) * TOOL_DUR.wearPerLevel);
+    return Math.max(TOOL_DUR.minWear, 1 - Math.max(0, Math.min(TOOL_MAX_LEVEL, level | 0)) * TOOL_DUR.wearPerLevel);
   }
 
   const SKINS = [
@@ -128,7 +132,14 @@ window.DAT = (function () {
     { id: 'cheesecake',name: 'Cheesecake',desc: 'Básico de la casa.',         price: 700,  body: '#ffe0b2', wing: '#ffcc80', belly: '#fff8e1', beak: '#8d6e63', cheek: '#f48fb1', blush: true, week: 49 },
     { id: 'macaron',  name: 'Macarón',    desc: 'Dulce por fuera, duro por dentro.',price: 750, body: '#f8bbd0', wing: '#f06292', belly: '#fff0f5', beak: '#ad1457', cheek: '#ce93d8', sparkle: true, week: 49 },
     { id: 'grifo',    name: 'Grifo',      desc: 'Cabeza de león, alas de águila.',price: 1800, body: '#d4a017', wing: '#8d6e63', belly: '#f3e0b5', beak: '#ff6f00', cheek: '#ffca28', shine: true, week: 50 },
-    { id: 'ciclope',  name: 'Cíclope',    desc: 'Un ojo, mil Schottys.',      price: 1750, body: '#6d4c41', wing: '#4e342e', belly: '#d7ccc8', beak: '#ffee58', cheek: '#9ccc65', ghost: true, week: 50 }
+    { id: 'ciclope',  name: 'Cíclope',    desc: 'Un ojo, mil Schottys.',      price: 1750, body: '#6d4c41', wing: '#4e342e', belly: '#d7ccc8', beak: '#ffee58', cheek: '#9ccc65', ghost: true, week: 50 },
+    /* ---- TIENDA AMPLIADA: aves disponibles ya (sin semana) ---- */
+    { id: 'tucan',    name: 'Tucán',      desc: 'Pico enorme y colores de fiesta.', price: 1500, body: '#212121', wing: '#000000', belly: '#fff176', beak: '#ff8f00', cheek: '#ff7043', shine: true },
+    { id: 'buho',     name: 'Búho',       desc: 'Vuela de noche y ve todo.',        price: 1400, body: '#8d6e63', wing: '#5d4037', belly: '#efe4d8', beak: '#ffb300', cheek: '#bcaaa4', blush: true },
+    { id: 'colibri',  name: 'Colibrí',    desc: 'Aletea más rápido que el viento.', price: 1650, body: '#26c6da', wing: '#00838f', belly: '#e0f7fa', beak: '#ff5252', cheek: '#80deea', sparkle: true },
+    { id: 'pavo',     name: 'Pavo Real',  desc: 'Un despliegue de plumas.',         price: 1800, body: '#1e88e5', wing: '#0d47a1', belly: '#e3f2fd', beak: '#ffb300', cheek: '#64b5f6', sparkle: true, shine: true },
+    { id: 'garza',    name: 'Garza',      desc: 'Elegante sobre cualquier cielo.',  price: 1450, body: '#eceff1', wing: '#b0bec5', belly: '#ffffff', beak: '#ffb300', cheek: '#cfd8dc', shine: true },
+    { id: 'pelicano', name: 'Pelícano',   desc: 'Siempre lleva la merienda.',       price: 1550, body: '#eeeeee', wing: '#bdbdbd', belly: '#ffffff', beak: '#ff8f00', cheek: '#ffcc80', blush: true }
   ];
 
   /* ---- RECOMPENSAS EXCLUSIVAS DEL PASE PRÉMIUM ----
@@ -137,7 +148,8 @@ window.DAT = (function () {
   SKINS.push(
     { id: 'p-aurora', name: 'Aurora Polar', desc: 'Exclusiva del Pase Prémium: brilla con luz polar.', price: 0, exclusive: true, rarity: 'legendaria', body: '#7de3ff', wing: '#3aa0ff', belly: '#eaffff', beak: '#ffd54f', cheek: '#b3f0ff', sparkle: true, shine: true },
     { id: 'p-crono',  name: 'Cronos', desc: 'Exclusiva del Pase Prémium: el tiempo la obedece.', price: 0, exclusive: true, rarity: 'mítica', body: '#ffd54f', wing: '#ff8f00', belly: '#fff8e1', beak: '#ff6f00', cheek: '#ffe082', shine: true },
-    { id: 'p-sombra', name: 'Sombra Real', desc: 'Exclusiva del Pase Prémium: nadie más la tiene.', price: 0, exclusive: true, rarity: 'épica', body: '#3b2f63', wing: '#241a45', belly: '#b39ddb', beak: '#ffd54f', cheek: '#7e57c2', ghost: true }
+    { id: 'p-sombra', name: 'Sombra Real', desc: 'Exclusiva del Pase Prémium: nadie más la tiene.', price: 0, exclusive: true, rarity: 'épica', body: '#3b2f63', wing: '#241a45', belly: '#b39ddb', beak: '#ffd54f', cheek: '#7e57c2', ghost: true },
+    { id: 'p-eterna', name: 'Eterna', desc: 'Exclusiva del Pase Prémium: renace en cada temporada.', price: 0, exclusive: true, rarity: 'legendaria', body: '#fff8e1', wing: '#ffd54f', belly: '#ffffff', beak: '#ff8f00', cheek: '#ffe082', sparkle: true, shine: true }
   );
 
   /* Atributos por ave: multiplicadores de vuelo (spd=velocidad del mundo, flap=aleteo, grav=caída, gap=hueco).
@@ -191,10 +203,18 @@ window.DAT = (function () {
     macaron: { grav: 0.98 },
     grifo:   { flap: 1.11, gap: 1.04 },
     ciclope: { flap: 1.1, grav: 0.94 },
+    /* ---- TIENDA AMPLIADA ---- */
+    tucan:   { gap: 1.05 },
+    buho:    { grav: 0.93, gap: 1.04 },
+    colibri: { flap: 1.1, grav: 0.95 },
+    pavo:    { flap: 1.06, gap: 1.04 },
+    garza:   { grav: 0.96, spd: 1.03 },
+    pelicano:{ grav: 0.95 },
     /* ---- EXCLUSIVAS DEL PASE PRÉMIUM ---- */
     'p-aurora': { gap: 1.05, grav: 0.93 },
     'p-crono':  { flap: 1.12, spd: 1.02 },
-    'p-sombra': { spd: 1.06, grav: 0.94 }
+    'p-sombra': { spd: 1.06, grav: 0.94 },
+    'p-eterna': { spd: 1.04, gap: 1.06, grav: 0.92 }
   };
   const SKIN_STATS_DEF = { spd: 1, flap: 1, grav: 1, gap: 1 };
   function skinStats(id) { return Object.assign({}, SKIN_STATS_DEF, SKIN_STATS[id] || {}); }
@@ -252,7 +272,9 @@ window.DAT = (function () {
   const EGGS = [
     { id: 'huevo-sencillo', name: 'Huevo Sencillo', price: 200, mins: 45, icon: '🥚',   desc: 'En 45 min te da un ave o una estela nueva.' },
     { id: 'huevo-fino',     name: 'Huevo Fino',     price: 450, mins: 120, icon: '🐣',   desc: 'En 2 h te da un ave o una estela nueva.' },
-    { id: 'huevo-magico',   name: 'Huevo Mágico',   price: 900, mins: 300, icon: '⭐',   desc: 'En 5 h te da un ave o una estela nueva.' }
+    { id: 'huevo-magico',   name: 'Huevo Mágico',   price: 900, mins: 300, icon: '⭐',   desc: 'En 5 h te da un ave o una estela nueva.' },
+    { id: 'huevo-legendario', name: 'Huevo Legendario', price: 1600, mins: 480, icon: '🌟', desc: 'En 8 h te da un ave o una estela nueva.' },
+    { id: 'huevo-mitico',   name: 'Huevo Mítico',   price: 2500, mins: 720, icon: '✨',   desc: 'En 12 h te da un ave o una estela nueva.' }
   ];
   function getEgg(id) { return EGGS.find(e => e.id === id) || null; }
   /* premios posibles de los huevos: aves o estelas que aún no tengas */
@@ -285,7 +307,16 @@ window.DAT = (function () {
     { id: 'rug-roja',    cat: 'rug',    name: 'Alfombra roja',  price: 150, bg1: '#b23a3a', bg2: '#d24a4a', art: '🔴' },
     { id: 'rug-azul',    cat: 'rug',    name: 'Alfombra azul',  price: 150, bg1: '#2f5f9e', bg2: '#3f7fbe', art: '🔵' },
     { id: 'rug-dorada',  cat: 'rug',    name: 'Alfombra dorada', price: 250, bg1: '#b08a1e', bg2: '#d0aa2f', art: '🟡' },
-    { id: 'rug-magica',  cat: 'rug',    name: 'Alfombra mágica', price: 500, bg1: '#5a3fbe', bg2: '#7f5fd0', art: '🌀' }
+    { id: 'rug-magica',  cat: 'rug',    name: 'Alfombra mágica', price: 500, bg1: '#5a3fbe', bg2: '#7f5fd0', art: '🌀' },
+    /* ---- TIENDA AMPLIADA: más decoración ---- */
+    { id: 'bg-oceano',   cat: 'bg',     name: 'Océano',         price: 600, bg1: '#0b3d66', bg2: '#2aa7c9', art: '🌊' },
+    { id: 'bg-galaxia',  cat: 'bg',     name: 'Galaxia',        price: 750, bg1: '#12002e', bg2: '#5a2a9a', art: '🌌' },
+    { id: 'fl-lava',     cat: 'floor',  name: 'Lava',           price: 550, bg1: '#b23a1e', bg2: '#e2602f', art: '🌋' },
+    { id: 'fl-nubes',    cat: 'floor',  name: 'Nubes',          price: 400, bg1: '#dcefff', bg2: '#ffffff', art: '☁️' },
+    { id: 'po-cohete',   cat: 'poster', name: 'Póster cohete',  price: 300, bg1: '#2e3a6b', bg2: '#4a5a9a', art: '🚀' },
+    { id: 'po-mundo',    cat: 'poster', name: 'Póster mundo',   price: 350, bg1: '#1e5a4a', bg2: '#2f8a6a', art: '🌍' },
+    { id: 'rug-verde',   cat: 'rug',    name: 'Alfombra verde', price: 200, bg1: '#2f6e3f', bg2: '#3f8f52', art: '🟢' },
+    { id: 'rug-estelar', cat: 'rug',    name: 'Alfombra estelar', price: 650, bg1: '#2a2a6b', bg2: '#4a4a9a', art: '✨' }
   ];
   function getDecor(id) { return DECOR.find(d => d.id === id) || DECOR[0]; }
   function decorsByCat(cat) { return DECOR.filter(d => d.cat === cat); }
@@ -358,11 +389,19 @@ window.DAT = (function () {
     { id: 'hat-sombrero-f',  name: 'Faja',          price: 300, type: 'band',     week: 45 },
     { id: 'hat-antena2',     name: 'Antena Doble',  price: 340, type: 'antenna',  week: 45 },
     { id: 'hat-visera',      name: 'Visera',        price: 560, type: 'helmet',   week: 46 },
-    { id: 'hat-turbante',    name: 'Turbante',      price: 600, type: 'wizard',   week: 46 }
+    { id: 'hat-turbante',    name: 'Turbante',      price: 600, type: 'wizard',   week: 46 },
+    /* ---- TIENDA AMPLIADA: sombreros disponibles ya ---- */
+    { id: 'hat-bombin',      name: 'Bombín',        price: 420, type: 'helmet' },
+    { id: 'hat-pluma-azul',  name: 'Pluma Azul',    price: 480, type: 'antenna' },
+    { id: 'hat-corona-hielo',name: 'Corona de Hielo',price: 640, type: 'crown' },
+    { id: 'hat-casco-astro', name: 'Casco Astral',  price: 700, type: 'helmet' },
+    { id: 'hat-neon-head',   name: 'Auriculares Neón',price: 560, type: 'headphones' }
   ];
   HATS.push(
     { id: 'hat-corona-eterna', name: 'Corona Eterna', price: 0, exclusive: true, rarity: 'legendaria', type: 'crown' },
-    { id: 'hat-sello-estelar', name: 'Sello Estelar', price: 0, exclusive: true, rarity: 'épica', type: 'halo' }
+    { id: 'hat-sello-estelar', name: 'Sello Estelar', price: 0, exclusive: true, rarity: 'épica', type: 'halo' },
+    { id: 'hat-aurora',        name: 'Aurora Boreal', price: 0, exclusive: true, rarity: 'legendaria', type: 'halo' },
+    { id: 'hat-cosmico',       name: 'Yelmo Cósmico',price: 0, exclusive: true, rarity: 'mítica', type: 'helmet' }
   );
 
   const EFFECTS = [
@@ -429,11 +468,19 @@ window.DAT = (function () {
     { id: 'fx-holograma',    name: 'Holograma',      price: 950,  color: '#18ffff', rainbow: true, week: 45 },
     { id: 'fx-neon2',        name: 'Circuito',       price: 850,  color: '#76ff03', stars: true, week: 45 },
     { id: 'fx-pluma',        name: 'Pluma',          price: 500,  color: '#eceff1', week: 46 },
-    { id: 'fx-vapor',        name: 'Vapor',          price: 450,  color: '#cfd8dc', week: 46 }
+    { id: 'fx-vapor',        name: 'Vapor',          price: 450,  color: '#cfd8dc', week: 46 },
+    /* ---- TIENDA AMPLIADA: estelas disponibles ya ---- */
+    { id: 'fx-turquesa',     name: 'Turquesa',       price: 650,  color: '#1de9b6' },
+    { id: 'fx-relampago',    name: 'Relámpago',      price: 850,  color: '#fff176', stars: true },
+    { id: 'fx-violeta',      name: 'Violeta Eléctrico', price: 800, color: '#d500f9', stars: true },
+    { id: 'fx-menta2',       name: 'Menta Fresca',   price: 550,  color: '#69f0ae' },
+    { id: 'fx-rubi2',        name: 'Rubí',           price: 750,  color: '#ff1744', stars: true },
+    { id: 'fx-celeste',      name: 'Celeste',        price: 600,  color: '#40c4ff' }
   ];
   EFFECTS.push(
     { id: 'fx-prisma',    name: 'Prisma Prémium', price: 0, exclusive: true, rarity: 'legendaria', color: '#b388ff', rainbow: true, stars: true },
-    { id: 'fx-supernova', name: 'Supernova',      price: 0, exclusive: true, rarity: 'mítica',     color: '#ffd54f', stars: true }
+    { id: 'fx-supernova', name: 'Supernova',      price: 0, exclusive: true, rarity: 'mítica',     color: '#ffd54f', stars: true },
+    { id: 'fx-cuasar',    name: 'Cuásar',         price: 0, exclusive: true, rarity: 'legendaria', color: '#ffd54f', rainbow: true, stars: true }
   );
 
   const MAPS = [
@@ -485,7 +532,12 @@ window.DAT = (function () {
     { id: 'selva2',   name: 'Canopy',          icon: '🌿', price: 1290, minScore: 67, unlock: 'coins', sky: ['#004d40', '#26a69a'], ground: '#1b5e20', hill1: '#2e7d32', hill2: '#388e3c', cloud: '#b2dfdb', stars: false, bubbles: true,  grid: false, pipe: '#2e7d32', pipeRim: '#1b5e20', accent: '#ccff90', week: 47 },
     { id: 'nocturno', name: 'Vuelo Nocturno',  icon: '🦉', price: 1330, minScore: 70, unlock: 'coins', sky: ['#0a0e27', '#1b1f3b'], ground: '#12162e', hill1: '#1a1f3a', hill2: '#232845', cloud: '#3a3f5c', stars: true,  bubbles: false, grid: false, pipe: '#4a4e69', pipeRim: '#2f334d', accent: '#ffe082', week: 48 },
     { id: 'dulce',    name: 'Reino de Azúcar', icon: '🍰', price: 1270, minScore: 66, unlock: 'coins', sky: ['#fff3e0', '#ffe0b2'], ground: '#e6a8c8', hill1: '#f0bcd4', hill2: '#f8d2e0', cloud: '#ffffff', stars: false, bubbles: true,  grid: false, pipe: '#f06292', pipeRim: '#ad1457', accent: '#fff59d', week: 49 },
-    { id: 'mitologia',name: 'Sala de Dioses',  icon: '⚡', price: 1450, minScore: 75, unlock: 'coins', sky: ['#0d0033', '#4a148c'], ground: '#1a0033', hill1: '#25004d', hill2: '#310064', cloud: '#5e35b1', stars: true,  bubbles: false, grid: true,  pipe: '#ffd700', pipeRim: '#c0a000', accent: '#18ffff', week: 50 }
+    { id: 'mitologia',name: 'Sala de Dioses',  icon: '⚡', price: 1450, minScore: 75, unlock: 'coins', sky: ['#0d0033', '#4a148c'], ground: '#1a0033', hill1: '#25004d', hill2: '#310064', cloud: '#5e35b1', stars: true,  bubbles: false, grid: true,  pipe: '#ffd700', pipeRim: '#c0a000', accent: '#18ffff', week: 50 },
+    /* ---- TIENDA AMPLIADA: mapas disponibles ya ---- */
+    { id: 'jardin',   name: 'Jardín Secreto', icon: '🌷', price: 1400, minScore: 72, unlock: 'coins', sky: ['#c8f7c5', '#f0fff4'], ground: '#6aa84f', hill1: '#7fbf5f', hill2: '#94d174', cloud: '#ffffff', stars: false, bubbles: true,  grid: false, pipe: '#7fb069', pipeRim: '#5a8a45', accent: '#ff8fab' },
+    { id: 'industrial', name: 'Distrito Industrial', icon: '🏭', price: 1420, minScore: 73, unlock: 'coins', sky: ['#4a4e57', '#7a808a'], ground: '#3a3d44', hill1: '#484c55', hill2: '#565b65', cloud: '#6a7078', stars: false, bubbles: false, grid: true,  pipe: '#ffb300', pipeRim: '#b38000', accent: '#ff6f00' },
+    { id: 'sabana',   name: 'Sabana Dorada', icon: '🦁', price: 1440, minScore: 74, unlock: 'coins', sky: ['#ffe082', '#fff8e1'], ground: '#c9a227', hill1: '#d4b03a', hill2: '#e0c050', cloud: '#ffffff', stars: false, bubbles: false, grid: false, pipe: '#a67c00', pipeRim: '#7a5c00', accent: '#ff7043' },
+    { id: 'arrecife', name: 'Arrecife',      icon: '🐠', price: 1460, minScore: 75, unlock: 'coins', sky: ['#40e0d0', '#0e8f9c'], ground: '#e8b96a', hill1: '#f0c97e', hill2: '#f7d894', cloud: '#ffffff', stars: false, bubbles: true,  grid: false, pipe: '#ff8a65', pipeRim: '#d85c3f', accent: '#ffee58' }
   ];
   /* Mapa exclusivo del Pase Prémium: cielo auroral, monedas dobles y rachas de viento. */
   MAPS.push({
@@ -493,6 +545,12 @@ window.DAT = (function () {
     minScore: 0, unlock: 'premium',
     sky: ['#07162e', '#2b1e5c'], ground: '#1b2a52', hill1: '#25396e', hill2: '#31498a', cloud: '#6f7fd8',
     stars: true, bubbles: false, grid: false, pipe: '#7de3ff', pipeRim: '#2e8fd0', accent: '#c7a6ff'
+  });
+  MAPS.push({
+    id: 'premium2', name: 'Cielo de Cuásar', icon: '🌠', price: 0, exclusive: true, rarity: 'mítica',
+    minScore: 0, unlock: 'premium',
+    sky: ['#150a2e', '#3d1466'], ground: '#241245', hill1: '#301a5c', hill2: '#3d2274', cloud: '#6a4aa8',
+    stars: true, bubbles: false, grid: true, pipe: '#ffd54f', pipeRim: '#c39b00', accent: '#ff80ab'
   });
 
   /* ---- MECÁNICAS POR MAPA ----
@@ -530,7 +588,12 @@ window.DAT = (function () {
     primavera:  { coinMul: 1.15 },
     ciudad:     { spawnMul: 0.95 },
     aurora:     { gapMul: 1.05, coinMul: 1.2 },
-    premium:    { speedMul: 1.06, gravMul: 0.94, gapMul: 1.05, coinMul: 2, wind: true }
+    premium:    { speedMul: 1.06, gravMul: 0.94, gapMul: 1.05, coinMul: 2, wind: true },
+    premium2:   { speedMul: 1.08, gravMul: 0.92, gapMul: 1.06, coinMul: 2.25, wind: true },
+    jardin:     { coinMul: 1.2, gapMul: 1.04 },
+    industrial: { spawnMul: 0.94, speedMul: 1.05 },
+    sabana:     { speedMul: 1.07, coinMul: 1.15 },
+    arrecife:   { gravMul: 0.88, coinMul: 1.2 }
   };
   function mapCfg(id) { return Object.assign({}, MAP_CFG_DEF, MAP_CFG[id] || {}); }
 
@@ -575,7 +638,14 @@ window.DAT = (function () {
     { id: 'tool-ticket',  key: 'ticket',  name: 'Ticket Dorado',  icon: '🎫', desc: 'Al acabar, multiplica por 2 las monedas no recogidas.',price: 195, week: 45 },
     { id: 'tool-radar',   key: 'radar',   name: 'Radar',          icon: '🛰️', desc: 'Las 💎 y 🍒 aparecen un 60% más a menudo.',            price: 180, week: 46 },
     { id: 'tool-bala',    key: 'bala',    name: 'Bala de Jade',   icon: '🎯', desc: 'Cada 10 tubos, un golpe teledirigido a una moneda.',   price: 205, week: 47 },
-    { id: 'tool-flot',    key: 'flot',    name: 'Flotador',       icon: '🎈', desc: 'Aguanta un choque adicional por partida.',              price: 220, week: 48 }
+    { id: 'tool-flot',    key: 'flot',    name: 'Flotador',       icon: '🎈', desc: 'Aguanta un choque adicional por partida.',              price: 220, week: 48 },
+    /* ---- TIENDA AMPLIADA: herramientas disponibles ya ---- */
+    { id: 'tool-magnetx', key: 'magnetx', name: 'Súper Imán',     icon: '🧲', desc: 'Atrae monedas 12 s · más con mejoras.',            price: 270 },
+    { id: 'tool-slowx',   key: 'slowx',   name: 'Cámara Ultra',   icon: '⏳', desc: 'Cámara lenta 10 s · más con mejoras.',              price: 250 },
+    { id: 'tool-coinsx',  key: 'coinsx',  name: 'Monedas Plus+',  icon: '💰', desc: 'Monedas dobles 12 s · más con mejoras.',            price: 290 },
+    { id: 'tool-shieldx', key: 'shieldx', name: 'Doble Escudo',   icon: '🛡️', desc: 'Suma 2 escudos guardados de golpe.',                price: 310 },
+    { id: 'tool-ghostx',  key: 'ghostx',  name: 'Fantasma Pro',   icon: '👻', desc: 'Atraviesas obstáculos 7 s al inicio.',               price: 280 },
+    { id: 'tool-frenzyx', key: 'frenzyx', name: 'Frenesí Total',  icon: '🎇', desc: '+1 pt por power-up durante 16 s · más con mejoras.', price: 330 }
   ];
   TOOLS.push(
     { id: 'tool-legend', key: 'legend', name: 'Reliquia del Pase', icon: '🏆', desc: 'Exclusiva y permanente: +1 pt por tubo y monedas +25 % toda la partida.', price: 0, exclusive: true, rarity: 'mítica', permanent: true, repairValue: 600, dur: 14 }
@@ -798,9 +868,9 @@ window.DAT = (function () {
   }
   function seasonInfo(d) { return SEASONS[seasonIndex(d)]; }
 
-  /* Pase rotativo: mismos niveles de XP, pero las recompensas dependen de la temporada */
-  const PASS_XP   = [0, 150, 350, 600, 900, 1250, 1650, 2100, 2600, 3150, 3750, 4400, 5200, 6100];
-  const PASS_COINS = [60, 80, 120, 150, 200, 260, 500, 800, 1200]; // 9 recompensas de monedas (la tier 6100 XP es la última)
+  /* Pase rotativo: más niveles, umbrales más altos y más recompensas por temporada */
+  const PASS_XP   = [0, 200, 450, 750, 1100, 1500, 1950, 2450, 3000, 3600, 4250, 4950, 5700, 6500, 7350, 8250, 9200, 10200, 11250, 12350];
+  const PASS_COINS = [60, 100, 160, 220, 300, 400, 1000]; // 7 recompensas de monedas (incluye la tier final)
   /* Pool de herramientas que puede regalar el Pase (incluye las nuevas de las semanas) */
   const PASS_ITEMS = ['magnet', 'luck', 'slow', 'boost', 'treasure', 'turbo', 'combo', 'shield', 'ghost', 'frenzy', 'eco', 'hype', 'bomb', 'aura', 'twin', 'oasis', 'titan', 'fenix', 'bateria', 'cris'];
   /* Recompensa cosmética especial de cada temporada (sombrero / estela) */
@@ -810,22 +880,31 @@ window.DAT = (function () {
     { hat: 'hat-estrellita', fx: 'fx-galactico' }, // verano
     { hat: 'hat-banda2',    fx: 'fx-coral' }     // otoño
   ];
+  /* Niveles de herramienta del Pase: 9 de 20 (uno de cada dos desde el 2) */
+  const PASS_ITEM_LEVELS = [2, 4, 6, 8, 10, 12, 14, 16, 18];
   function passTiers(d) {
     const si = seasonIndex(d);
     const tiers = [];
     let coinI = 0, itemI = 0;
     PASS_XP.forEach((xp, idx) => {
-      if (idx === 2 || idx === 4 || idx === 6 || idx === 8 || idx === 10) {
+      if (idx === 1) {
+        // la tier 2 regala el cosmético de la temporada
+        tiers.push({ xp, reward: si % 2 === 0 ? { hat: SEASON_BONUS[si].hat } : { fx: SEASON_BONUS[si].fx } });
+      } else if (PASS_ITEM_LEVELS.indexOf(idx) !== -1) {
         // stride 4 para repartir las 20 herramientas entre las 4 temporadas (5 por temporada)
         const it = PASS_ITEMS[(itemI * 4 + si) % PASS_ITEMS.length];
-        tiers.push({ xp, reward: { item: it, n: idx >= 8 ? 2 : 1 } });
+        tiers.push({ xp, reward: { item: it, n: idx >= 16 ? 3 : idx >= 8 ? 2 : 1 } });
         itemI++;
+      } else if (idx === 5) {
+        tiers.push({ xp, reward: { parts: 2 } });
+      } else if (idx === 11) {
+        tiers.push({ xp, reward: { shields: 2 } });
+      } else if (idx === 15) {
+        tiers.push({ xp, reward: { parts: 4 } });
       } else {
         tiers.push({ xp, reward: { coins: PASS_COINS[coinI++] } });
       }
     });
-    /* la tier de 150 XP regala el cosmético de la temporada */
-    tiers[1] = { xp: 150, reward: si % 2 === 0 ? { hat: SEASON_BONUS[si].hat } : { fx: SEASON_BONUS[si].fx } };
     return tiers;
   }
 
@@ -837,11 +916,12 @@ window.DAT = (function () {
    * Se desbloquea con monedas del juego, dura la temporada actual y sus
    * recompensas son EXCLUSIVAS: no se venden en tienda ni salen en cajas.
    * ------------------------------------------------------------------ */
-  const PASS_PREMIUM_PRICE = 3000;
+  const PASS_PREMIUM_PRICE = 6000;
   function passPremiumTiers() {
     return PASS_XP.map((xp, idx) => {
       let reward;
       switch (idx) {
+        case 0:  reward = { coins: 200 }; break;
         case 1:  reward = { skin: 'p-aurora' }; break;
         case 2:  reward = { hat: 'hat-corona-eterna' }; break;
         case 3:  reward = { fx: 'fx-prisma' }; break;
@@ -852,9 +932,16 @@ window.DAT = (function () {
         case 8:  reward = { fx: 'fx-supernova' }; break;
         case 9:  reward = { parts: 3 }; break;
         case 10: reward = { skin: 'p-sombra' }; break;
+        case 11: reward = { coins: 800 }; break;
         case 12: reward = { skin: 'p-crono' }; break;
-        case 13: reward = { coins: 1000 }; break;
-        default: reward = { coins: idx === 0 ? 150 : 500 };
+        case 13: reward = { parts: 4 }; break;
+        case 14: reward = { skin: 'p-eterna' }; break;
+        case 15: reward = { hat: 'hat-aurora' }; break;
+        case 16: reward = { fx: 'fx-cuasar' }; break;
+        case 17: reward = { map: 'premium2' }; break;
+        case 18: reward = { hat: 'hat-cosmico' }; break;
+        case 19: reward = { coins: 2500 }; break;
+        default: reward = { coins: 300 };
       }
       return { xp: xp, reward: reward };
     });
@@ -880,7 +967,7 @@ window.DAT = (function () {
     getSkin, getHat, getFx, getMap, getDiff, getAch, getTool,
     isExclusive, rarityOf, mapCfg,
     skinStats, boxDef, evolveStage,
-    ECONOMY, TOOL_DUR, toolMaxDur, toolWear,
+    ECONOMY, TOOL_DUR, TOOL_MAX_LEVEL, toolMaxDur, toolWear,
     NEST_LEVELS, NEST_MAX_OBJ, nestInfo, nestObjPos,
     EGGS, getEgg, eggPool,
     DECOR, getDecor, decorsByCat

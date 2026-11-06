@@ -15,8 +15,8 @@ window.SAVE = (function () {
       xp: 0,
       stats: { best: 0, flights: 0, pipes: 0, timePlayed: 0, coinsGot: 0, dist: 0, powersGot: 0, spent: 0, megaGot: 0, dailyClaimed: 0, enemiesGot: 0, xcGot: 0, toolsUsed: 0, toolsBought: 0, shared: 0, batsGot: 0, chainGot: 0, gemsGot: 0, challengePlayed: 0, manualUses: 0, upgs: 0, missionsDone: 0, toolTypes: [], shieldAbsorbed: 0, ghostPassed: 0, weekendRuns: 0, fenixUsed: 0, maxDistNoHit: 0, zeroCoinRuns: 0, duelWins: 0, windZones: 0, giantPassed: 0, replaysWatched: 0, seedDays: 0, zenBest: 0, bossDefeated: 0, partsEarned: 0, toolsRepaired: 0 },
       best3: [],
-      items: { start: 0, magnet: 0, slow: 0, coins: 0, boost: 0, luck: 0, score: 0, sprint: 0, treasure: 0, clock: 0, turbo: 0, combo: 0, shield: 0, ghost: 0, frenzy: 0, eco: 0, hype: 0, bomb: 0, aura: 0, twin: 0, oasis: 0, doble: 0, runa: 0, titan: 0, fenix: 0, bateria: 0, cris: 0, ferro: 0, para: 0, zoom: 0, mirilla: 0, amuleto: 0, rescate: 0, ticket: 0, radar: 0, bala: 0, flot: 0, legend: 0 },
-      toolUp: {},           // nivel de mejora por herramienta (0..5)
+      items: { start: 0, magnet: 0, slow: 0, coins: 0, boost: 0, luck: 0, score: 0, sprint: 0, treasure: 0, clock: 0, turbo: 0, combo: 0, shield: 0, ghost: 0, frenzy: 0, eco: 0, hype: 0, bomb: 0, aura: 0, twin: 0, oasis: 0, doble: 0, runa: 0, titan: 0, fenix: 0, bateria: 0, cris: 0, ferro: 0, para: 0, zoom: 0, mirilla: 0, amuleto: 0, rescate: 0, ticket: 0, radar: 0, bala: 0, flot: 0, legend: 0, magnetx: 0, slowx: 0, coinsx: 0, shieldx: 0, ghostx: 0, frenzyx: 0 },
+      toolUp: {},           // nivel de mejora por herramienta (0..8)
       toolMode: {},         // 'auto' | 'manual' por herramienta (default auto)
       toolDur: {},          // durabilidad actual por herramienta
       dailyC: { date: '', best: 0, played: false },
@@ -233,7 +233,7 @@ window.SAVE = (function () {
         // valida niveles y durabilidad; las herramientas nuevas arrancan al máximo
         DAT.TOOLS.forEach(t => {
           let lv = data.toolUp[t.key];
-          data.toolUp[t.key] = (typeof lv === 'number' && isFinite(lv)) ? Math.max(0, Math.min(5, Math.floor(lv))) : 0;
+          data.toolUp[t.key] = (typeof lv === 'number' && isFinite(lv)) ? Math.max(0, Math.min(DAT.TOOL_MAX_LEVEL, Math.floor(lv))) : 0;
           const max = DAT.toolMaxDur(t.key, data.toolUp[t.key]);
           let cur = data.toolDur[t.key];
           data.toolDur[t.key] = (typeof cur === 'number' && isFinite(cur)) ? Math.max(0, Math.min(max, cur)) : max;
@@ -503,8 +503,19 @@ window.SAVE = (function () {
     return { id: data.profile.id, name: data.profile.name, created: data.profile.created };
   }
 
-  // Cambia el nombre validando vacío, longitud, caracteres y duplicados locales.
-  function rename(raw) {
+  // Clave canónica para reservar el nombre en la nube. Ignora mayúsculas y
+  // tildes, y se codifica para que sea un ID de documento seguro.
+  function nameKey(raw) {
+    const nm = cleanName(raw);
+    if (!nm) return '';
+    let key = nm;
+    try { key = nm.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) { key = nm; }
+    key = key.toLowerCase().replace(/\s+/g, ' ').trim();
+    try { return 'n_' + encodeURIComponent(key); } catch (e) { return ''; }
+  }
+
+  // Validación local (sin red). La nube se consulta aparte con CLOUD.claimName.
+  function checkName(raw) {
     const original = typeof raw === 'string' ? raw : '';
     const trimmed = original.replace(/\s+/g, ' ').trim();
     if (!trimmed) return { ok: false, msg: 'El nombre no puede estar vacío.' };
@@ -512,14 +523,24 @@ window.SAVE = (function () {
     if (trimmed.length > NAME_MAX) return { ok: false, msg: 'Máximo ' + NAME_MAX + ' caracteres.' };
     const nm = cleanName(original);
     if (!nm || nm !== trimmed) return { ok: false, msg: 'Solo letras, números, espacios, punto, guion y guion bajo.' };
-    if (nm.toLowerCase() === data.profile.name.toLowerCase()) return { ok: true, name: nm, unchanged: true };
+    if (nm.toLowerCase() === data.profile.name.toLowerCase()) {
+      return { ok: true, name: nm, key: nameKey(nm), unchanged: true };
+    }
     if (nameTaken(nm)) return { ok: false, msg: 'Ese nombre ya está en uso en este dispositivo.' };
+    return { ok: true, name: nm, key: nameKey(nm), unchanged: false };
+  }
+
+  function rename(raw) {
+    const c = checkName(raw);
+    if (!c.ok) return c;
+    const nm = c.name;
+    if (c.unchanged) return { ok: true, name: nm, key: c.key, unchanged: true };
     data.profile.name = nm;
     if (!data.knownNames.some(n => n.toLowerCase() === nm.toLowerCase())) data.knownNames.push(nm);
     const me = data.players.find(p => p.id === data.profile.id);
     if (me) me.name = nm;
     const ok = save();
-    return { ok: true, name: nm, saved: ok };
+    return { ok: true, name: nm, key: c.key, saved: ok };
   }
 
   /* --- Escudos persistentes (inventario entre partidas) --- */
@@ -646,7 +667,7 @@ window.SAVE = (function () {
   function itemCount(key) { return (data.items && data.items[key]) || 0; }
 
   /* --- Mejoras, durabilidad y modo de activación --- */
-  function toolLevel(key) { return Math.min(5, Math.max(0, Math.floor(num(data.toolUp[key])))); }
+  function toolLevel(key) { return Math.min(DAT.TOOL_MAX_LEVEL, Math.max(0, Math.floor(num(data.toolUp[key])))); }
   function toolMaxDur(key) { return DAT.toolMaxDur(key, toolLevel(key)); }
   function toolWear(key) { return DAT.toolWear(key, toolLevel(key)); }
   function toolDur(key) {
@@ -701,7 +722,7 @@ window.SAVE = (function () {
     const tool = DAT.getTool(key);
     if (!tool) return { ok: false, msg: 'No existe' };
     const lv = toolLevel(key);
-    if (lv >= 5) return { ok: false, msg: 'max' };
+    if (lv >= DAT.TOOL_MAX_LEVEL) return { ok: false, msg: 'max' };
     const price = toolUpPrice(key);
     const parts = toolUpParts(key);
     // Validación completa ANTES de descontar: evita cobros dobles o parciales.
@@ -735,7 +756,7 @@ window.SAVE = (function () {
   function toolStats(key) {
     const lv = toolLevel(key);
     const now = { level: lv, max: DAT.toolMaxDur(key, lv), wear: DAT.toolWear(key, lv) };
-    const next = lv < 5 ? { level: lv + 1, max: DAT.toolMaxDur(key, lv + 1), wear: DAT.toolWear(key, lv + 1) } : null;
+    const next = lv < DAT.TOOL_MAX_LEVEL ? { level: lv + 1, max: DAT.toolMaxDur(key, lv + 1), wear: DAT.toolWear(key, lv + 1) } : null;
     return { now: now, next: next, cur: toolDur(key), price: toolUpPrice(key), parts: toolUpParts(key) };
   }
 
@@ -754,7 +775,7 @@ window.SAVE = (function () {
     return true;
   }
   function giveAllUpg() {
-    DAT.TOOLS.forEach(t => { data.toolUp[t.key] = 5; });
+    DAT.TOOLS.forEach(t => { data.toolUp[t.key] = DAT.TOOL_MAX_LEVEL; });
     save();
     return true;
   }
@@ -1259,7 +1280,7 @@ window.SAVE = (function () {
     nestDecor, isDecorOwned, buyDecor, equipDecor,
     eggSlotsFree, eggIncubating, buyEgg, hatchEgg,
     // perfil, ranking local y escudos persistentes
-    getProfile, rename, randomName, cleanName, leaderboard,
+    getProfile, rename, checkName, nameKey, randomName, cleanName, leaderboard,
     shieldCount, addShield, useShield,
     lastSaveError, lastLoadError
   };

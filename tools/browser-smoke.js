@@ -154,12 +154,12 @@ function makeClient(ws) {
     ok(passInfo.card, 'el Pase muestra la tarjeta del Pase Prémium');
     ok(passInfo.blocks === 2 && passInfo.premiumBlocks === 1, 'el Pase dibuja las líneas gratuita y prémium', passInfo.blocks + '/' + passInfo.premiumBlocks);
     ok(passInfo.text, 'el Pase indica claramente el Pase Prémium');
-    await evalJs("SAVE.setSetting('confirmBuy', false); SAVE.addCoins(4000); document.querySelector('.ppc-buy').click()");
+    await evalJs("SAVE.setSetting('confirmBuy', false); SAVE.addCoins(7000); document.querySelector('.ppc-buy').click()");
     await sleep(700);
     ok(await evalJs("SAVE.passPremiumActive()"), 'el botón de compra activa el Pase Prémium');
     ok((await evalJs("document.getElementById('genBody').textContent")).indexOf('PASE PRÉMIUM ACTIVO') !== -1, 'la interfaz refleja el estado activo');
     const claim = await evalJs("SAVE.setLevel(25); SAVE.claimPassPremiumAll()");
-    ok(claim === 14, 'se reclaman las 14 recompensas prémium', String(claim));
+    ok(claim === 20, 'se reclaman las 20 recompensas prémium', String(claim));
     ok(await evalJs("SAVE.owns(SAVE.get().skinsOwned,'p-aurora') && SAVE.owns(SAVE.get().mapsOwned,'premium')"), 'las recompensas exclusivas llegan al inventario');
 
     // Mapas e inventario
@@ -259,7 +259,7 @@ function makeClient(ws) {
       (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error')
     ).map(e => {
       if (e.method === 'Runtime.exceptionThrown') return e.params.exceptionDetails.text + ' ' + ((e.params.exceptionDetails.exception && e.params.exceptionDetails.exception.description) || '');
-      if (e.method === 'Log.entryAdded') return e.params.entry.text;
+      if (e.method === 'Log.entryAdded') return e.params.entry.text + (e.params.entry.url ? ' @ ' + e.params.entry.url : '');
       return e.params.args.map(a => a.value || a.description).join(' ');
     }).filter(msg =>
       /* La prueba apaga la red a propósito: esos fallos de red no son errores

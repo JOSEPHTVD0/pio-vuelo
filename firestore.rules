@@ -132,6 +132,33 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
     }
 
+    /* ---------- Nombres únicos globales ----------
+       Cada nombre ocupa un documento names/{clave}. El cliente lo reserva en
+       una transacción: si el documento existe con otro uid, el nombre está
+       ocupado. Solo puedes crear una reserva a tu propio uid; el update y el
+       delete también son solo del dueño. Los nombres de jugadores que ya
+       existían se siembran con el Admin SDK (firebase/seed.js), que no pasa
+       por estas reglas. */
+    match /names/{key} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['key', 'name', 'uid', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['key', 'name', 'uid', 'createdAt', 'updatedAt'])
+        && request.resource.data.key == key
+        && validName(request.resource.data.name)
+        && request.resource.data.uid == request.auth.uid;
+
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.keys().hasOnly(['key', 'name', 'uid', 'createdAt', 'updatedAt'])
+        && request.resource.data.key == key
+        && validName(request.resource.data.name);
+
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
     /* ---------- Catálogo, temporadas y configuración (solo lectura) ---------- */
     match /catalog/{type}/items/{itemId} {
       allow read: if true;

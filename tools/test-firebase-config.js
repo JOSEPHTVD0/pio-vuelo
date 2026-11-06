@@ -84,6 +84,7 @@ const firestoreRules = read('firestore.rules');
   'players/{uid}',
   'players/{uid}/runs/{runId}',
   'leaderboards/{boardId}/entries/{uid}',
+  'names/{key}',
   'catalog/{type}/items/{itemId}',
   'seasons/{seasonKey}',
   'dailyChallenges/{date}',
@@ -93,6 +94,8 @@ const firestoreRules = read('firestore.rules');
 });
 ok(firestoreRules.indexOf('allow read, write: if false') !== -1, 'tiene denegación final');
 ok(firestoreRules.indexOf('request.resource.data.best >= resource.data.best') !== -1, 'impide bajar el récord del ranking');
+ok(firestoreRules.indexOf('request.resource.data.uid == request.auth.uid') !== -1, 'solo reserva nombres a tu propio UID');
+ok(firestoreRules.indexOf('resource.data.uid == request.auth.uid') !== -1, 'solo el dueño modifica o borra su nombre');
 
 /* ---------- Reglas de Realtime Database ---------- */
 console.log('\nReglas de Realtime Database');

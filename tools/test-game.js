@@ -435,6 +435,28 @@ const rawName = JSON.parse(localStorage.getItem(KEY));
 ok(rawName.profile.name === curName, 'el nombre está guardado en localStorage');
 ok(Array.isArray(rawName.knownNames) && rawName.knownNames.length >= 2, 'se recuerdan los nombres usados');
 
+// Clave canónica global: sin mayúsculas, sin tildes y segura como id de documento.
+ok(SAVE.nameKey('José') === SAVE.nameKey('jose'), 'la clave de nombre ignora tildes y mayúsculas',
+  SAVE.nameKey('José') + ' vs ' + SAVE.nameKey('jose'));
+ok(SAVE.nameKey('  Nombre   Uno ') === SAVE.nameKey('nombre uno'),
+  'la clave de nombre colapsa espacios y recorta extremos');
+ok(SAVE.nameKey('') === '' && SAVE.nameKey(null) === '', 'un nombre vacío no genera clave');
+const nk = SAVE.nameKey('Pío Vuelo/2');
+ok(nk.slice(0, 2) === 'n_', 'la clave lleva el prefijo n_', nk);
+ok(nk.indexOf('/') === -1 && nk.indexOf(' ') === -1, 'la clave es segura para Firestore', nk);
+ok(SAVE.nameKey('Pío Vuelo/2') === nk, 'la clave es determinista');
+
+const cnOk = SAVE.checkName('  NombreTres  ');
+ok(cnOk.ok && cnOk.name === 'NombreTres' && cnOk.key === SAVE.nameKey('NombreTres'),
+  'checkName acepta un nombre libre y devuelve su clave', JSON.stringify(cnOk));
+ok(cnOk.unchanged === false, 'checkName marca el nombre como nuevo');
+ok(SAVE.getProfile().name === curName, 'checkName no cambia el perfil por sí solo');
+ok(!SAVE.checkName('').ok && !SAVE.checkName('A').ok && !SAVE.checkName('Nombre$Raro').ok,
+  'checkName rechaza vacío, corto y caracteres ilegales');
+ok(!SAVE.checkName('NombreUno').ok, 'checkName rechaza un nombre ya usado en el dispositivo');
+const cnSame = SAVE.checkName(curName);
+ok(cnSame.ok && cnSame.unchanged === true, 'checkName reconoce el nombre actual como sin cambios');
+
 /* ---------------- 6. Récords y clasificación ---------------- */
 section('6. RÉCORDS: guardado, orden y recarga');
 const runsBefore = SAVE.get().runs.length;
@@ -722,12 +744,15 @@ section('11. DURABILIDAD: desgaste, rotura, reparación y mejora');
   ok(withParts.ok && SAVE.partsCount() === 0, 'con 1 pieza la mejora se completa y consume la pieza');
 
   let guard = 0;
-  while (SAVE.toolLevel('magnet') < 5 && guard++ < 10) {
+  while (SAVE.toolLevel('magnet') < 8 && guard++ < 20) {
     SAVE.addParts(5); SAVE.addCoins(5000);
     if (!SAVE.upToolLevel('magnet').ok) break;
   }
-  ok(SAVE.toolLevel('magnet') === 5, 'se puede llegar al nivel máximo 5');
-  ok(SAVE.upToolLevel('magnet').msg === 'max', 'al nivel 5 ya no se puede mejorar');
+  ok(SAVE.toolLevel('magnet') === 8, 'se puede llegar al nivel máximo 8');
+  ok(SAVE.upToolLevel('magnet').msg === 'max', 'al nivel 8 ya no se puede mejorar');
+  ok(SAVE.toolStats('magnet').next === null, 'la interfaz no ofrece mejorar por encima de 8');
+  ok(SAVE.toolMaxDur('magnet') === DAT.toolMaxDur('magnet', 8),
+    'el nivel 8 aplica la durabilidad máxima ampliada');
 }
 
 /* ---------------- 12. Piezas como material ---------------- */
@@ -996,7 +1021,7 @@ section('19. PASE PRÉMIUM: compra, reclamo, temporada y repetidos');
   ok([].concat(premiumSkins, premiumHats, premiumFx, premiumMaps, premiumTools).every(x => x.price === 0),
     'los artículos exclusivos no tienen precio de venta');
 
-  ok(DAT.PASS_PREMIUM_PRICE === 3000, 'el Pase Prémium cuesta 3000 🪙 por temporada');
+  ok(DAT.PASS_PREMIUM_PRICE === 6000, 'el Pase Prémium cuesta 6000 🪙 por temporada');
   ok(DAT.passPremiumTiers().length === DAT.passTiers().length,
     'la línea prémium tiene los mismos niveles que la gratuita');
   const rewards = DAT.passPremiumTiers().map(t => t.reward);
@@ -1013,7 +1038,7 @@ section('19. PASE PRÉMIUM: compra, reclamo, temporada y repetidos');
   SAVE.addCoins(DAT.PASS_PREMIUM_PRICE);
   const buy = SAVE.buyPassPremium();
   ok(buy.ok && buy.price === DAT.PASS_PREMIUM_PRICE, 'se compra el Pase Prémium');
-  ok(SAVE.get().coins === 0, 'se cobra exactamente una vez (3000 🪙)');
+  ok(SAVE.get().coins === 0, 'se cobra exactamente una vez (6000 🪙)');
   ok(SAVE.passPremiumActive(), 'el Pase Prémium queda activo en la temporada actual');
   const again = SAVE.buyPassPremium();
   ok(!again.ok && again.msg === 'active' && SAVE.get().coins === 0,
@@ -1247,6 +1272,104 @@ section('23. RELIQUIA DEL PASE: permanente, desgaste y reparación');
   ok(dup && dup.converted === true, 'reclamar otra vez la Reliquia se convierte en monedas');
   ok(SAVE.get().coins === coinsPre + 250, 'la Reliquia repetida paga 250 🪙', SAVE.get().coins - coinsPre);
   ok(SAVE.itemCount('legend') === 1, 'la Reliquia repetida no suma stock infinito');
+}
+
+/* ---------------- 24. Catálogos ampliados y Pase de 20 niveles ---------------- */
+section('24. TIENDA AMPLIADA, HERRAMIENTAS HASTA NIVEL 8 Y PASE DE 20 NIVELES');
+{
+  SAVE.reset(); SAVE.load();
+
+  // Aves nuevas: comprables y presentes en la tienda.
+  const nuevasAves = ['tucan', 'buho', 'colibri', 'pavo', 'garza', 'pelicano'];
+  ok(nuevasAves.every(id => {
+    const sk = DAT.getSkin(id);
+    return sk && !DAT.isExclusive(sk) && sk.price > 0;
+  }), 'las 6 aves nuevas están en la tienda con precio', nuevasAves.join(','));
+  ok(new Set(DAT.SKINS.map(s => s.id)).size === DAT.SKINS.length, 'no hay ids de ave duplicados');
+
+  // Mapas nuevos + configuración de juego propia.
+  const nuevosMapas = ['jardin', 'industrial', 'sabana', 'arrecife'];
+  ok(nuevosMapas.every(id => DAT.getMap(id) && !DAT.isExclusive(DAT.getMap(id))),
+    'los 4 mapas nuevos se pueden comprar', nuevosMapas.join(','));
+  ok(DAT.mapCfg('jardin').coinMul > 1 && DAT.mapCfg('industrial').spawnMul < 1 &&
+    DAT.mapCfg('sabana').speedMul > 1 && DAT.mapCfg('arrecife').gravMul < 1,
+    'cada mapa nuevo tiene su propia mecánica');
+  ok(DAT.mapCfg('premium2').coinMul > DAT.mapCfg('premium').coinMul,
+    'el segundo mapa prémium mejora al primero');
+
+  // Herramientas nuevas.
+  const nuevasTools = ['magnetx', 'slowx', 'coinsx', 'shieldx', 'ghostx', 'frenzyx'];
+  ok(nuevasTools.every(k => DAT.getTool(k) && DAT.getTool(k).price > 0),
+    'las 6 herramientas nuevas están a la venta', nuevasTools.join(','));
+  ok(nuevasTools.every(k => SAVE.itemCount(k) === 0), 'arrancan con stock 0 en un guardado nuevo');
+
+  // Estelas, sombreros, huevos y decoración ampliados.
+  ok(['fx-turquesa', 'fx-relampago', 'fx-violeta', 'fx-menta2', 'fx-rubi2', 'fx-celeste']
+    .every(id => DAT.getFx(id)), 'las 6 estelas nuevas están en el catálogo');
+  ok(['hat-bombin', 'hat-pluma-azul', 'hat-corona-hielo', 'hat-casco-astro', 'hat-neon-head']
+    .every(id => DAT.getHat(id)), 'los 5 sombreros nuevos están en el catálogo');
+  ok(DAT.EGGS.length >= 5 && DAT.getEgg('huevo-legendario') && DAT.getEgg('huevo-mitico'),
+    'hay al menos 5 huevos, incluidos el legendario y el mítico');
+  ok(['bg-oceano', 'bg-galaxia', 'fl-lava', 'fl-nubes', 'po-cohete', 'po-mundo', 'rug-verde', 'rug-estelar']
+    .every(id => DAT.getDecor(id)), 'las 8 decoraciones nuevas están en el catálogo');
+
+  // Durabilidad y mejoras hasta nivel 8.
+  ok(DAT.TOOL_MAX_LEVEL === 8, 'el tope de mejora es el nivel 8');
+  ok(DAT.TOOL_DUR.base === 14 && DAT.TOOL_DUR.perLevel === 4,
+    'la durabilidad base sube a 14 y cada nivel añade 4');
+  ok(DAT.toolMaxDur('magnet', 8) === DAT.toolMaxDur('magnet', 0) + 32,
+    '8 niveles añaden 32 puntos de durabilidad');
+  ok(DAT.toolWear('magnet', 8) < DAT.toolWear('magnet', 0),
+    'mejorar reduce el desgaste por uso');
+  ok(DAT.ECONOMY.toolUpPrice(7) > DAT.ECONOMY.toolUpPrice(0),
+    'mejorar al nivel 8 cuesta más que al principio');
+  ok(DAT.ECONOMY.toolUpParts(8) === 5 && DAT.ECONOMY.toolUpParts(0) === 0,
+    'el último nivel pide 5 piezas y el primero ninguna');
+
+  // Pase gratuito: 20 niveles con recompensa válida en todos.
+  const tiers = DAT.passTiers();
+  ok(tiers.length === 20, 'el Pase gratuito tiene 20 niveles', tiers.length);
+  ok(tiers.every((t, i) => t.xp >= 0 && (i === 0 || t.xp > tiers[i - 1].xp)),
+    'los umbrales de XP del Pase son crecientes');
+  ok(tiers.every(t => t.reward && Object.keys(t.reward).length > 0),
+    'ningún nivel del Pase queda con recompensa undefined');
+  const passItems = tiers.filter(t => t.reward.item);
+  ok(passItems.length === 9, 'el Pase reparte 9 recompensas de herramienta', passItems.length);
+  ok(tiers.filter(t => t.reward.hat || t.reward.fx).length === 1,
+    'el Pase conserva un cosmético de temporada');
+  ok(tiers.filter(t => t.reward.parts).length >= 2 && tiers.filter(t => t.reward.shields).length >= 1,
+    'el Pase incluye piezas y escudos');
+  ok(tiers[tiers.length - 1].xp >= 12000, 'el último nivel exige más de 12.000 XP',
+    tiers[tiers.length - 1].xp);
+
+  // Pase prémium: 20 niveles, exclusivos nuevos y sin huecos.
+  const prem = DAT.passPremiumTiers();
+  ok(prem.length === 20, 'el Pase Prémium también tiene 20 niveles');
+  ok(prem.every(t => t.reward && Object.keys(t.reward).length > 0),
+    'ningún nivel prémium queda con recompensa undefined');
+  ok(['p-eterna', 'hat-aurora', 'hat-cosmico', 'fx-cuasar'].every(id =>
+    DAT.SKINS.concat(DAT.HATS, DAT.EFFECTS).some(x => x.id === id && DAT.isExclusive(x))),
+    'los nuevos exclusivos existen y están marcados como exclusivos');
+  ok(prem.some(t => t.reward.map === 'premium2'), 'el Pase Prémium incluye el segundo mapa');
+  ok(DAT.PASS_PREMIUM_PRICE === 6000, 'el Pase Prémium cuesta 6000 🪙');
+
+  // Reclamar el Pase completo entrega las 20 recompensas.
+  SAVE.addCoins(DAT.PASS_PREMIUM_PRICE);
+  ok(SAVE.buyPassPremium().ok, 'el Pase Prémium se puede comprar con el saldo exacto');
+  SAVE.setLevel(20);
+  const claimed = SAVE.claimPassAll();
+  ok(claimed === 20, 'se pueden reclamar las 20 recompensas del Pase', claimed);
+  ok(SAVE.passClaimedCount() === 20, 'el Pase gratuito queda reclamado entero');
+  const claimedPrem = SAVE.claimPassPremiumAll();
+  ok(claimedPrem === 20, 'se pueden reclamar las 20 recompensas prémium', claimedPrem);
+  const s = SAVE.get();
+  ok(SAVE.owns(s.skinsOwned, 'p-eterna'), 'el ave Eterna llega desde el Pase Prémium');
+  ok(SAVE.owns(s.hatsOwned, 'hat-aurora') && SAVE.owns(s.hatsOwned, 'hat-cosmico'),
+    'los sombreros exclusivos nuevos se entregan');
+  ok(SAVE.owns(s.fxOwned, 'fx-cuasar'), 'la estela Cuásar se entrega');
+  ok(SAVE.owns(s.mapsOwned, 'premium2'), 'el mapa Cielo de Cuásar se entrega');
+  ok(s.coins > 0 && SAVE.partsCount() >= 9, 'las recompensas de monedas y piezas se suman',
+    s.coins + ' 🪙 · ' + SAVE.partsCount() + ' 🔩');
 }
 
 /* ---------------- Resumen ---------------- */
