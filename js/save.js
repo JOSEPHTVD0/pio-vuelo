@@ -30,6 +30,7 @@ window.SAVE = (function () {
       map: 'day', mapsOwned: [{ id: 'day' }],
       set: { sfx: true, music: true, vib: true, diff: 'normal', gfx: 'high', mode: 'free', hc: false, moon: false, volS: 1, volM: 1, volG: 1, reduced: false, shake: true, lift: false, fps: 0, sens: 1, notif: true, uiAnim: true, confirmBuy: false },
       tutorialDone: false,
+      registrationPrompted: false,   // ya se ofreció crear cuenta en el primer vuelo
       history: [],          // últimas compras/mejoras/reparaciones (máx. 30)
       dailyM: { date: '', claimed: [] },
       dailyBase: {},        // progreso de 0 para las misiones diarias de hoy
@@ -265,6 +266,7 @@ window.SAVE = (function () {
         if (!Array.isArray(data.history)) data.history = [];
         data.history = data.history.filter(h => h && typeof h === 'object' && typeof h.k === 'string').slice(0, 30);
         data.tutorialDone = data.tutorialDone === true;
+        data.registrationPrompted = data.registrationPrompted === true;
         if (!Array.isArray(data.history)) data.history = [];
         if (!data.dailyC || typeof data.dailyC !== 'object') data.dailyC = { date: '', best: 0, played: false };
         if (!data.dailyH || typeof data.dailyH !== 'object') data.dailyH = {};
@@ -850,6 +852,7 @@ window.SAVE = (function () {
     return data.set;
   }
   function finishTutorial() { data.tutorialDone = true; save(); return true; }
+  function markRegistrationPrompted() { data.registrationPrompted = true; save(); return true; }
 
   /* --- Recompensa diaria + racha --- */
   function padN(n) { return n < 10 ? '0' + n : '' + n; }
@@ -1291,7 +1294,7 @@ window.SAVE = (function () {
     endRun, setCombo, buy, equip, checkAch, setSetting, reset, owns,
     buyTool, itemCount, toolLevel, toolUpPrice, toolUpParts, upToolLevel, toolModeVal, setToolMode, noteToolUse,
     toolMaxDur, toolWear, toolDur, toolDurInfo, toolUsable, wearTool, toolRepairCost, repairTool, toolStats,
-    getHistory, resetSettings, defaultSettings, finishTutorial,
+    getHistory, resetSettings, defaultSettings, finishTutorial, markRegistrationPrompted,
     unlockAll, giveTools, giveAllUpg, achAll, chalReset, adminSetStreak,
     dailyInfo, claimDaily, addBest,
     challengePlayedToday, recordChallenge, dailyHistory, seedToday,

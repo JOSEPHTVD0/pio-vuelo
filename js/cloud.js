@@ -500,6 +500,13 @@ window.CLOUD = (function () {
         await authMod.setPersistence(auth, authMod.browserLocalPersistence);
       } catch (e) { /* algunos navegadores privados lo bloquean */ }
 
+      /* Espera a que Firebase restaure la sesión guardada antes de decidir.
+         Sin esto, una recarga puede crear un invitado nuevo o no encontrar la
+         cuenta, y el progreso de la nube se sobrescribe con uno vacío. */
+      try {
+        if (typeof authMod.authStateReady === 'function') await authMod.authStateReady(auth);
+      } catch (e) { }
+
       try {
         db = fsMod.initializeFirestore(app, {
           localCache: fsMod.persistentLocalCache({

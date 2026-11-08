@@ -58,6 +58,13 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
 
+## Novedades de la versión 3.3.2
+
+- **Aviso de registro en el primer vuelo:** un usuario nuevo ve la opción de crear cuenta para guardar su progreso en la nube antes de empezar a jugar. Puede elegir «Seguir como invitado» y el aviso no vuelve a aparecer; en ese caso el progreso se queda solo en el dispositivo.
+- **Acceso privado al panel de administración en PC:** tocar la moneda de la esquina superior abre el panel y pide la clave. La clave no se muestra en pantalla y se retiró la pista visible.
+- **Primer vuelo más claro:** el aviso también cubre los botones Continuar y el desafío diario de la portada.
+- **Restauración de cuenta más fiable:** al abrir el juego se espera a que Firebase recupere la sesión guardada antes de decidir. Así una recarga ya no puede confundir la cuenta con un invitado nuevo ni sustituir el progreso de la nube por uno vacío.
+
 ## Novedades de la versión 3.3.1
 
 - **Se retiró la sección «TU NOMBRE» del perfil:** el nombre ya no se puede cambiar desde el juego. Solo se define al crear la cuenta; los invitados conservan un nombre local aleatorio no editable.
@@ -196,20 +203,23 @@ Arranca el servidor local, juega una partida, pausa, compra el Pase Prémium,
 reclama sus 14 recompensas y revisa tienda, mapas e inventario. Además comprueba
 la conexión real con Firebase, la pantalla de récords online, un **corte de red
 real** (sin conexión, caché y reintento) y que el juego sigue funcionando offline.
-Actualmente son **35 comprobaciones** y no debe haber errores de JavaScript.
+Con `PIO_EMULATORS=1` añade el flujo completo de cuentas: aviso del primer vuelo,
+registro, restauración en un dispositivo nuevo, cierre de sesión y elección entre
+los dos progresos.
+Actualmente son **53 comprobaciones** y no debe haber errores de JavaScript.
 Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con
 `CHROME_PATH`. En un entorno sin red, `SKIP_ONLINE=1` omite solo el bloque online.
 
 ## Limitaciones conocidas
 
-- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.1 (versionCode 31)** con el código actual: **7.022.958 bytes** y SHA-256 `B1479C4E5C87C57DD10768DDD0CCED9C14447C408121C8763E63732150460820`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
-- La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (26/26) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 35/35, incluido el modo offline). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos y el ranking online en un dispositivo Android real antes de darlos por cerrados.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.3.2 (versionCode 35)**: **7.039.342 bytes** y SHA-256 `0B71EE94249B1E0EDE3D3EA568A1803C313176E9052D5DD25A44A96E6968B4E8`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
+- La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (26/26) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 53/53 con emuladores, incluido el modo offline y las cuentas). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos y el ranking online en un dispositivo Android real antes de darlos por cerrados.
 - El ranking global solo muestra marcas con más de 0 puntos. Las entradas antiguas con 0 puntos que ya existan en Firestore no se muestran y no se pueden borrar desde el cliente porque las reglas lo impiden; para limpiarlas hace falta la consola de Firebase o el Admin SDK.
 - La primera carga del ranking online necesita red. Si se abre sin conexión y nunca se ha visto la tabla, se muestra un aviso y se puede reintentar; el juego local no se bloquea.
 - La música es procedural (WebAudio) y no usa archivos externos: suena distinta por familia de mapa, pero no son pistas grabadas. El audio requiere un gesto del usuario para desbloquearse en móvil.
 - El Pase Prémium se paga con monedas del juego, no con dinero real; no hay pasarela de pago ni compras externas.
 - El idioma está fijado en español y se muestra deshabilitado como “Español (único)”: no se simula un selector que no existe.
-- El guardado es local al navegador o dispositivo. La nube es un espejo opcional: no hay cuentas con correo ni contraseña, y borrar los datos del sitio pierde el vínculo con el UID anónimo de Firebase.
+- El guardado es local al navegador o dispositivo. La nube es un espejo opcional: las cuentas usan usuario y contraseña (sin correo real) y el progreso se puede recuperar en otro dispositivo; borrar los datos del sitio cierra la sesión, pero se puede volver a entrar. Los invitados conservan el vínculo con su UID anónimo de Firebase.
 - El autoguardado está siempre activo para evitar pérdidas: no se ofrece un interruptor que pudiera desactivarlo por accidente. La sincronización vertical y la resolución las controla el navegador o el dispositivo; el límite de FPS sí se aplica y se documenta esa limitación en Ajustes.
 
 ## Android

@@ -281,8 +281,9 @@ window.UI = (function () {
     else if (action === 'tools') openGeneric('shop', 'tools');
     else if (action === 'dailyrun') {
       if (SAVE.challengePlayedToday()) { toast('Ya jugaste el desafío de hoy 🌙', 'info'); return; }
-      G.setMode('challenge');
-      G.startPlay();
+      const start = () => { G.setMode('challenge'); G.startPlay(); };
+      if (typeof window.__pioFirstRunGuard === 'function') window.__pioFirstRunGuard(start);
+      else start();
     }
     else if (action === 'inventory') openGeneric('inventory');
   }
@@ -2903,7 +2904,7 @@ window.UI = (function () {
     const about = document.createElement('div');
     about.className = 'prog-card';
     about.style.textAlign = 'center';
-    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.3.1 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.3.2 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
     body.appendChild(about);
   }
 

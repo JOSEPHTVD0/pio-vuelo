@@ -12,6 +12,7 @@
 
 const { spawn } = require('child_process');
 const fs = require('fs');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 
@@ -34,6 +35,25 @@ function findBrowser() {
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Los emuladores de Firebase pueden tardar en abrir sus puertos aunque
+// emulators:exec ya haya lanzado este script. Se espera de verdad a que
+// Firestore, Realtime Database y Auth acepten conexiones.
+function waitPort(port, timeoutMs) {
+  const started = Date.now();
+  return new Promise(resolve => {
+    const attempt = () => {
+      const sock = net.connect({ host: '127.0.0.1', port });
+      sock.once('connect', () => { sock.destroy(); resolve(true); });
+      sock.once('error', () => {
+        sock.destroy();
+        if (Date.now() - started >= timeoutMs) resolve(false);
+        else setTimeout(attempt, 500);
+      });
+    };
+    attempt();
+  });
+}
 const results = [];
 function ok(cond, name, extra) {
   results.push({ ok: !!cond, name, extra });
@@ -82,6 +102,20 @@ function makeClient(ws) {
     return;
   }
 
+  if (EMULATORS) {
+    const waits = [
+      ['Firestore', 8080], ['Realtime Database', 9000], ['Auth', 9099]
+    ];
+    for (const [name, port] of waits) {
+      if (!(await waitPort(port, 120000))) {
+        console.error('El emulador de ' + name + ' no abrió el puerto ' + port);
+        process.exitCode = 1;
+        return;
+      }
+    }
+    await sleep(1500); // margen para que terminen de cargar reglas y datos
+  }
+
   let server = null;
   let serverOwned = false;
   if (!(await waitFor(URL, 1, 1))) {
@@ -122,14 +156,49 @@ function makeClient(ws) {
       return r.result.value;
     };
 
+    // Sondea una expresión hasta que devuelva un valor (o se agote el tiempo).
+    // Sirve para esperar recargas y restauraciones sin leer a mitad de carga.
+    const pollSave = async (expr, tries) => {
+      let last = null;
+      for (let i = 0; i < (tries || 60); i++) {
+        last = await evalJs(expr).catch(() => null);
+        if (last) return last;
+        await sleep(500);
+      }
+      return last;
+    };
+
     await sleep(2500);
     ok(await evalJs("typeof DAT === 'object' && typeof SAVE === 'object' && typeof G === 'object'"), 'los módulos reales cargan en el navegador');
     ok(await evalJs("SAVE.get().coins >= 0"), 'el guardado existe y tiene saldo válido');
     ok(await evalJs("!document.getElementById('homeScreen') || getComputedStyle(document.getElementById('homeScreen')).display !== 'none'"), 'la portada es visible al arrancar');
 
+    // Acceso privado al panel de administración tocando la moneda superior.
+    await evalJs("document.getElementById('homeCoinChip').click()");
+    await sleep(300);
+    const adminGate = await evalJs("(function(){var m=document.getElementById('adminModal');var p=document.getElementById('adminPin');var l=document.getElementById('adminLock');return {visible:!m.classList.contains('hidden'),lock:!l.classList.contains('hidden'),password:p.type==='password',hint:l.textContent.indexOf('Pista')!==-1,title:m.textContent.indexOf('293031')!==-1}})()");
+    ok(adminGate.visible && adminGate.lock, 'la moneda superior abre el panel privado de administración');
+    ok(adminGate.password && !adminGate.hint && !adminGate.title, 'la clave está oculta y ya no se muestra la pista');
+    await evalJs("document.getElementById('adminPin').value='5102'; document.getElementById('adminUnlock').click()");
+    await sleep(250);
+    ok(await evalJs("!document.getElementById('adminLock').classList.contains('hidden') && document.getElementById('adminPerks').classList.contains('hidden')"), 'una clave incorrecta no da acceso');
+    await evalJs("document.getElementById('adminPin').value='293031'; document.getElementById('adminUnlock').click()");
+    await sleep(250);
+    ok(await evalJs("document.getElementById('adminLock').classList.contains('hidden') && !document.getElementById('adminPerks').classList.contains('hidden')"), 'la clave privada concede acceso al panel');
+    await evalJs("document.getElementById('adminClose2').click()");
+    await sleep(300);
+    ok(await evalJs("document.getElementById('adminModal').classList.contains('hidden') && !document.getElementById('screen-home').classList.contains('hidden')"), 'el panel se cierra y vuelve a la portada');
+
     // Partida real: Jugar → modo libre
     await evalJs("document.getElementById('btnPlay').click()");
     await sleep(300);
+    const firstRunPrompt = await evalJs("!document.getElementById('registerPrompt').classList.contains('hidden')");
+    if (firstRunPrompt) {
+      const promptText = await evalJs("document.getElementById('registerPrompt').textContent");
+      ok(promptText.indexOf('Guarda tu progreso') !== -1 && promptText.indexOf('invitado') !== -1, 'el aviso de primer vuelo ofrece cuenta o invitado');
+      await evalJs("document.getElementById('regPromptGuest').click()");
+      await sleep(250);
+    }
     ok(await evalJs("!document.getElementById('screen-modepick').classList.contains('hidden')"), 'el botón Jugar abre la elección de modo');
     await evalJs("document.getElementById('mpFree').click()");
     await sleep(1200);
@@ -260,10 +329,35 @@ function makeClient(ws) {
     if (EMULATORS) {
       const emuUser = 'T' + String(Date.now()).slice(-9);
       const emuPass = 'Prueba123';
-      const bootCloud = await evalJs("CLOUD.init().then(function(s){return {status:s.status,ready:s.ready,configured:s.configured,session:CLOUD.session()}}).catch(function(e){return {status:'error',ready:false,error:String(e)}})");
+      // El emulador puede tardar unos segundos en aceptar escrituras aunque el
+      // puerto ya esté abierto. Se reintenta como haría el juego al volver la red.
+      const bootCloud = await evalJs(`(async function(){
+        const wait = ms => new Promise(r => setTimeout(r, ms));
+        let s = await CLOUD.init().catch(() => CLOUD.status());
+        for (let i = 0; i < 8 && !(s && s.ready && s.status === 'online'); i++) {
+          await wait(1500);
+          s = await CLOUD.retry().catch(() => CLOUD.status());
+        }
+        return {status:s.status,ready:s.ready,configured:s.configured,error:s.error||null,session:CLOUD.session()};
+      })()`);
       ok(bootCloud && bootCloud.configured, 'la nube de emuladores está configurada');
       ok(bootCloud && bootCloud.ready && bootCloud.status === 'online', 'Firebase conecta contra los emuladores', bootCloud && (bootCloud.status + (bootCloud.error ? ' · ' + bootCloud.error : '')));
       ok(bootCloud && bootCloud.session && bootCloud.session.anonymous, 'la sesión inicial es de invitado');
+
+      // Aviso de registro del primer vuelo para un usuario nuevo sin partidas.
+      const flightsBefore = await evalJs("SAVE.get().stats.flights");
+      await evalJs("(function(){var s=SAVE.get();s.stats.flights=0;s.registrationPrompted=false;SAVE.save();return true})()");
+      await evalJs("document.getElementById('btnPlay').click()");
+      await sleep(250);
+      const newUserPrompt = await evalJs("(function(){var p=document.getElementById('registerPrompt');return {visible:!p.classList.contains('hidden'),create:!!document.getElementById('regPromptCreate'),guest:!!document.getElementById('regPromptGuest'),modePick:!document.getElementById('screen-modepick').classList.contains('hidden')}})()");
+      ok(newUserPrompt.visible && newUserPrompt.create && newUserPrompt.guest, 'el primer vuelo de un usuario nuevo ofrece cuenta o invitado');
+      ok(!newUserPrompt.modePick, 'el aviso de registro aparece antes de elegir modo');
+      await evalJs("document.getElementById('regPromptCreate').click()");
+      await sleep(400);
+      ok(await evalJs("!document.getElementById('screen-generic').classList.contains('hidden') && document.getElementById('genTitle').textContent.indexOf('PERFIL')!==-1"), 'crear cuenta abre el perfil con el registro');
+      await evalJs("UI.closeGeneric()");
+      await sleep(300);
+      await evalJs("(function(){var s=SAVE.get();s.stats.flights=" + Number(flightsBefore) + ";s.registrationPrompted=true;SAVE.save();return true})()");
 
       await evalJs("UI.openGeneric('profile')");
       await sleep(400);
@@ -291,12 +385,19 @@ function makeClient(ws) {
       await sleep(300);
 
       // "Dispositivo nuevo": se borra el guardado local y se recarga. La cuenta
-      // debe restaurar el progreso automáticamente.
+      // debe restaurar el progreso automáticamente. Al importar la copia la
+      // página puede recargarse otra vez, así que se sondea hasta que el
+      // progreso esperado y la sesión estén disponibles.
       await evalJs("localStorage.removeItem('piovuelo_v1'); setTimeout(function(){location.reload()},50); true");
-      await sleep(7000);
-      const restored = await evalJs("({level:SAVE.get().level,coins:SAVE.get().coins,name:SAVE.getProfile().name,account:CLOUD.session().account})");
-      ok(restored.level === before.level && restored.coins === before.coins, 'un dispositivo nuevo restaura el progreso de la cuenta', JSON.stringify(restored) + ' vs ' + JSON.stringify(before));
-      ok(restored.name === emuUser && restored.account, 'el nombre y la sesión también se restauran');
+      const restored = await pollSave(`(function(){try{
+        var s=(window.SAVE&&SAVE.get)?SAVE.get():null;
+        if(!s||!window.CLOUD||!CLOUD.session)return null;
+        var c=CLOUD.session();
+        if(!c.account||s.level!==${before.level}||s.coins!==${before.coins})return null;
+        return {level:s.level,coins:s.coins,name:SAVE.getProfile().name,account:c.account};
+      }catch(e){return null}})()`, 60);
+      ok(restored && restored.level === before.level && restored.coins === before.coins, 'un dispositivo nuevo restaura el progreso de la cuenta', JSON.stringify(restored) + ' vs ' + JSON.stringify(before));
+      ok(restored && restored.name === emuUser && restored.account, 'el nombre y la sesión también se restauran');
 
       // Cierre de sesión: el juego sigue en local, sin invitado nuevo.
       const out = await evalJs("CLOUD.logout().then(function(r){return r}).catch(function(e){return {ok:false,msg:String(e)}})");
@@ -319,10 +420,15 @@ function makeClient(ws) {
       ok(modal.visible && modal.buttons === 2, 'el modal de elección ofrece las dos opciones', String(modal.buttons));
       ok(modal.text.indexOf('En este dispositivo') !== -1 && modal.text.indexOf('En tu cuenta') !== -1, 'el modal compara los dos progresos');
       await evalJs("document.querySelector('#modalActions .btn').click(); true");
-      await sleep(7000);
-      const chosen = await evalJs("({level:SAVE.get().level,coins:SAVE.get().coins,name:SAVE.getProfile().name,session:CLOUD.session()})");
-      ok(chosen.level === before.level && chosen.coins === before.coins, 'elegir la cuenta restaura su progreso', JSON.stringify(chosen) + ' vs ' + JSON.stringify(before));
-      ok(chosen.session.account && chosen.session.username === emuUser, 'la sesión queda iniciada tras elegir la cuenta');
+      const chosen = await pollSave(`(function(){try{
+        var s=(window.SAVE&&SAVE.get)?SAVE.get():null;
+        if(!s||!window.CLOUD||!CLOUD.session)return null;
+        var c=CLOUD.session();
+        if(!c.account||c.username!=='${emuUser}'||s.level!==${before.level}||s.coins!==${before.coins})return null;
+        return {level:s.level,coins:s.coins,name:SAVE.getProfile().name,session:c};
+      }catch(e){return null}})()`, 60);
+      ok(chosen && chosen.level === before.level && chosen.coins === before.coins, 'elegir la cuenta restaura su progreso', JSON.stringify(chosen) + ' vs ' + JSON.stringify(before));
+      ok(chosen && chosen.session.account && chosen.session.username === emuUser, 'la sesión queda iniciada tras elegir la cuenta');
     }
 
     // Errores reales de la consola

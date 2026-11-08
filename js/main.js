@@ -163,8 +163,8 @@ window.APP = (function () {
     }, { passive: true });
   }
 
-  /* --- Panel de administración (3 dedos + PIN) --- */
-  const ADMIN_PIN = '5102';
+  /* --- Panel de administración (moneda superior o 3 dedos + PIN) --- */
+  const ADMIN_PIN = '293031';
   let adminUnlocked = false;
   let adminPausedGame = false;
 
@@ -202,6 +202,13 @@ window.APP = (function () {
   }
 
   function bindAdmin() {
+    const coinChip = document.getElementById('homeCoinChip');
+    if (coinChip) {
+      coinChip.addEventListener('click', e => {
+        e.preventDefault();
+        openAdmin();
+      });
+    }
     $('adminUnlock').onclick = () => {
       const pin = ($('adminPin').value || '').trim();
       if (pin === ADMIN_PIN) {
@@ -296,13 +303,63 @@ window.APP = (function () {
     };
   }
 
+  /* --- Aviso de registro en el primer vuelo --- */
+  let pendingFirstRun = null;
+
+  // Solo para usuarios nuevos de verdad: sin cuenta, sin vuelos y sin haber
+  // visto ya el aviso. No exige que la sesión de invitado esté lista todavía,
+  // para que el aviso no se pierda si el jugador pulsa Jugar muy rápido.
+  function firstRunNeedsAccount() {
+    if (!window.CLOUD || typeof CLOUD.session !== 'function') return false;
+    if (typeof CLOUD.configured === 'function' && !CLOUD.configured()) return false;
+    const sess = CLOUD.session();
+    if (sess.account) return false;
+    const s = SAVE.get();
+    if (s.registrationPrompted === true) return false;
+    return (s.stats.flights || 0) === 0;
+  }
+
+  // Si es su primer vuelo, muestra el aviso y guarda la acción pendiente.
+  function guardFirstRun(next) {
+    if (!firstRunNeedsAccount()) { next(); return false; }
+    pendingFirstRun = next;
+    $('registerPrompt').classList.remove('hidden');
+    SND.sfx.click();
+    return true;
+  }
+
+  function closeRegisterPrompt() {
+    $('registerPrompt').classList.add('hidden');
+  }
+
+  function bindRegistrationPrompt() {
+    const goAccount = () => {
+      SND.sfx.click();
+      SAVE.markRegistrationPrompted();
+      pendingFirstRun = null;
+      closeRegisterPrompt();
+      UI.openGeneric('profile');
+    };
+    $('regPromptCreate').onclick = goAccount;
+    $('regPromptLogin').onclick = goAccount;
+    $('regPromptGuest').onclick = () => {
+      SND.sfx.click();
+      SAVE.markRegistrationPrompted();
+      closeRegisterPrompt();
+      const next = pendingFirstRun;
+      pendingFirstRun = null;
+      if (typeof next === 'function') next();
+      else UI.showModePick();
+    };
+  }
+
   function bindButtons() {
     const startMode = m => {
       SND.sfx.click();
       G.setMode(m);
       G.startPlay();
     };
-    $('btnPlay').onclick = () => { SND.sfx.click(); UI.showModePick(); };
+    $('btnPlay').onclick = () => { SND.sfx.click(); guardFirstRun(() => UI.showModePick()); };
     $('mpFree').onclick = () => startMode('free');
     $('mpDuel').onclick = () => startMode('duel');
     $('mpDaily').onclick = () => {
@@ -328,8 +385,10 @@ window.APP = (function () {
         UI.showModePick();
         return;
       }
-      G.setMode(safeMode);
-      G.startPlay();
+      guardFirstRun(() => {
+        G.setMode(safeMode);
+        G.startPlay();
+      });
     };
     const tutGuide = document.getElementById('btnTutorialGuide');
     if (tutGuide) tutGuide.onclick = () => { SND.sfx.click(); UI.openGeneric('help'); };
@@ -375,7 +434,7 @@ window.APP = (function () {
         return;
       }
       SND.sfx.click();
-      G.startPlay('challenge');
+      guardFirstRun(() => G.startPlay('challenge'));
     };
     document.querySelectorAll('[data-nav]').forEach(b => {
       b.onclick = () => { SND.sfx.click(); UI.openGeneric(b.getAttribute('data-nav'), b.getAttribute('data-tab')); };
@@ -414,6 +473,7 @@ window.APP = (function () {
   window.__appBack = function () {
     const mp = document.getElementById('screen-modepick');
     if (mp && !mp.classList.contains('hidden')) { UI.closeModePick(); return 'handled'; }
+    if (!$('registerPrompt').classList.contains('hidden')) { closeRegisterPrompt(); return 'handled'; }
     if (!$('adminModal').classList.contains('hidden')) { closeAdmin(); return 'handled'; }
     if (!$('modal').classList.contains('hidden')) { $('modal').classList.add('hidden'); return 'handled'; }
     if (G.getState() === 'cleared') { G.goMenu(); return 'handled'; }
@@ -435,7 +495,10 @@ window.APP = (function () {
   function boot() {
     bindButtons();
     bindAdmin();
+    bindRegistrationPrompt();
     bindInput();
+    // La portada también puede iniciar el desafío diario desde un aviso.
+    window.__pioFirstRunGuard = guardFirstRun;
     runLoading();
     window.addEventListener('resize', () => G.resize());
 

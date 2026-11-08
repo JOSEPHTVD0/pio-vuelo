@@ -273,6 +273,10 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .modal-box h3 { font-size:19px; }
 .modal-box p { font-size:14px; color:#dbe7ff; }
 .modal-actions { display:flex; gap:10px; justify-content:center; }
+.register-prompt { width:min(100%,360px); }
+.register-prompt .register-warn { font-size:12px; color:#ffe066; }
+.register-actions { display:flex; flex-direction:column; gap:8px; }
+.register-actions .btn { width:100%; }
 
 /* TOASTS */
 #toastWrap { position:fixed; top:calc(env(safe-area-inset-top,0px) + 14px); left:0; right:0; z-index:300; display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
