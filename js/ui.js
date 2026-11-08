@@ -2904,7 +2904,7 @@ window.UI = (function () {
     const about = document.createElement('div');
     about.className = 'prog-card';
     about.style.textAlign = 'center';
-    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.3.2 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.3.3 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
     body.appendChild(about);
   }
 

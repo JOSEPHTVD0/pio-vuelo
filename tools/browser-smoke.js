@@ -149,11 +149,26 @@ function makeClient(ws) {
     await c.send('Page.enable');
 
     const evalJs = async (expr) => {
-      const r = await c.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
-      if (r.exceptionDetails) {
-        throw new Error('JS: ' + (r.exceptionDetails.exception && r.exceptionDetails.exception.description || r.exceptionDetails.text));
+      // Al restaurar una cuenta la página puede recargarse sola: si el destino
+      // se va a mitad de la evaluación, se reintenta en vez de dar la prueba
+      // por fallida.
+      for (let i = 0; i < 12; i++) {
+        let r;
+        try {
+          r = await c.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
+        } catch (e) {
+          if (/navigated or closed/i.test(String(e && e.message)) && i < 11) {
+            await sleep(500);
+            continue;
+          }
+          throw e;
+        }
+        if (r.exceptionDetails) {
+          throw new Error('JS: ' + (r.exceptionDetails.exception && r.exceptionDetails.exception.description || r.exceptionDetails.text));
+        }
+        return r.result.value;
       }
-      return r.result.value;
+      return undefined;
     };
 
     // Sondea una expresión hasta que devuelva un valor (o se agote el tiempo).
@@ -398,6 +413,18 @@ function makeClient(ws) {
       }catch(e){return null}})()`, 60);
       ok(restored && restored.level === before.level && restored.coins === before.coins, 'un dispositivo nuevo restaura el progreso de la cuenta', JSON.stringify(restored) + ' vs ' + JSON.stringify(before));
       ok(restored && restored.name === emuUser && restored.account, 'el nombre y la sesión también se restauran');
+
+      // La importación puede encadenar una segunda recarga: se espera a que la
+      // página quede estable antes de cerrar sesión.
+      await sleep(1500);
+      const settled = await pollSave(`(function(){try{
+        var s=(window.SAVE&&SAVE.get)?SAVE.get():null;
+        if(!s||!window.CLOUD||!CLOUD.session)return null;
+        var c=CLOUD.session();
+        if(!c.account||s.level!==${before.level}||s.coins!==${before.coins})return null;
+        return {level:s.level,coins:s.coins,account:c.account};
+      }catch(e){return null}})()`, 20);
+      ok(settled && settled.account, 'la sesión restaurada queda estable tras la recarga', JSON.stringify(settled));
 
       // Cierre de sesión: el juego sigue en local, sin invitado nuevo.
       const out = await evalJs("CLOUD.logout().then(function(r){return r}).catch(function(e){return {ok:false,msg:String(e)}})");

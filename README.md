@@ -58,6 +58,13 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
 
+## Novedades de la versión 3.3.3
+
+- **Tienda ampliada:** 6 aves nuevas (Loro, Flamenco, Cóndor, Cisne, Pingüino Emperador y Martín Pescador), 5 sombreros, 6 estelas, 3 mapas con mecánica propia (Cascada, Metrópolis y Mar de Estrellas), 5 herramientas y 5 decoraciones. Todo el contenido nuevo está disponible ya en la tienda.
+- **Herramientas nuevas con efecto real:** Aura Mayor (+1 punto por tubo durante 30 s), Cohete Pro (turbo durante 7 s), Triple Escudo (suma 3 escudos), Sabiduría (+30 XP y más con mejoras) y Tesoro Real (+15 🪙 y +2 puntos). Se mejoran hasta nivel 8 como el resto.
+- **Más misiones diarias y semanales:** 12 diarias y 10 semanales nuevas, con recompensas de hasta 450 🪙, usando métricas reales de vuelo (monedas, tubos, oro, gemas, jefes, escudos, viento, gigantes y tiempo).
+- **Pase un poco más exigente:** los 20 umbrales de XP suben alrededor de un 14 % (el último pasa de 12.350 a 14.100 XP). Las 20 recompensas gratuitas y las 20 prémium se mantienen.
+
 ## Novedades de la versión 3.3.2
 
 - **Aviso de registro en el primer vuelo:** un usuario nuevo ve la opción de crear cuenta para guardar su progreso en la nube antes de empezar a jugar. Puede elegir «Seguir como invitado» y el aviso no vuelve a aparecer; en ese caso el progreso se queda solo en el dispositivo.
@@ -200,20 +207,20 @@ node tools/browser-smoke.js
 ```
 
 Arranca el servidor local, juega una partida, pausa, compra el Pase Prémium,
-reclama sus 14 recompensas y revisa tienda, mapas e inventario. Además comprueba
+reclama sus 20 recompensas y revisa tienda, mapas e inventario. Además comprueba
 la conexión real con Firebase, la pantalla de récords online, un **corte de red
 real** (sin conexión, caché y reintento) y que el juego sigue funcionando offline.
 Con `PIO_EMULATORS=1` añade el flujo completo de cuentas: aviso del primer vuelo,
 registro, restauración en un dispositivo nuevo, cierre de sesión y elección entre
 los dos progresos.
-Actualmente son **53 comprobaciones** y no debe haber errores de JavaScript.
+Actualmente son **55 comprobaciones** y no debe haber errores de JavaScript.
 Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con
 `CHROME_PATH`. En un entorno sin red, `SKIP_ONLINE=1` omite solo el bloque online.
 
 ## Limitaciones conocidas
 
-- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.3.2 (versionCode 35)**: **7.039.342 bytes** y SHA-256 `0B71EE94249B1E0EDE3D3EA568A1803C313176E9052D5DD25A44A96E6968B4E8`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
-- La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (26/26) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 53/53 con emuladores, incluido el modo offline y las cuentas). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos y el ranking online en un dispositivo Android real antes de darlos por cerrados.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.3.3 (versionCode 36)**: **7.039.342 bytes** y SHA-256 `C1C609C5DA782F31085F79CDF44D188602443FE02F34DEAC21E73A0748FD6276`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
+- La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (26/26) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 55/55 con emuladores, incluido el modo offline y las cuentas). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos y el ranking online en un dispositivo Android real antes de darlos por cerrados.
 - El ranking global solo muestra marcas con más de 0 puntos. Las entradas antiguas con 0 puntos que ya existan en Firestore no se muestran y no se pueden borrar desde el cliente porque las reglas lo impiden; para limpiarlas hace falta la consola de Firebase o el Admin SDK.
 - La primera carga del ranking online necesita red. Si se abre sin conexión y nunca se ha visto la tabla, se muestra un aviso y se puede reintentar; el juego local no se bloquea.
 - La música es procedural (WebAudio) y no usa archivos externos: suena distinta por familia de mapa, pero no son pistas grabadas. El audio requiere un gesto del usuario para desbloquearse en móvil.

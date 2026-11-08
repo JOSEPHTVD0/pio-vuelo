@@ -139,7 +139,14 @@ window.DAT = (function () {
     { id: 'colibri',  name: 'Colibrí',    desc: 'Aletea más rápido que el viento.', price: 1650, body: '#26c6da', wing: '#00838f', belly: '#e0f7fa', beak: '#ff5252', cheek: '#80deea', sparkle: true },
     { id: 'pavo',     name: 'Pavo Real',  desc: 'Un despliegue de plumas.',         price: 1800, body: '#1e88e5', wing: '#0d47a1', belly: '#e3f2fd', beak: '#ffb300', cheek: '#64b5f6', sparkle: true, shine: true },
     { id: 'garza',    name: 'Garza',      desc: 'Elegante sobre cualquier cielo.',  price: 1450, body: '#eceff1', wing: '#b0bec5', belly: '#ffffff', beak: '#ffb300', cheek: '#cfd8dc', shine: true },
-    { id: 'pelicano', name: 'Pelícano',   desc: 'Siempre lleva la merienda.',       price: 1550, body: '#eeeeee', wing: '#bdbdbd', belly: '#ffffff', beak: '#ff8f00', cheek: '#ffcc80', blush: true }
+    { id: 'pelicano', name: 'Pelícano',   desc: 'Siempre lleva la merienda.',       price: 1550, body: '#eeeeee', wing: '#bdbdbd', belly: '#ffffff', beak: '#ff8f00', cheek: '#ffcc80', blush: true },
+    /* ---- AMPLIACIÓN 3.3.3: aves disponibles ya ---- */
+    { id: 'loro',      name: 'Loro',      desc: 'Habla más que vuela.',             price: 1450, body: '#43a047', wing: '#2e7d32', belly: '#fff176', beak: '#ef6c00', cheek: '#ff5252', sparkle: true },
+    { id: 'flamenco',  name: 'Flamenco',  desc: 'Rosa de cabeza a patas.',          price: 1600, body: '#f48fb1', wing: '#ec407a', belly: '#fff0f5', beak: '#37474f', cheek: '#f8bbd0', blush: true },
+    { id: 'condor',    name: 'Cóndor',    desc: 'Planea sobre las montañas.',       price: 1750, body: '#37474f', wing: '#263238', belly: '#eceff1', beak: '#ffb300', cheek: '#90a4ae', tiger: true },
+    { id: 'cisne',     name: 'Cisne',     desc: 'Elegancia en cada aleteo.',        price: 1550, body: '#fafafa', wing: '#e0e0e0', belly: '#ffffff', beak: '#ff8f00', cheek: '#f8bbd0', shine: true },
+    { id: 'emperador', name: 'Pingüino Emperador', desc: 'Rey de los hielos.',      price: 1850, body: '#263238', wing: '#37474f', belly: '#fffde7', beak: '#ffb300', cheek: '#ffcc80', ice: true },
+    { id: 'martin',    name: 'Martín Pescador', desc: 'Pesca en picado y sale volando.', price: 1500, body: '#039be5', wing: '#0277bd', belly: '#e1f5fe', beak: '#ff7043', cheek: '#4fc3f7', sparkle: true }
   ];
 
   /* ---- RECOMPENSAS EXCLUSIVAS DEL PASE PRÉMIUM ----
@@ -210,6 +217,13 @@ window.DAT = (function () {
     pavo:    { flap: 1.06, gap: 1.04 },
     garza:   { grav: 0.96, spd: 1.03 },
     pelicano:{ grav: 0.95 },
+    /* ---- AMPLIACIÓN 3.3.3 ---- */
+    loro:    { flap: 1.05, gap: 1.04 },
+    flamenco:{ grav: 0.95 },
+    condor:  { grav: 0.9, spd: 1.04 },
+    cisne:   { gap: 1.05, grav: 0.97 },
+    emperador:{ grav: 0.94, flap: 1.06 },
+    martin:  { spd: 1.08, flap: 1.05 },
     /* ---- EXCLUSIVAS DEL PASE PRÉMIUM ---- */
     'p-aurora': { gap: 1.05, grav: 0.93 },
     'p-crono':  { flap: 1.12, spd: 1.02 },
@@ -316,7 +330,13 @@ window.DAT = (function () {
     { id: 'po-cohete',   cat: 'poster', name: 'Póster cohete',  price: 300, bg1: '#2e3a6b', bg2: '#4a5a9a', art: '🚀' },
     { id: 'po-mundo',    cat: 'poster', name: 'Póster mundo',   price: 350, bg1: '#1e5a4a', bg2: '#2f8a6a', art: '🌍' },
     { id: 'rug-verde',   cat: 'rug',    name: 'Alfombra verde', price: 200, bg1: '#2f6e3f', bg2: '#3f8f52', art: '🟢' },
-    { id: 'rug-estelar', cat: 'rug',    name: 'Alfombra estelar', price: 650, bg1: '#2a2a6b', bg2: '#4a4a9a', art: '✨' }
+    { id: 'rug-estelar', cat: 'rug',    name: 'Alfombra estelar', price: 650, bg1: '#2a2a6b', bg2: '#4a4a9a', art: '✨' },
+    /* ---- AMPLIACIÓN 3.3.3: más decoración ---- */
+    { id: 'bg-desierto', cat: 'bg',     name: 'Desierto',       price: 650, bg1: '#ffca7a', bg2: '#ffe7bd', art: '🏜️' },
+    { id: 'bg-selva',    cat: 'bg',     name: 'Selva',          price: 620, bg1: '#1e5a3a', bg2: '#4a9a6a', art: '🌴' },
+    { id: 'fl-marmol',   cat: 'floor',  name: 'Mármol',         price: 700, bg1: '#d7dde3', bg2: '#f2f5f8', art: '⬜' },
+    { id: 'po-luna',     cat: 'poster', name: 'Póster luna',    price: 380, bg1: '#1e2a5a', bg2: '#3a4a8a', art: '🌙' },
+    { id: 'rug-celeste', cat: 'rug',    name: 'Alfombra celeste', price: 450, bg1: '#1e6a9a', bg2: '#3a9ad0', art: '🔷' }
   ];
   function getDecor(id) { return DECOR.find(d => d.id === id) || DECOR[0]; }
   function decorsByCat(cat) { return DECOR.filter(d => d.cat === cat); }
@@ -395,7 +415,13 @@ window.DAT = (function () {
     { id: 'hat-pluma-azul',  name: 'Pluma Azul',    price: 480, type: 'antenna' },
     { id: 'hat-corona-hielo',name: 'Corona de Hielo',price: 640, type: 'crown' },
     { id: 'hat-casco-astro', name: 'Casco Astral',  price: 700, type: 'helmet' },
-    { id: 'hat-neon-head',   name: 'Auriculares Neón',price: 560, type: 'headphones' }
+    { id: 'hat-neon-head',   name: 'Auriculares Neón',price: 560, type: 'headphones' },
+    /* ---- AMPLIACIÓN 3.3.3: más sombreros disponibles ya ---- */
+    { id: 'hat-fedora',      name: 'Fedora',        price: 460, type: 'bonnet' },
+    { id: 'hat-diadema',     name: 'Diadema Estelar', price: 620, type: 'crown' },
+    { id: 'hat-gafas-sol',   name: 'Gafas de Sol',  price: 540, type: 'vr' },
+    { id: 'hat-corona-oro',  name: 'Corona Dorada', price: 720, type: 'crown' },
+    { id: 'hat-casco-vikingo', name: 'Casco Vikingo', price: 680, type: 'helmet' }
   ];
   HATS.push(
     { id: 'hat-corona-eterna', name: 'Corona Eterna', price: 0, exclusive: true, rarity: 'legendaria', type: 'crown' },
@@ -475,7 +501,14 @@ window.DAT = (function () {
     { id: 'fx-violeta',      name: 'Violeta Eléctrico', price: 800, color: '#d500f9', stars: true },
     { id: 'fx-menta2',       name: 'Menta Fresca',   price: 550,  color: '#69f0ae' },
     { id: 'fx-rubi2',        name: 'Rubí',           price: 750,  color: '#ff1744', stars: true },
-    { id: 'fx-celeste',      name: 'Celeste',        price: 600,  color: '#40c4ff' }
+    { id: 'fx-celeste',      name: 'Celeste',        price: 600,  color: '#40c4ff' },
+    /* ---- AMPLIACIÓN 3.3.3: más estelas disponibles ya ---- */
+    { id: 'fx-jade',         name: 'Jade',           price: 720,  color: '#00e676', stars: true },
+    { id: 'fx-oro-rosa',     name: 'Oro Rosa',       price: 900,  color: '#ffb3c1', stars: true },
+    { id: 'fx-cobalto',      name: 'Cobalto',        price: 820,  color: '#2979ff' },
+    { id: 'fx-lavanda',      name: 'Lavanda',        price: 620,  color: '#b39ddb' },
+    { id: 'fx-tropical',     name: 'Tropical',       price: 780,  color: '#ff6f00', rainbow: true },
+    { id: 'fx-escarcha',     name: 'Escarcha',       price: 880,  color: '#b3e5fc', stars: true }
   ];
   EFFECTS.push(
     { id: 'fx-prisma',    name: 'Prisma Prémium', price: 0, exclusive: true, rarity: 'legendaria', color: '#b388ff', rainbow: true, stars: true },
@@ -537,7 +570,11 @@ window.DAT = (function () {
     { id: 'jardin',   name: 'Jardín Secreto', icon: '🌷', price: 1400, minScore: 72, unlock: 'coins', sky: ['#c8f7c5', '#f0fff4'], ground: '#6aa84f', hill1: '#7fbf5f', hill2: '#94d174', cloud: '#ffffff', stars: false, bubbles: true,  grid: false, pipe: '#7fb069', pipeRim: '#5a8a45', accent: '#ff8fab' },
     { id: 'industrial', name: 'Distrito Industrial', icon: '🏭', price: 1420, minScore: 73, unlock: 'coins', sky: ['#4a4e57', '#7a808a'], ground: '#3a3d44', hill1: '#484c55', hill2: '#565b65', cloud: '#6a7078', stars: false, bubbles: false, grid: true,  pipe: '#ffb300', pipeRim: '#b38000', accent: '#ff6f00' },
     { id: 'sabana',   name: 'Sabana Dorada', icon: '🦁', price: 1440, minScore: 74, unlock: 'coins', sky: ['#ffe082', '#fff8e1'], ground: '#c9a227', hill1: '#d4b03a', hill2: '#e0c050', cloud: '#ffffff', stars: false, bubbles: false, grid: false, pipe: '#a67c00', pipeRim: '#7a5c00', accent: '#ff7043' },
-    { id: 'arrecife', name: 'Arrecife',      icon: '🐠', price: 1460, minScore: 75, unlock: 'coins', sky: ['#40e0d0', '#0e8f9c'], ground: '#e8b96a', hill1: '#f0c97e', hill2: '#f7d894', cloud: '#ffffff', stars: false, bubbles: true,  grid: false, pipe: '#ff8a65', pipeRim: '#d85c3f', accent: '#ffee58' }
+    { id: 'arrecife', name: 'Arrecife',      icon: '🐠', price: 1460, minScore: 75, unlock: 'coins', sky: ['#40e0d0', '#0e8f9c'], ground: '#e8b96a', hill1: '#f0c97e', hill2: '#f7d894', cloud: '#ffffff', stars: false, bubbles: true,  grid: false, pipe: '#ff8a65', pipeRim: '#d85c3f', accent: '#ffee58' },
+    /* ---- AMPLIACIÓN 3.3.3: más mapas disponibles ya ---- */
+    { id: 'cascada',  name: 'Cascada',       icon: '💦', price: 1520, minScore: 76, unlock: 'coins', sky: ['#8be9fd', '#d6f7ff'], ground: '#2e8b8b', hill1: '#3aa0a0', hill2: '#4ab5b5', cloud: '#ffffff', stars: false, bubbles: true,  grid: false, pipe: '#2aa7a7', pipeRim: '#1d7f7f', accent: '#b2ebf2' },
+    { id: 'metropolis', name: 'Metrópolis',  icon: '🌆', price: 1580, minScore: 77, unlock: 'coins', sky: ['#1b1b3a', '#4a3a8a'], ground: '#2a2345', hill1: '#352c58', hill2: '#41366d', cloud: '#5a4a8a', stars: true,  bubbles: false, grid: true,  pipe: '#8e7dff', pipeRim: '#5f4fd0', accent: '#ff5fd8' },
+    { id: 'estelar',  name: 'Mar de Estrellas', icon: '✨', price: 1650, minScore: 78, unlock: 'coins', sky: ['#05081f', '#241a5e'], ground: '#1a1a4a', hill1: '#25255e', hill2: '#303073', cloud: '#4a4a9a', stars: true,  bubbles: true,  grid: false, pipe: '#7de3ff', pipeRim: '#3aa0d0', accent: '#ffd54f' }
   ];
   /* Mapa exclusivo del Pase Prémium: cielo auroral, monedas dobles y rachas de viento. */
   MAPS.push({
@@ -593,7 +630,10 @@ window.DAT = (function () {
     jardin:     { coinMul: 1.2, gapMul: 1.04 },
     industrial: { spawnMul: 0.94, speedMul: 1.05 },
     sabana:     { speedMul: 1.07, coinMul: 1.15 },
-    arrecife:   { gravMul: 0.88, coinMul: 1.2 }
+    arrecife:   { gravMul: 0.88, coinMul: 1.2 },
+    cascada:    { gravMul: 0.9, speedMul: 0.96, coinMul: 1.25 },
+    metropolis: { speedMul: 1.12, spawnMul: 0.93, coinMul: 1.25 },
+    estelar:    { gravMul: 0.85, gapMul: 1.04, coinMul: 1.3, wind: true }
   };
   function mapCfg(id) { return Object.assign({}, MAP_CFG_DEF, MAP_CFG[id] || {}); }
 
@@ -645,7 +685,13 @@ window.DAT = (function () {
     { id: 'tool-coinsx',  key: 'coinsx',  name: 'Monedas Plus+',  icon: '💰', desc: 'Monedas dobles 12 s · más con mejoras.',            price: 290 },
     { id: 'tool-shieldx', key: 'shieldx', name: 'Doble Escudo',   icon: '🛡️', desc: 'Suma 2 escudos guardados de golpe.',                price: 310 },
     { id: 'tool-ghostx',  key: 'ghostx',  name: 'Fantasma Pro',   icon: '👻', desc: 'Atraviesas obstáculos 7 s al inicio.',               price: 280 },
-    { id: 'tool-frenzyx', key: 'frenzyx', name: 'Frenesí Total',  icon: '🎇', desc: '+1 pt por power-up durante 16 s · más con mejoras.', price: 330 }
+    { id: 'tool-frenzyx', key: 'frenzyx', name: 'Frenesí Total',  icon: '🎇', desc: '+1 pt por power-up durante 16 s · más con mejoras.', price: 330 },
+    /* ---- AMPLIACIÓN 3.3.3: más herramientas disponibles ya ---- */
+    { id: 'tool-aurax',   key: 'aurax',   name: 'Aura Mayor',    icon: '🕉️', desc: '+1 pt extra por tubo durante 30 s · más con mejoras.', price: 300 },
+    { id: 'tool-turbox',  key: 'turbox',  name: 'Cohete Pro',    icon: '⚡', desc: 'Velocidad extra 7 s · más con mejoras.',              price: 280 },
+    { id: 'tool-escudox', key: 'escudox', name: 'Triple Escudo', icon: '🛡️', desc: 'Suma 3 escudos guardados de golpe.',                  price: 320 },
+    { id: 'tool-saber',   key: 'saber',   name: 'Sabiduría',     icon: '📜', desc: '+30 XP de jugador al instante · más con mejoras.',    price: 260 },
+    { id: 'tool-tesorox', key: 'tesorox', name: 'Tesoro Real',   icon: '💎', desc: 'Robas +15 🪙 y +2 pts al instante · más con mejoras.', price: 290 }
   ];
   TOOLS.push(
     { id: 'tool-legend', key: 'legend', name: 'Reliquia del Pase', icon: '🏆', desc: 'Exclusiva y permanente: +1 pt por tubo y monedas +25 % toda la partida.', price: 0, exclusive: true, rarity: 'mítica', permanent: true, repairValue: 600, dur: 14 }
@@ -813,7 +859,31 @@ window.DAT = (function () {
     { id: 'm-powers',  name: 'Glotón',        desc: 'Recoge 8 power-ups',                          target: 8,    metric: s => s.get().stats.powersGot,     reward: 70,  weekly: false },
     { id: 'm-tools',   name: 'Inventivo',     desc: 'Usa 3 herramientas distintas',                target: 3,    metric: s => (s.get().stats.toolTypes||[]).length, reward: 55, weekly: false },
     { id: 'm-boss',    name: 'Cazador',       desc: 'Derrota a 2 Jefes 👹',                        target: 2,    metric: s => s.get().stats.bossDefeated,   reward: 90,  weekly: false },
-    { id: 'm-gems',    name: 'Buscatesoros',  desc: 'Recoge 5 💎',                                 target: 5,    metric: s => s.get().stats.gemsGot,       reward: 60,  weekly: false }
+    { id: 'm-gems',    name: 'Buscatesoros',  desc: 'Recoge 5 💎',                                 target: 5,    metric: s => s.get().stats.gemsGot,       reward: 60,  weekly: false },
+    /* ---- AMPLIACIÓN 3.3.3: más misiones diarias ---- */
+    { id: 'm-flight',  name: 'Despegue Diario',   desc: 'Completa 1 vuelo',                               target: 1,    metric: s => s.get().stats.flights,        reward: 40,  weekly: false },
+    { id: 'm-dist2',   name: 'Paseo Matutino',    desc: 'Vuela 150 metros',                               target: 150,  metric: s => s.get().stats.dist,           reward: 45,  weekly: false },
+    { id: 'm-coins2',  name: 'Bolsillos Llenos',  desc: 'Recoge 80 monedas',                              target: 80,   metric: s => s.get().stats.coinsGot,       reward: 70,  weekly: false },
+    { id: 'm-pipes2',  name: 'Doble Slalom',      desc: 'Cruza 60 tubos',                                 target: 60,   metric: s => s.get().stats.pipes,          reward: 75,  weekly: false },
+    { id: 'm-mega2',   name: 'Pepitas de Oro',    desc: 'Recoge 2 monedas de oro 🪙',                     target: 2,    metric: s => s.get().stats.megaGot,        reward: 80,  weekly: false },
+    { id: 'm-chain2',  name: 'Cerezas al Vuelo',  desc: 'Recoge 5 monedas de cadena 🍒',                  target: 5,    metric: s => s.get().stats.chainGot,       reward: 65,  weekly: false },
+    { id: 'm-bats2',   name: 'Nocturno',          desc: 'Esquiva 5 murciélagos 🦇',                       target: 5,    metric: s => s.get().stats.batsGot,        reward: 60,  weekly: false },
+    { id: 'm-xc2',     name: 'Doble o Nada',      desc: 'Recoge 3 poderes de doble monedas',              target: 3,    metric: s => s.get().stats.xcGot,          reward: 70,  weekly: false },
+    { id: 'm-shield2', name: 'Blindaje Diario',   desc: 'Absorbe 2 choques con el escudo 🛡️',             target: 2,    metric: s => s.get().stats.shieldAbsorbed, reward: 75,  weekly: false },
+    { id: 'm-giant2',  name: 'Pasos de Gigante',  desc: 'Pasa 5 tuberías gigantes 🌋',                    target: 5,    metric: s => s.get().stats.giantPassed,    reward: 80,  weekly: false },
+    { id: 'm-tools2',  name: 'Manitas del Día',   desc: 'Usa 5 herramientas',                             target: 5,    metric: s => s.get().stats.toolsUsed,      reward: 70,  weekly: false },
+    { id: 'm-chal',    name: 'Desafío del Día',   desc: 'Juega el desafío diario 🌙',                     target: 1,    metric: s => s.get().stats.challengePlayed, reward: 90, weekly: false },
+    /* ---- AMPLIACIÓN 3.3.3: más misiones semanales ---- */
+    { id: 'm-w-coins', name: 'Saco Semanal',      desc: 'Recoge 500 monedas esta semana',                 target: 500,  metric: s => s.get().stats.coinsGot,       reward: 350, weekly: true },
+    { id: 'm-w-mega',  name: 'Fiebre del Oro',    desc: 'Recoge 15 monedas de oro 🪙 esta semana',        target: 15,   metric: s => s.get().stats.megaGot,        reward: 400, weekly: true },
+    { id: 'm-w-gems',  name: 'Colección de Gemas',desc: 'Recoge 20 💎 esta semana',                       target: 20,   metric: s => s.get().stats.gemsGot,        reward: 400, weekly: true },
+    { id: 'm-w-boss',  name: 'Cazador Semanal',   desc: 'Derrota 5 Jefes 👹 esta semana',                 target: 5,    metric: s => s.get().stats.bossDefeated,   reward: 450, weekly: true },
+    { id: 'm-w-tools', name: 'Taller Semanal',    desc: 'Usa 25 herramientas esta semana',                target: 25,   metric: s => s.get().stats.toolsUsed,      reward: 400, weekly: true },
+    { id: 'm-w-enem',  name: 'Escuadrón',         desc: 'Esquiva 80 enemigos esta semana',                target: 80,   metric: s => s.get().stats.enemiesGot,     reward: 350, weekly: true },
+    { id: 'm-w-wind',  name: 'Viento Semanal',    desc: 'Cruza 10 tramos de viento 💨 esta semana',       target: 10,   metric: s => s.get().stats.windZones,      reward: 350, weekly: true },
+    { id: 'm-w-giant', name: 'Cazagigantes Semanal', desc: 'Pasa 25 tuberías gigantes 🌋 esta semana',    target: 25,   metric: s => s.get().stats.giantPassed,    reward: 400, weekly: true },
+    { id: 'm-w-time',  name: 'Horas de Vuelo',    desc: 'Acumula 30 minutos de vuelo esta semana',        target: 1800, metric: s => s.get().stats.timePlayed,     reward: 450, weekly: true },
+    { id: 'm-w-shield',name: 'Muralla',           desc: 'Absorbe 8 choques con el escudo 🛡️',             target: 8,    metric: s => s.get().stats.shieldAbsorbed, reward: 400, weekly: true }
   ];
 
   /* Temporada 2026 🗓: recompensas por XP acumulada (misma XP del jugador) */
@@ -868,8 +938,9 @@ window.DAT = (function () {
   }
   function seasonInfo(d) { return SEASONS[seasonIndex(d)]; }
 
-  /* Pase rotativo: más niveles, umbrales más altos y más recompensas por temporada */
-  const PASS_XP   = [0, 200, 450, 750, 1100, 1500, 1950, 2450, 3000, 3600, 4250, 4950, 5700, 6500, 7350, 8250, 9200, 10200, 11250, 12350];
+  /* Pase rotativo: más niveles, umbrales más altos y más recompensas por temporada
+   * 3.3.3: umbrales +14 % para que las recompensas cuesten un poco más. */
+  const PASS_XP   = [0, 230, 515, 855, 1255, 1710, 2225, 2795, 3420, 4105, 4845, 5645, 6500, 7410, 8375, 9390, 10480, 11630, 12845, 14100];
   const PASS_COINS = [60, 100, 160, 220, 300, 400, 1000]; // 7 recompensas de monedas (incluye la tier final)
   /* Pool de herramientas que puede regalar el Pase (incluye las nuevas de las semanas) */
   const PASS_ITEMS = ['magnet', 'luck', 'slow', 'boost', 'treasure', 'turbo', 'combo', 'shield', 'ghost', 'frenzy', 'eco', 'hype', 'bomb', 'aura', 'twin', 'oasis', 'titan', 'fenix', 'bateria', 'cris'];

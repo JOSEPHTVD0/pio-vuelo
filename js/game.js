@@ -1484,6 +1484,31 @@ function difficultyFor(sc, diffc) {
       effDur.frenzy = 16 + lv * 2;
       FX.text(bird.x, bird.y - bird.r - 60, '🎇 ¡Frenesí Total! +1 por power-up', 14, '#ff8a65');
       updateHUD();
+    } else if (key === 'aurax') {
+      eff.aura = t + 30 + lv * 2;
+      effDur.aura = 30 + lv * 2;
+      FX.text(bird.x, bird.y - bird.r - 60, '🕉️ ¡Aura Mayor! +1 por tubo', 14, '#b388ff');
+      updateHUD();
+    } else if (key === 'turbox') {
+      eff.turbo = t + 7 + lv * 0.9;
+      effDur.turbo = 7 + lv * 0.9;
+      FX.text(bird.x, bird.y - bird.r - 60, '⚡ ¡Cohete Pro!', 14, '#ff5252');
+      updateHUD();
+    } else if (key === 'escudox') {
+      SAVE.addShield(3);
+      FX.text(bird.x, bird.y - bird.r - 60, '🛡️ ¡Triple Escudo! (' + SAVE.shieldCount() + ')', 14, '#29b6f6');
+      updateHUD();
+    } else if (key === 'saber') {
+      const xp = 30 + toolLv('saber') * 6;
+      SAVE.addXp(xp);
+      FX.text(bird.x, bird.y - bird.r - 60, '📜 ¡Sabiduría! +' + xp + ' XP', 14, '#fff59d');
+      updateHUD();
+    } else if (key === 'tesorox') {
+      const mv = 15 + toolLv('tesorox') * 4;
+      SAVE.addCoins(mv);
+      score += 2;
+      FX.text(bird.x, bird.y - bird.r - 60, '💎 ¡Tesoro Real! +' + mv + ' 🪙', 14, '#ffe082');
+      updateHUD();
     } else if (key === 'legend') {
       rt.legend = true;
       FX.text(bird.x, bird.y - bird.r - 60, '🏆 ¡Reliquia del Pase! +1 por tubo y +25% monedas', 14, '#ffe066');
@@ -1491,7 +1516,7 @@ function difficultyFor(sc, diffc) {
     }
   }
 
-  const MANUAL_ORDER = ['magnet', 'coins', 'slow', 'luck', 'boost', 'score', 'sprint', 'start', 'treasure', 'clock', 'turbo', 'combo', 'shield', 'ghost', 'frenzy', 'eco', 'hype', 'bomb', 'aura', 'twin', 'oasis', 'doble', 'runa', 'titan', 'fenix', 'bateria', 'cris', 'ferro', 'para', 'zoom', 'mirilla', 'amuleto', 'rescate', 'ticket', 'radar', 'bala', 'flot', 'magnetx', 'slowx', 'coinsx', 'shieldx', 'ghostx', 'frenzyx', 'legend'];
+  const MANUAL_ORDER = ['magnet', 'coins', 'slow', 'luck', 'boost', 'score', 'sprint', 'start', 'treasure', 'clock', 'turbo', 'combo', 'shield', 'ghost', 'frenzy', 'eco', 'hype', 'bomb', 'aura', 'twin', 'oasis', 'doble', 'runa', 'titan', 'fenix', 'bateria', 'cris', 'ferro', 'para', 'zoom', 'mirilla', 'amuleto', 'rescate', 'ticket', 'radar', 'bala', 'flot', 'magnetx', 'slowx', 'coinsx', 'shieldx', 'ghostx', 'frenzyx', 'aurax', 'turbox', 'escudox', 'saber', 'tesorox', 'legend'];
 
   // Herramientas armadas como 'manual': disponibles en la barra de vuelo
   function manualToolList() {

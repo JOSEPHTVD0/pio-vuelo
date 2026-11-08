@@ -132,7 +132,9 @@ window.SND = (function () {
     tundra: 'ice', nevadoM: 'ice', cristal: 'ice',
     candy: 'candy', dulce: 'candy',
     forest: 'forest', selva: 'forest', selva2: 'forest',
-    cyber: 'synth', neon: 'synth', arcade: 'synth', volt: 'synth', glitch: 'synth', ciudad: 'synth', prisma: 'synth', mitologia: 'synth'
+    cyber: 'synth', neon: 'synth', arcade: 'synth', volt: 'synth', glitch: 'synth', ciudad: 'synth', prisma: 'synth', mitologia: 'synth',
+    /* AMPLIACIÓN 3.3.3 */
+    cascada: 'water', metropolis: 'synth', estelar: 'space'
   };
   let themeId = 'day';
   let theme = THEMES.day;
