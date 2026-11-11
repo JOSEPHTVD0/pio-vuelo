@@ -54,8 +54,13 @@ window.G = (function () {
   let diff = null;
   let mapCfgCur = { speedMul: 1, gravMul: 1, gapMul: 1, spawnMul: 1, coinMul: 1, wind: false }; // mecánicas del mapa activo
   let lvl = 1;
-  let mode = 'free';       // free | challenge | duel | zen | boss | wind | replay
+  let mode = 'free';       // free | challenge | duel | zen | boss | wind | replay | pvp
   let clearedFlag = false; // evita disparar la superación de un modo 2 veces
+
+  // Multijugador online (sala privada 1v1)
+  let pvp = null;          // { code, side, cfg, rival, done, stopWatch, lastReport, room, result }
+  let pvpGoal = 0;         // tubos necesarios para completar la carrera
+  let pvpTimeLimit = 0;    // segundos de límite (0 = sin límite)
 
   // RNG determinado por semilla (partida idéntica para todos: Semilla diaria + Replay fiel)
   let rng = Math.random;
@@ -224,7 +229,8 @@ function difficultyFor(sc, diffc) {
     wind.on = false; windZoneLast = 0; giantsMade = 0; nextWindPts = 150;
     windArrows = mode === 'wind';
     bossGroup = null; bossNext = false; bossPendAt = 20; zenLast = 0;
-    if (mode === 'challenge') { curSeed = daySeed(); rng = mulberry32(curSeed); }
+    if (mode === 'pvp' && pvp) { curSeed = pvp.cfg.seed; rng = mulberry32(curSeed); }
+    else if (mode === 'challenge') { curSeed = daySeed(); rng = mulberry32(curSeed); }
     else if (mode === 'replay') {
       const rp = SAVE.getReplay();
       replayMode = !!rp;
@@ -238,9 +244,9 @@ function difficultyFor(sc, diffc) {
     rival = mode === 'duel'
       ? { prog: 0, strength: clamp(0.6 + SAVE.get().level * 0.02, 0.55, 1.3) }
       : null;
-    const mapId = mode === 'challenge' ? challengeMap : (mode === 'replay' && replayMode && rp ? rp.map : SAVE.get().map);
+    const mapId = mode === 'pvp' && pvp ? pvp.cfg.map : (mode === 'challenge' ? challengeMap : (mode === 'replay' && replayMode && rp ? rp.map : SAVE.get().map));
     mapCfgCur = DAT.mapCfg(mapId); // cada mapa altera velocidad, gravedad, huecos, monedas y viento
-    diff = DAT.getDiff(mode === 'challenge' ? 'normal' : SAVE.get().set.diff);
+    diff = DAT.getDiff(mode === 'pvp' && pvp ? pvp.cfg.diff : (mode === 'challenge' ? 'normal' : SAVE.get().set.diff));
     ENTS.setHC(!!SAVE.get().set.hc);
     skinStats = DAT.skinStats(SAVE.get().skin);
     worldSpeed = 0;
@@ -707,6 +713,11 @@ function difficultyFor(sc, diffc) {
       }
     } else {
       runSeconds += dt;
+      if (mode === 'pvp' && pvp && !pvp.done) {
+        pvp.reportT = (pvp.reportT || 0) + dt;
+        if (pvp.reportT >= 0.75) { pvp.reportT = 0; pvpReport(false); }
+        if (pvpTimeLimit > 0 && runSeconds >= pvpTimeLimit) pvpFinish(true);
+      }
       const D = curD(mode === 'zen' ? 0 : effScore()); // Zen: dificultad congelada, sin tubos ni enemigos
       lvl = D.level;
       worldSpeed += (D.speed * skinStats.spd - worldSpeed) * Math.min(1, dt * 1.6);
@@ -796,6 +807,10 @@ function difficultyFor(sc, diffc) {
         if (!p.passed && p.x + p.w < bird.x - bird.r) {
           p.passed = true; pipesDone++; score += (eff.x2 > t ? 2 : 1) + (rt.score ? 1 : 0) + (eff.combo > t ? 2 : 0) + (eff.aura > t ? 1 : 0) + (rt.doble ? 1 : 0) + (rt.titan ? 2 : 0) + (rt.legend ? 1 : 0); combo++;
           if (rt.bala && pipesDone % 10 === 0) balaShot();
+          if (mode === 'pvp' && pvp && !pvp.done) {
+            pvpReport(true);
+            if (pipesDone >= pvpGoal) { pvpFinish(true); break; }
+          }
           if (mode === 'duel' && !clearedFlag && !bird.dead && pipesDone >= DUEL_PIPES) {
             clearedFlag = true;
             duelClear(true);
@@ -1121,6 +1136,8 @@ function difficultyFor(sc, diffc) {
       ach.forEach(a => UI.popAch(a));
       return;
     }
+    // Multijugador: la muerte cierra la carrera y se decide contra el rival.
+    if (mode === 'pvp' && pvp && !pvp.done) { pvpFinish(false); return; }
     state = 'over';
     const xp = Math.floor(score * 3 + pipesDone * 2 + coinCount * 3);
     const xpTotal = rt.amuleto ? Math.floor(xp * 1.05) : xp;
@@ -1194,16 +1211,203 @@ function difficultyFor(sc, diffc) {
     if (window.ADS) ADS.onRunEnd('duel');
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Multijugador online (salas privadas 1v1)                            */
+  /* ------------------------------------------------------------------ */
+
+  function pvpSelf(finished) {
+    return {
+      score: score,
+      pipes: pipesDone,
+      alive: !(bird && bird.dead),
+      finished: !!finished,
+      time: Math.round(runSeconds * 100) / 100
+    };
+  }
+
+  function pvpRivalData() {
+    if (!pvp || !pvp.room) return null;
+    return pvp.side === 'host' ? pvp.room.guest : pvp.room.host;
+  }
+
+  function pvpReport(force) {
+    if (!pvp || pvp.done || pvp.reportBusy) return;
+    if (!window.CLOUD || !CLOUD.updateDuelProgress) return;
+    pvp.reportBusy = true;
+    CLOUD.updateDuelProgress(pvp.code, pvpSelf(false)).then(function () {
+      if (pvp) pvp.reportBusy = false;
+    }, function () { if (pvp) pvp.reportBusy = false; });
+  }
+
+  function pvpApplyRoom(room) {
+    if (!pvp) return;
+    pvp.room = room;
+    pvp.rival = room ? (pvp.side === 'host' ? room.guest : room.host) : null;
+    updateHUD();
+    if (!room) {
+      // La sala desapareció (el anfitrión la cerró).
+      if (!pvp.done) pvpForceEnd(pvp.side === 'guest' ? 'win' : 'lose');
+      return;
+    }
+    if (room.state === 'finished' && !pvp.done) {
+      const winner = room.winner || (window.MP ? MP.judgeSides(room.host, room.guest) : '');
+      if (winner) pvpForceEnd(winner === pvp.side ? 'win' : (winner === 'draw' ? 'draw' : 'lose'));
+    }
+  }
+
+  // Cierra la carrera propia y espera (breve) al rival antes de decidir.
+  function pvpFinish(reachedGoal) {
+    if (!pvp || pvp.done) return;
+    pvp.done = true;
+    pvp.self = pvpSelf(true);
+    pvp.forceEnded = false;
+    if (window.CLOUD && CLOUD.finishDuel) CLOUD.finishDuel(pvp.code, pvp.self);
+    const dist = Math.floor(totalDist / 30);
+    SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, 'pvp');
+    SAVE.save();
+    state = 'cleared';
+    SND.stopMusic();
+    UI.setHudVisible(false);
+    const waitUntil = Date.now() + 3000;
+    const decide = function () {
+      if (!pvp || pvp.forceEnded) return;
+      const opp = pvpRivalData();
+      if (opp && opp.uid && !opp.finished && Date.now() < waitUntil) {
+        setTimeout(decide, 400);
+        return;
+      }
+      pvpDecide();
+    };
+    setTimeout(decide, (pvpRivalData() && pvpRivalData().finished) ? 150 : 700);
+  }
+
+  // Fin forzado por la sala (rival abandonó o ambos terminaron en el servidor).
+  function pvpForceEnd(verdict) {
+    if (!pvp || pvp.done) return;
+    pvp.done = true;
+    pvp.forceEnded = true;
+    pvp.self = pvpSelf(true);
+    if (window.CLOUD && CLOUD.finishDuel) CLOUD.finishDuel(pvp.code, pvp.self);
+    const dist = Math.floor(totalDist / 30);
+    SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, 'pvp');
+    SAVE.save();
+    state = 'cleared';
+    SND.stopMusic();
+    UI.setHudVisible(false);
+    pvpShowResult(verdict);
+  }
+
+  function pvpDecide() {
+    if (!pvp) return;
+    const opp = pvpRivalData();
+    let verdict = 'win';
+    if (opp && opp.uid) {
+      verdict = (window.MP && MP.judge) ? MP.judge(pvp.self, opp) : 'draw';
+    }
+    pvpShowResult(verdict);
+  }
+
+  function pvpShowResult(verdict) {
+    if (!pvp || pvp.shown) return;
+    pvp.shown = true;
+    if (pvp.stopWatch) { try { pvp.stopWatch(); } catch (e) { } pvp.stopWatch = null; }
+    const opp = pvpRivalData() || {};
+    const win = verdict === 'win';
+    const draw = verdict === 'draw';
+    const reward = win ? (80 + Math.min(60, pipesDone * 4)) : draw ? 45 : 15;
+    const xpGain = win ? 60 : draw ? 35 : 20;
+    const lvUps = SAVE.addXp(xpGain);
+    awardSkinXp(xpGain);
+    SAVE.addCoins(reward);
+    const st = SAVE.get().stats;
+    st.mpMatches = (st.mpMatches || 0) + 1;
+    if (win) st.mpWins = (st.mpWins || 0) + 1;
+    SAVE.save();
+    const ach = SAVE.checkAch();
+    SND.sfx.medal();
+    if (win) SND.sfx.achieve();
+    FX.confetti(bird.x, bird.y - 30);
+    UI.showModeClear({
+      title: win ? '¡GANASTE LA CARRERA!' : draw ? 'EMPATE EN LA CARRERA' : 'CARRERA PERDIDA',
+      lvLbl: 'Tus tubos', lv: pipesDone + '/' + pvpGoal,
+      tgtLbl: (opp.name || 'Rival') + ' (tubos)', tgt: (opp.pipes || 0) + '/' + pvpGoal,
+      reward: reward, xp: xpGain, lvUps: lvUps, ach: ach,
+      stars: win ? '🆚 Victoria online' : draw ? '🆚 Empate' : '🆚 Derrota online',
+      btn: '🆚 OTRA SALA'
+    });
+    if (window.ADS) ADS.onRunEnd('pvp');
+  }
+
+  function pvpCleanup() {
+    if (!pvp) return;
+    if (pvp.stopWatch) { try { pvp.stopWatch(); } catch (e) { } pvp.stopWatch = null; }
+    if (window.CLOUD && CLOUD.leaveDuel && pvp.code && !pvp.cleaned) {
+      pvp.cleaned = true;
+      try { CLOUD.leaveDuel(pvp.code); } catch (e) { }
+    }
+    pvp = null;
+    pvpGoal = 0;
+    pvpTimeLimit = 0;
+  }
+
+  // Arranca una carrera ya acordada en la sala (tras la cuenta atrás).
+  function startPvp(room) {
+    if (!room || !room.config || !window.MP) {
+      UI.toast('La sala de multijugador no es válida', 'warning');
+      return;
+    }
+    const maps = DAT.MAPS.map(m => m.id);
+    const diffs = DAT.DIFFS.map(d => d.id);
+    const cfg = MP.normalizeConfig(room.config, { maps: maps, diffs: diffs });
+    const uid = (window.CLOUD && CLOUD.session) ? (CLOUD.session().uid || '') : '';
+    const side = (room.host && room.host.uid === uid) ? 'host'
+      : (room.guest && room.guest.uid === uid) ? 'guest' : '';
+    if (!side) { UI.toast('No perteneces a esta sala', 'warning'); return; }
+    pvpCleanup();
+    pvp = {
+      code: room.code,
+      side: side,
+      cfg: cfg,
+      room: room,
+      rival: side === 'host' ? room.guest : room.host,
+      done: false,
+      shown: false,
+      reportT: 0,
+      reportBusy: false,
+      cleaned: false
+    };
+    pvpGoal = cfg.pipes;
+    pvpTimeLimit = cfg.time;
+    if (window.CLOUD && CLOUD.watchDuel) pvp.stopWatch = CLOUD.watchDuel(room.code, pvpApplyRoom);
+    startPlay('pvp');
+  }
+
+  function pvpInfo() {
+    if (!pvp) return null;
+    const opp = pvpRivalData();
+    return {
+      code: pvp.code,
+      side: pvp.side,
+      cfg: Object.assign({}, pvp.cfg),
+      goal: pvpGoal,
+      timeLimit: pvpTimeLimit,
+      rival: opp ? { name: opp.name || 'Rival', pipes: opp.pipes || 0, score: opp.score || 0, finished: !!opp.finished, alive: opp.alive !== false } : null,
+      done: pvp.done
+    };
+  }
+
   function startPlay(m) {
-    const valid = m === undefined || m === 'free' || m === 'challenge' || m === 'duel' || m === 'replay' || m === 'zen' || m === 'boss' || m === 'wind';
-    if (m !== undefined && !valid) return; // modos removidos (time/levels/pvp) no inician vuelo
+    const valid = m === undefined || m === 'free' || m === 'challenge' || m === 'duel' || m === 'replay' || m === 'zen' || m === 'boss' || m === 'wind' || m === 'pvp';
+    if (m !== undefined && !valid) return; // modos no disponibles no inician vuelo
+    if (m === 'pvp' && !pvp) return;       // el multijugador exige una sala activa
     if (valid && m !== undefined) mode = m;
     SND.unlock();
     challengeMap = null;
     if (mode === 'challenge') challengeMap = dailyChallengeMap();
     newRun();
     state = 'play';
-    if (mode !== 'replay') consumeTools();
+    if (mode !== 'replay' && !(mode === 'pvp' && pvp && !pvp.cfg.tools)) consumeTools();
+    if (mode === 'pvp' && pvp) { pvp.reportT = 0; pvpReport(true); }
     if (state !== 'play') { SND.startMusic(); return; }
     if (replayMode) startReplayExport();
     paused = false;
@@ -1531,6 +1735,10 @@ function difficultyFor(sc, diffc) {
   // Activa la herramienta indicada a mitad de vuelo (botón de la barra HUD)
   function useBagTool(key) {
     if (state !== 'play' || paused || replayMode) return;
+    if (mode === 'pvp' && pvp && !pvp.cfg.tools) {
+      UI.toast('Las herramientas están desactivadas en esta sala', 'info');
+      return;
+    }
     const tool = DAT.TOOLS.find(t => t.key === key);
     if (!tool || !SAVE.get() || (SAVE.get().items[key] || 0) < 1) return;
     if (!SAVE.toolUsable(key)) {
@@ -1620,7 +1828,8 @@ function difficultyFor(sc, diffc) {
     runShields = 0;        // los escudos recogidos no pasan al menú
     usedStockShield = false;
     if (typeof UI !== 'undefined' && UI.updateEffectTimers) UI.updateEffectTimers([]);
-    if (mode === 'challenge' || mode === 'duel' || mode === 'replay') mode = SAVE.get().set.mode; // salir del modo especial libera el modo
+    pvpCleanup(); // salir del multijugador cierra/libera la sala
+    if (mode === 'challenge' || mode === 'duel' || mode === 'replay' || mode === 'pvp') mode = SAVE.get().set.mode; // salir del modo especial libera el modo
     replayMode = false;
     if (replayRec) { try { replayRec.stop(); } catch (e) { } replayRec = null; }
     challengeMap = null;
@@ -1888,6 +2097,10 @@ function difficultyFor(sc, diffc) {
       grad = 'linear-gradient(90deg,#ff7043,#d32f2f)';
       const Dx = curD(score);
       prog = fracTo(pipesDone, DUEL_PIPES, Dx);
+    } else if (mode === 'pvp') {
+      levelText = '🌐 ' + pipesDone + '/' + pvpGoal + (pvpTimeLimit > 0 ? ' · ⏱ ' + Math.max(0, Math.ceil(pvpTimeLimit - runSeconds)) + 's' : '');
+      grad = 'linear-gradient(90deg,#4fc3f7,#1565c0)';
+      prog = fracTo(pipesDone, Math.max(1, pvpGoal), curD(effScore()));
     } else if (mode === 'zen') {
       levelText = '🧘 Zen · ' + Math.floor(totalDist / 30) + ' m';
       grad = 'linear-gradient(90deg,#69f0ae,#00bfa5)';
@@ -1918,6 +2131,18 @@ function difficultyFor(sc, diffc) {
       const full = cp >= 99.5;
       if (hudCache.pfFull !== full) { pf.classList.toggle('full', full); hudCache.pfFull = full; }
     }
+    const rvEl = document.getElementById('hudRival');
+    if (rvEl) {
+      if (mode === 'pvp' && pvp) {
+        const o = pvpRivalData();
+        rvEl.classList.remove('hidden');
+        rvEl.textContent = (o && o.uid)
+          ? ('🆚 ' + String(o.name || 'Rival').slice(0, 10) + ' · ' + (o.pipes || 0) + '/' + pvpGoal + (o.finished ? ' 🏁' : ''))
+          : '🆚 Rival · esperando';
+      } else {
+        rvEl.classList.add('hidden');
+      }
+    }
   }
 
   // Progreso fraccionado de la barra del modo (sube sin saltos entre tubo y tubo)
@@ -1937,6 +2162,7 @@ function difficultyFor(sc, diffc) {
   return {
     resize, loop, flap, startPlay, togglePause, setPaused, goMenu,
     setMode,
+    startPvp, getPvp: pvpInfo, leavePvp: pvpCleanup,
     getState: () => state,
     isPlay: () => state === 'play',
     waitingFly: () => state === 'play' && readyTap,
@@ -1961,6 +2187,7 @@ function difficultyFor(sc, diffc) {
     }),
     useBagTool, manualToolList,
     getScore: () => score,
+    getSeed: () => curSeed,
     getDist: () => Math.floor(totalDist / 30),
     getW: () => W, getH: () => H,
     canvas, ctx,
@@ -1998,6 +2225,12 @@ function difficultyFor(sc, diffc) {
       getUsedStockShield: () => usedStockShield,
       isSpotFree: isSpotFree,
       freeY: freeY,
+      pvpFinish: pvpFinish,
+      pvpReport: pvpReport,
+      pvpSelf: pvpSelf,
+      pvpDecide: pvpDecide,
+      setPvp: v => { pvp = v; },
+      pvpGoal: () => pvpGoal,
       pipes: () => pipes,
       bird: () => bird
     }

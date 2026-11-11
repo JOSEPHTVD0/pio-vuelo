@@ -142,7 +142,7 @@ sandbox.globalThis = sandbox;
 sandbox.self = sandbox;
 
 vm.createContext(sandbox);
-for (const f of ['js/data.js', 'js/save.js', 'js/game.js']) {
+for (const f of ['js/data.js', 'js/mp.js', 'js/save.js', 'js/game.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), sandbox, { filename: f });
 }
 
@@ -1391,6 +1391,86 @@ section('24. TIENDA AMPLIADA, HERRAMIENTAS HASTA NIVEL 8 Y PASE DE 20 NIVELES');
   ok(SAVE.owns(s.mapsOwned, 'premium2'), 'el mapa Cielo de Cuásar se entrega');
   ok(s.coins > 0 && SAVE.partsCount() >= 9, 'las recompensas de monedas y piezas se suman',
     s.coins + ' 🪙 · ' + SAVE.partsCount() + ' 🔩');
+}
+
+/* ---------------- 25. Multijugador online ---------------- */
+section('25. MULTIJUGADOR ONLINE: SALAS, SEMILLAS Y RESULTADOS');
+{
+  const MP = sandbox.MP;
+  ok(!!MP, 'el módulo de multijugador está disponible');
+  ok(MP.cleanCode(' ab-c23 4 ') === 'ABC234', 'el código se limpia y normaliza', MP.cleanCode(' ab-c23 4 '));
+  ok(MP.isValidCode('ABC234'), 'un código válido se acepta');
+  ok(!MP.isValidCode('ABCD10'), 'códigos con 0/1 se rechazan');
+  ok(MP.daySeed(new Date(2026, 10, 10)) === 20261110, 'la semilla diaria usa la fecha', MP.daySeed(new Date(2026, 10, 10)));
+  ok(MP.hashSeed('pio') === MP.hashSeed('pio') && MP.hashSeed('pio') !== MP.hashSeed('vuelo'),
+    'las semillas manuales son estables y distintas');
+
+  const cfg = MP.normalizeConfig({
+    pipes: 999, time: 9999, map: 'nope', diff: 'nope',
+    seedMode: 'manual', seed: 'abc', tools: false
+  }, { maps: ['day', 'night'], diffs: ['normal', 'hard'] });
+  ok(cfg.pipes === 30 && cfg.time === 300, 'la meta y el tiempo se limitan a valores permitidos', cfg.pipes + '/' + cfg.time);
+  ok(cfg.map === 'day' && cfg.diff === 'normal', 'mapa y dificultad se corrigen al catálogo', cfg.map + '/' + cfg.diff);
+  ok(cfg.tools === false, 'las herramientas se pueden desactivar');
+  ok(cfg.seed > 0 && cfg.seedMode === 'manual', 'la semilla manual se convierte en número', cfg.seed);
+  ok(MP.normalizeConfig({ seedMode: 'daily' }, { maps: ['day'], diffs: ['normal'] }).seed === MP.daySeed(),
+    'la semilla diaria coincide con el día actual');
+
+  const A = { score: 10, pipes: 20, finished: true, time: 30 };
+  const B = { score: 99, pipes: 20, finished: true, time: 31 };
+  ok(MP.judge(A, B) === 'win', 'llegar antes a la meta gana aunque el rival tenga más puntos');
+  ok(MP.judge(B, A) === 'lose', 'la comparación es simétrica');
+  ok(MP.judge({ pipes: 20, score: 5 }, { pipes: 18, score: 9 }) === 'win', 'sin meta, ganan más tubos');
+  ok(MP.judge({ pipes: 10, score: 9 }, { pipes: 10, score: 9 }) === 'draw', 'mismo resultado = empate');
+  ok(MP.judgeSides({ pipes: 2 }, { pipes: 3 }) === 'guest', 'el ganador se traduce a host/guest');
+
+  // Integración con el juego y una nube simulada.
+  const calls = { progress: [], finish: [], leave: 0 };
+  const uid = 'uid-mp-1';
+  sandbox.CLOUD = {
+    session: () => ({ uid: uid }),
+    watchDuel: () => { return () => { }; },
+    updateDuelProgress: (code, p) => { calls.progress.push({ code: code, p: p }); return Promise.resolve(true); },
+    finishDuel: (code, p) => { calls.finish.push({ code: code, p: p }); return Promise.resolve(true); },
+    leaveDuel: () => { calls.leave++; return Promise.resolve(true); }
+  };
+  const room = {
+    code: 'ABC234', state: 'playing', startAt: 0, seed: 4321, winner: '',
+    config: { pipes: 15, time: 60, map: 'night', diff: 'hard', tools: false, seedMode: 'manual', seed: 4321 },
+    host: { uid: uid, name: 'Tester', score: 0, pipes: 0, alive: true, finished: false, time: 0 },
+    guest: { uid: 'uid-mp-2', name: 'Rival', score: 9, pipes: 4, alive: true, finished: false, time: 0 }
+  };
+  G.setMode('free');
+  G.startPvp(room);
+  ok(G.getMode() === 'pvp', 'la sala arranca el modo multijugador');
+  ok(G.getSeed() === 4321, 'la carrera usa la semilla compartida', G.getSeed());
+  const info = G.getPvp();
+  ok(info && info.goal === 15, 'la meta de tubos viene de la sala', info && info.goal);
+  ok(info && info.timeLimit === 60, 'el límite de tiempo viene de la sala');
+  ok(info && info.rival && info.rival.pipes === 4, 'el rival se refleja en el HUD');
+  ok(calls.progress.length >= 1 && calls.progress[0].p.finished === false, 'el progreso se publica al empezar');
+
+  // Herramientas desactivadas: la bolsa no se consume.
+  SAVE.get().items.start = 1;
+  const before = SAVE.get().items.start;
+  T.useBagTool('start');
+  ok(SAVE.get().items.start === before, 'con herramientas off no se consume la bolsa');
+
+  // El rival termina peor: victoria local.
+  const winBefore = SAVE.get().stats.mpWins || 0;
+  const coinsBefore = SAVE.get().coins;
+  T.pvpFinish(true);
+  T.pvpDecide();
+  ok(calls.finish.length === 1 && calls.finish[0].p.finished === true, 'al terminar se envía el resultado final');
+  ok((SAVE.get().stats.mpMatches || 0) >= 1, 'la carrera online cuenta en las estadísticas');
+  ok((SAVE.get().stats.mpWins || 0) === winBefore + 1, 'la victoria online se registra');
+  ok(SAVE.get().coins > coinsBefore, 'la victoria online da monedas');
+
+  // Limpieza de la sala al salir.
+  G.leavePvp();
+  ok(G.getPvp() === null, 'salir libera la sesión multijugador');
+  ok(calls.leave === 1, 'salir avisa a la nube para cerrar la sala', calls.leave);
+  sandbox.CLOUD = undefined;
 }
 
 /* ---------------- Resumen ---------------- */

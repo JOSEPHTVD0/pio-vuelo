@@ -611,6 +611,37 @@ body.no-ui-anim *, body.no-ui-anim *::before, body.no-ui-anim *::after {
 .set-row.disabled button { cursor:not-allowed; }
 .set-val { font-size:11px; color:#9fb4d8; font-weight:800; margin-left:6px; min-width:34px; text-align:right; }
 
+/* Multijugador online */
+.mp-row { gap:8px; }
+.mp-input {
+  appearance:none; -webkit-appearance:none;
+  background:rgba(0,0,0,.35); color:#fff; border:2px solid rgba(255,255,255,.28);
+  border-radius:10px; padding:8px 10px; font-size:13px; font-weight:800;
+  max-width:62%; outline:none; cursor:pointer;
+}
+.mp-input:focus { border-color:#4fc3f7; }
+.mp-check { width:24px; height:24px; accent-color:#4fc3f7; cursor:pointer; }
+.mp-code {
+  font-size:38px; font-weight:900; letter-spacing:10px; color:#ffe066;
+  text-align:center; padding:10px 4px 6px; font-family:'Segoe UI', monospace;
+  text-shadow:0 0 18px rgba(255,224,102,.45);
+}
+.mp-code-input {
+  display:block; width:100%; box-sizing:border-box; margin:10px 0;
+  padding:14px; border-radius:14px; border:2px solid rgba(255,255,255,.35);
+  background:rgba(0,0,0,.3); color:#fff; font-size:26px; font-weight:900;
+  letter-spacing:8px; text-align:center; text-transform:uppercase; outline:none;
+}
+.mp-code-input:focus { border-color:#4fc3f7; }
+.mp-room .btn-small { margin:8px auto 0; }
+.hud-rival {
+  position:absolute; top:112px; left:50%; transform:translateX(-50%);
+  z-index:14; pointer-events:none; white-space:nowrap;
+  background:rgba(8,20,44,.72); border:1px solid rgba(79,195,247,.5);
+  color:#b3e5fc; font-size:12px; font-weight:900; letter-spacing:.4px;
+  padding:5px 12px; border-radius:999px;
+}
+
 @media (max-width:360px) {
   .home-quick { grid-template-columns:repeat(3,1fr); }
   .stats-cards { grid-template-columns:1fr; }

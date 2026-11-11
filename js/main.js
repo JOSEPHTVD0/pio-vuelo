@@ -362,6 +362,10 @@ window.APP = (function () {
     $('btnPlay').onclick = () => { SND.sfx.click(); guardFirstRun(() => UI.showModePick()); };
     $('mpFree').onclick = () => startMode('free');
     $('mpDuel').onclick = () => startMode('duel');
+    $('mpPvp').onclick = () => {
+      SND.sfx.click();
+      guardFirstRun(() => UI.openMultiplayer());
+    };
     $('mpDaily').onclick = () => {
       if (SAVE.challengePlayedToday()) {
         UI.toast('Ya jugaste el desafío de hoy 🌙 ¡Vuelve mañana!', 'info');
@@ -399,13 +403,26 @@ window.APP = (function () {
       UI.refreshHome();
       UI.toast('¡Listo! Pulsa JUGAR para empezar 🐤', 'good');
     };
-    $('btnNextLevel').onclick = () => { SND.sfx.click(); G.startPlay(); };
+    $('btnNextLevel').onclick = () => {
+      SND.sfx.click();
+      if (G.getMode() === 'pvp') { G.goMenu(); UI.openMultiplayer(); return; }
+      G.startPlay();
+    };
     $('btnClearHome').onclick = () => { SND.sfx.click(); G.goMenu(); };
     $('btnPause').onclick = () => { SND.sfx.click(); G.togglePause(); };
     $('btnResume').onclick = () => { SND.sfx.click(); G.togglePause(); };
-    $('btnRestart').onclick = () => { G.setPaused(false); SND.sfx.click(); G.startPlay(); };
+    $('btnRestart').onclick = () => {
+      G.setPaused(false);
+      SND.sfx.click();
+      if (G.getMode() === 'pvp') { G.goMenu(); UI.openMultiplayer(); return; }
+      G.startPlay();
+    };
     $('btnExit').onclick = () => { G.setPaused(false); SND.sfx.click(); G.goMenu(); };
-    $('btnRetry').onclick = () => { SND.sfx.click(); G.startPlay(); };
+    $('btnRetry').onclick = () => {
+      SND.sfx.click();
+      if (G.getMode() === 'pvp') { G.goMenu(); UI.openMultiplayer(); return; }
+      G.startPlay();
+    };
     $('btnOverHome').onclick = () => { SND.sfx.click(); G.goMenu(); };
     $('btnShare').onclick = () => {
       SND.sfx.click();

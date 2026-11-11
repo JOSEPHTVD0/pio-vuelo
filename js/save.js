@@ -13,7 +13,7 @@ window.SAVE = (function () {
       parts: 0,             // 🔩 piezas: material para mejoras de nivel alto
       level: 1,
       xp: 0,
-      stats: { best: 0, flights: 0, pipes: 0, timePlayed: 0, coinsGot: 0, dist: 0, powersGot: 0, spent: 0, megaGot: 0, dailyClaimed: 0, enemiesGot: 0, xcGot: 0, toolsUsed: 0, toolsBought: 0, shared: 0, batsGot: 0, chainGot: 0, gemsGot: 0, challengePlayed: 0, manualUses: 0, upgs: 0, missionsDone: 0, toolTypes: [], shieldAbsorbed: 0, ghostPassed: 0, weekendRuns: 0, fenixUsed: 0, maxDistNoHit: 0, zeroCoinRuns: 0, duelWins: 0, windZones: 0, giantPassed: 0, replaysWatched: 0, seedDays: 0, zenBest: 0, bossDefeated: 0, partsEarned: 0, toolsRepaired: 0 },
+      stats: { best: 0, flights: 0, pipes: 0, timePlayed: 0, coinsGot: 0, dist: 0, powersGot: 0, spent: 0, megaGot: 0, dailyClaimed: 0, enemiesGot: 0, xcGot: 0, toolsUsed: 0, toolsBought: 0, shared: 0, batsGot: 0, chainGot: 0, gemsGot: 0, challengePlayed: 0, manualUses: 0, upgs: 0, missionsDone: 0, toolTypes: [], shieldAbsorbed: 0, ghostPassed: 0, weekendRuns: 0, fenixUsed: 0, maxDistNoHit: 0, zeroCoinRuns: 0, duelWins: 0, windZones: 0, giantPassed: 0, replaysWatched: 0, seedDays: 0, zenBest: 0, bossDefeated: 0, partsEarned: 0, toolsRepaired: 0, mpMatches: 0, mpWins: 0 },
       best3: [],
       items: { start: 0, magnet: 0, slow: 0, coins: 0, boost: 0, luck: 0, score: 0, sprint: 0, treasure: 0, clock: 0, turbo: 0, combo: 0, shield: 0, ghost: 0, frenzy: 0, eco: 0, hype: 0, bomb: 0, aura: 0, twin: 0, oasis: 0, doble: 0, runa: 0, titan: 0, fenix: 0, bateria: 0, cris: 0, ferro: 0, para: 0, zoom: 0, mirilla: 0, amuleto: 0, rescate: 0, ticket: 0, radar: 0, bala: 0, flot: 0, legend: 0, magnetx: 0, slowx: 0, coinsx: 0, shieldx: 0, ghostx: 0, frenzyx: 0, aurax: 0, turbox: 0, escudox: 0, saber: 0, tesorox: 0 },
       toolUp: {},           // nivel de mejora por herramienta (0..8)
@@ -223,6 +223,8 @@ window.SAVE = (function () {
         if (typeof data.stats.giantPassed !== 'number') data.stats.giantPassed = 0;
         if (typeof data.stats.replaysWatched !== 'number') data.stats.replaysWatched = 0;
         if (typeof data.stats.seedDays !== 'number') data.stats.seedDays = 0;
+        if (typeof data.stats.mpMatches !== 'number') data.stats.mpMatches = 0;
+        if (typeof data.stats.mpWins !== 'number') data.stats.mpWins = 0;
         if (!Array.isArray(data.stats.toolTypes)) data.stats.toolTypes = [];
         if (typeof data.parts !== 'number' || !isFinite(data.parts) || data.parts < 0) data.parts = 0;
         data.parts = Math.floor(data.parts);

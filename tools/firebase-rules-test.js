@@ -162,15 +162,30 @@ function accountPayload(uid, username, save) {
   };
 }
 
-function duelPayload(code, uid, name) {
+function duelConfig(overrides) {
+  return Object.assign({
+    pipes: 12,
+    time: 0,
+    map: 'day',
+    diff: 'normal',
+    tools: true,
+    seedMode: 'daily',
+    seed: 20261110
+  }, overrides || {});
+}
+
+function duelPayload(code, uid, name, config) {
   const now = Date.now();
   return {
     code: code,
-    seed: now % 2147483647,
+    seed: 20261110,
     state: 'waiting',
+    startAt: 0,
+    winner: '',
     createdAt: now,
     updatedAt: now,
-    host: { uid: uid, name: name, score: 0 },
+    config: duelConfig(config),
+    host: { uid: uid, name: name, score: 0, pipes: 0, alive: true, finished: false, time: 0 },
     guest: null
   };
 }
@@ -377,10 +392,27 @@ async function main() {
     return deleteDoc(doc(a.db, 'accounts', uidA));
   });
 
-  await expectOk('un invitado se une al duelo', function () {
+  console.log('\nRealtime Database · duelo 1v1: crear, unirse, empezar y progreso');
+  await expectDenied('una meta de tubos fuera de rango se rechaza', function () {
+    return set(ref(a.rtdb, 'duels/ZZZ234'), duelPayload('ZZZ234', uidA, 'TesterA', { pipes: 0 }));
+  });
+  await expectDenied('una dificultad inventada se rechaza', function () {
+    return set(ref(a.rtdb, 'duels/ZZZ235'), duelPayload('ZZZ235', uidA, 'TesterA', { diff: 'imposible' }));
+  });
+  await expectDenied('una semilla inválida se rechaza', function () {
+    const p = duelPayload('ZZZ236', uidA, 'TesterA');
+    p.seed = 0;
+    return set(ref(a.rtdb, 'duels/ZZZ236'), p);
+  });
+  await expectDenied('un estado de sala inventado se rechaza', function () {
+    const p = duelPayload('ZZZ237', uidA, 'TesterA');
+    p.state = 'hackeado';
+    return set(ref(a.rtdb, 'duels/ZZZ237'), p);
+  });
+
+  await expectOk('un invitado se une al duelo con herramientas desactivadas', function () {
     return update(ref(b.rtdb, 'duels/' + code), {
-      guest: { uid: uidB, name: 'TesterB', score: 0 },
-      state: 'playing',
+      guest: { uid: uidB, name: 'TesterB', score: 0, pipes: 0, alive: true, finished: false, time: 0 },
       updatedAt: Date.now()
     });
   });
@@ -390,9 +422,81 @@ async function main() {
       updatedAt: Date.now()
     });
   });
-  await expectOk('el invitado actualiza su propia puntuación', function () {
+  await expectDenied('el invitado no puede cambiar la configuración', function () {
     return update(ref(b.rtdb, 'duels/' + code), {
-      'guest/score': 7,
+      'config/pipes': 8,
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('el invitado no puede cambiar la semilla de la sala', function () {
+    return update(ref(b.rtdb, 'duels/' + code), {
+      seed: 12345,
+      'config/seed': 12345,
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('un tercero no puede ocupar la sala llena', function () {
+    return update(ref(publicApp.rtdb, 'duels/' + code), {
+      guest: { uid: 'intruso', name: 'Intruso', score: 0, pipes: 0, alive: true, finished: false, time: 0 },
+      updatedAt: Date.now()
+    });
+  });
+  await expectOk('el anfitrión empieza la partida con un margen de salida', function () {
+    return update(ref(a.rtdb, 'duels/' + code), {
+      state: 'playing',
+      startAt: Date.now() + 3500,
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('el invitado no puede mover la hora de salida', function () {
+    return update(ref(b.rtdb, 'duels/' + code), {
+      startAt: Date.now() + 900000,
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('el invitado no puede devolver la sala a la espera', function () {
+    return update(ref(b.rtdb, 'duels/' + code), {
+      state: 'waiting',
+      updatedAt: Date.now()
+    });
+  });
+  await expectOk('el invitado publica su progreso', function () {
+    return update(ref(b.rtdb, 'duels/' + code), {
+      'guest/pipes': 7,
+      'guest/score': 21,
+      'guest/alive': true,
+      'guest/finished': true,
+      'guest/time': 24.5,
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('el invitado no puede falsear el progreso del anfitrión', function () {
+    return update(ref(b.rtdb, 'duels/' + code), {
+      'host/pipes': 999,
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('un tiempo negativo se rechaza', function () {
+    return update(ref(b.rtdb, 'duels/' + code), {
+      'guest/time': -1,
+      updatedAt: Date.now()
+    });
+  });
+  await expectOk('el anfitrión publica su progreso y cierra la sala', function () {
+    return update(ref(a.rtdb, 'duels/' + code), {
+      'host/pipes': 9,
+      'host/score': 27,
+      'host/alive': true,
+      'host/finished': true,
+      'host/time': 22.1,
+      state: 'finished',
+      winner: 'host',
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('un ganador inventado se rechaza', function () {
+    return update(ref(a.rtdb, 'duels/' + code), {
+      winner: 'empate-raro',
       updatedAt: Date.now()
     });
   });

@@ -50,6 +50,7 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 
 - Vuelo con física de aleteo y dificultad progresiva.
 - Modos libre, diario, duelo, zen, boss, viento y replay.
+- **Multijugador online 1v1** con salas privadas por código y reglas personalizadas.
 - Monedas, combos, power-ups, jefes y obstáculos.
 - Tienda de aves, sombreros, estelas, herramientas y cajas.
 - Misiones, pase de temporada, mapas y progreso.
@@ -57,6 +58,14 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Clasificación local por dispositivo y ranking online opcional con Firebase.
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
+
+## Novedades de la versión 3.4
+
+- **Carrera online 1v1:** crea una sala privada y comparte su código de 6 caracteres; el rival se une desde otro dispositivo. Los dos jugadores vuelan la misma semilla, mapa, dificultad, meta y tiempo, y la carrera arranca a la vez con una cuenta atrás de 3,5 s.
+- **Partidas personalizadas:** el anfitrión elige la meta de tubos, el límite de tiempo, el mapa, la dificultad, si se permiten herramientas y una semilla diaria o manual. Las reglas quedan fijadas y no pueden cambiarse a mitad de partida.
+- **Resultado en vivo:** la interfaz muestra el progreso del rival, el ganador se decide al llegar a la meta, al agotarse el tiempo, al chocar o si un jugador abandona. La sala se resuelve en el servidor y libera el código al salir.
+- **Estadísticas y misiones:** se añaden partidas y victorias online a las estadísticas y dos misiones semanales nuevas. Las recompensas se cobran una sola vez al terminar.
+- **Seguridad en Realtime Database:** solo los dos jugadores de la sala pueden escribirla, cada uno únicamente su propio lado; la configuración y la semilla son inmutables y el progreso tiene límites validados.
 
 ## Novedades de la versión 3.3.3
 
@@ -182,7 +191,7 @@ No hay dependencias de npm para jugar. Node solo se usa para las pruebas y el se
 node tools/test-game.js
 ```
 
-La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos, Pase Prémium, exclusividad en tienda y cajas, mecánicas de mapas, logros y temas de audio. Actualmente hay **369 pruebas** y todas deben pasar antes de publicar.
+La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos, Pase Prémium, exclusividad en tienda y cajas, mecánicas de mapas, logros, temas de audio y salas multijugador. Actualmente hay **456 pruebas** y todas deben pasar antes de publicar.
 
 La configuración de Firebase también se valida sin red:
 
@@ -213,14 +222,14 @@ real** (sin conexión, caché y reintento) y que el juego sigue funcionando offl
 Con `PIO_EMULATORS=1` añade el flujo completo de cuentas: aviso del primer vuelo,
 registro, restauración en un dispositivo nuevo, cierre de sesión y elección entre
 los dos progresos.
-Actualmente son **55 comprobaciones** y no debe haber errores de JavaScript.
+Actualmente son **70 comprobaciones** y no debe haber errores de JavaScript. Con los emuladores también se prueban las salas online: crear, unirse, cuenta atrás sincronizada, progreso del rival y abandono.
 Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con
 `CHROME_PATH`. En un entorno sin red, `SKIP_ONLINE=1` omite solo el bloque online.
 
 ## Limitaciones conocidas
 
-- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.3.3 (versionCode 36)**: **7.039.342 bytes** y SHA-256 `C1C609C5DA782F31085F79CDF44D188602443FE02F34DEAC21E73A0748FD6276`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
-- La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (26/26) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 55/55 con emuladores, incluido el modo offline y las cuentas). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos y el ranking online en un dispositivo Android real antes de darlos por cerrados.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.4.0 (versionCode 37)**: **7.051.691 bytes** y SHA-256 `815F468406E5E9EF1C9EA2FBE079D77A217E3782E80F508FDCCD9CAB62B2CCF6`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
+- La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (62/62) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 70/70 con emuladores, incluido el modo offline, las cuentas y las salas online). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos, el ranking online y una carrera 1v1 en dos dispositivos Android reales antes de darlos por cerrados.
 - El ranking global solo muestra marcas con más de 0 puntos. Las entradas antiguas con 0 puntos que ya existan en Firestore no se muestran y no se pueden borrar desde el cliente porque las reglas lo impiden; para limpiarlas hace falta la consola de Firebase o el Admin SDK.
 - La primera carga del ranking online necesita red. Si se abre sin conexión y nunca se ha visto la tabla, se muestra un aviso y se puede reintentar; el juego local no se bloquea.
 - La música es procedural (WebAudio) y no usa archivos externos: suena distinta por familia de mapa, pero no son pistas grabadas. El audio requiere un gesto del usuario para desbloquearse en móvil.

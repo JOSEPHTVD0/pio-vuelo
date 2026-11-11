@@ -59,21 +59,54 @@
       "$code": {
         ".read": true,
         ".write": "auth != null && ((!data.exists() && newData.child('host/uid').val() === auth.uid) || (data.exists() && newData.exists() && (data.child('host/uid').val() === auth.uid || data.child('guest/uid').val() === auth.uid)) || (data.exists() && newData.exists() && !data.child('guest').exists() && newData.child('guest/uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('host/uid').val() === auth.uid))",
-        ".validate": "newData.val() === null || (newData.hasChildren(['code', 'host', 'state', 'seed', 'createdAt', 'updatedAt']) && (!data.exists() || ((data.child('host/uid').val() === newData.child('host/uid').val() && data.child('host/name').val() === newData.child('host/name').val() && data.child('host/score').val() === newData.child('host/score').val()) || data.child('host/uid').val() === auth.uid) && (data.child('seed').val() === newData.child('seed').val() || data.child('host/uid').val() === auth.uid)))",
+        ".validate": "newData.val() === null || (newData.hasChildren(['code', 'host', 'state', 'seed', 'createdAt', 'updatedAt', 'config']) && (!data.exists() || (data.child('code').val() === newData.child('code').val() && data.child('createdAt').val() === newData.child('createdAt').val() && data.child('seed').val() === newData.child('seed').val() && data.child('config/pipes').val() === newData.child('config/pipes').val() && data.child('config/time').val() === newData.child('config/time').val() && data.child('config/map').val() === newData.child('config/map').val() && data.child('config/diff').val() === newData.child('config/diff').val() && data.child('config/tools').val() === newData.child('config/tools').val() && data.child('config/seedMode').val() === newData.child('config/seedMode').val() && data.child('config/seed').val() === newData.child('config/seed').val() && (data.child('host/uid').val() === newData.child('host/uid').val() || data.child('host/uid').val() === auth.uid) && (data.child('host/name').val() === newData.child('host/name').val() || data.child('host/uid').val() === auth.uid) && ((data.child('host/score').val() === newData.child('host/score').val() && data.child('host/pipes').val() === newData.child('host/pipes').val() && data.child('host/alive').val() === newData.child('host/alive').val() && data.child('host/finished').val() === newData.child('host/finished').val() && data.child('host/time').val() === newData.child('host/time').val()) || data.child('host/uid').val() === auth.uid) && ((data.child('guest/uid').val() === newData.child('guest/uid').val() && data.child('guest/score').val() === newData.child('guest/score').val() && data.child('guest/pipes').val() === newData.child('guest/pipes').val() && data.child('guest/alive').val() === newData.child('guest/alive').val() && data.child('guest/finished').val() === newData.child('guest/finished').val() && data.child('guest/time').val() === newData.child('guest/time').val()) || (!data.child('guest').exists() && newData.child('guest/uid').val() === auth.uid) || data.child('guest/uid').val() === auth.uid) && (data.child('startAt').val() === newData.child('startAt').val() || data.child('host/uid').val() === auth.uid) && (data.child('state').val() === newData.child('state').val() || data.child('host/uid').val() === auth.uid || newData.child('state').val() === 'finished'))))",
         "code": {
           ".validate": "newData.isString() && newData.val() === $code && newData.val().length === 6"
         },
         "seed": {
-          ".validate": "newData.isNumber()"
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 2147483646"
         },
         "state": {
           ".validate": "newData.isString() && (newData.val() === 'waiting' || newData.val() === 'playing' || newData.val() === 'finished')"
+        },
+        "startAt": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "winner": {
+          ".validate": "newData.isString() && (newData.val() === '' || newData.val() === 'host' || newData.val() === 'guest' || newData.val() === 'draw')"
         },
         "createdAt": {
           ".validate": "newData.isNumber() && newData.val() > 0"
         },
         "updatedAt": {
           ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+        "config": {
+          ".validate": "newData.hasChildren(['pipes', 'time', 'map', 'diff', 'tools', 'seedMode', 'seed'])",
+          "pipes": {
+            ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 100"
+          },
+          "time": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3600"
+          },
+          "map": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 32"
+          },
+          "diff": {
+            ".validate": "newData.isString() && (newData.val() === 'easy' || newData.val() === 'normal' || newData.val() === 'hard' || newData.val() === 'insane')"
+          },
+          "tools": {
+            ".validate": "newData.isBoolean()"
+          },
+          "seedMode": {
+            ".validate": "newData.isString() && (newData.val() === 'daily' || newData.val() === 'manual')"
+          },
+          "seed": {
+            ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 2147483646"
+          },
+          "$other": {
+            ".validate": false
+          }
         },
         "host": {
           ".validate": "newData.hasChildren(['uid', 'name', 'score'])",
@@ -85,6 +118,18 @@
           },
           "score": {
             ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000"
+          },
+          "pipes": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000"
+          },
+          "alive": {
+            ".validate": "newData.isBoolean()"
+          },
+          "finished": {
+            ".validate": "newData.isBoolean()"
+          },
+          "time": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 86400"
           },
           "$other": {
             ".validate": false
@@ -100,6 +145,18 @@
           },
           "score": {
             ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000"
+          },
+          "pipes": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000"
+          },
+          "alive": {
+            ".validate": "newData.isBoolean()"
+          },
+          "finished": {
+            ".validate": "newData.isBoolean()"
+          },
+          "time": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 86400"
           },
           "$other": {
             ".validate": false

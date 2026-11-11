@@ -1063,6 +1063,7 @@ window.CLOUD = (function () {
   function session() {
     return {
       signedIn: !!state.uid,
+      uid: state.uid || '',
       account: !!state.account,
       anonymous: !!state.uid && !state.account,
       username: state.username || '',
@@ -1382,71 +1383,201 @@ window.CLOUD = (function () {
   /* Duelos en tiempo real                                               */
   /* ------------------------------------------------------------------ */
 
-  function randomCode() {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let out = '';
-    for (let i = 0; i < 6; i++) out += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
-    return out;
+  const DUEL_START_DELAY = 3500; // margen para que ambos clientes reciban el inicio
+
+  function duelMaps() {
+    try {
+      if (window.DAT && Array.isArray(DAT.MAPS) && DAT.MAPS.length) return DAT.MAPS.map(function (m) { return m.id; });
+    } catch (e) { }
+    return null;
   }
 
-  async function createDuel() {
+  function duelDiffs() {
+    try {
+      if (window.DAT && Array.isArray(DAT.DIFFS) && DAT.DIFFS.length) return DAT.DIFFS.map(function (d) { return d.id; });
+    } catch (e) { }
+    return null;
+  }
+
+  function duelConfig(raw) {
+    const opts = { maps: duelMaps(), diffs: duelDiffs() };
+    if (window.MP && typeof MP.normalizeConfig === 'function') return MP.normalizeConfig(raw, opts);
+    // Respaldo mínimo si mp.js no estuviera cargado (nunca debería ocurrir).
+    const src = raw && typeof raw === 'object' ? raw : {};
+    return {
+      pipes: clampInt(src.pipes || 12, 1, 100),
+      time: clampInt(src.time || 0, 0, 3600),
+      map: String(src.map || 'day').slice(0, 32),
+      diff: String(src.diff || 'normal'),
+      tools: src.tools !== false,
+      seedMode: src.seedMode === 'manual' ? 'manual' : 'daily',
+      seed: clampInt(src.seed || (Date.now() % 2147483646), 1, 2147483646)
+    };
+  }
+
+  function duelSide(uid, name) {
+    if (window.MP && typeof MP.emptySide === 'function') return MP.emptySide(uid, name);
+    return { uid: uid, name: name, score: 0, pipes: 0, alive: true, finished: false, time: 0 };
+  }
+
+  function cleanDuelCode(code) {
+    if (window.MP && typeof MP.cleanCode === 'function') return MP.cleanCode(code);
+    return String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  }
+
+  async function createDuel(config) {
     await init();
     if (!state.ready || !rtdb) throw new Error('Firebase no está conectado');
-    const code = randomCode();
-    const now = Date.now();
-    const ref = M.rtdbMod.ref(rtdb, 'duels/' + code);
-    await M.rtdbMod.set(ref, {
-      code: code,
-      seed: now % 2147483647,
-      state: 'waiting',
-      createdAt: now,
-      updatedAt: now,
-      host: { uid: state.uid, name: localProfile().name || 'Jugador', score: 0 },
-      guest: null
-    });
-    return code;
+    const cfg = duelConfig(config);
+    const name = localProfile().name || 'Jugador';
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const code = (window.MP && MP.randomCode) ? MP.randomCode() : 'ABC234';
+      const now = Date.now();
+      const ref = M.rtdbMod.ref(rtdb, 'duels/' + code);
+      const result = await M.rtdbMod.runTransaction(ref, function (cur) {
+        if (cur) return; // código ocupado: se aborta y se prueba otro
+        return {
+          code: code,
+          seed: cfg.seed,
+          state: 'waiting',
+          createdAt: now,
+          updatedAt: now,
+          startAt: 0,
+          winner: '',
+          config: cfg,
+          host: duelSide(state.uid, name),
+          guest: null
+        };
+      });
+      if (result && result.committed && result.snapshot && result.snapshot.exists()) {
+        return result.snapshot.val();
+      }
+    }
+    throw new Error('No se pudo crear la sala; inténtalo otra vez');
+  }
+
+  async function getDuel(code) {
+    await init();
+    if (!state.ready || !rtdb) throw new Error('Firebase no está conectado');
+    const key = cleanDuelCode(code);
+    if (!key || key.length !== 6) throw new Error('Código inválido');
+    const snap = await M.rtdbMod.get(M.rtdbMod.ref(rtdb, 'duels/' + key));
+    return snap.exists() ? snap.val() : null;
   }
 
   async function joinDuel(code) {
     await init();
     if (!state.ready || !rtdb) throw new Error('Firebase no está conectado');
-    const key = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    const key = cleanDuelCode(code);
     if (key.length !== 6) throw new Error('Código inválido');
     const ref = M.rtdbMod.ref(rtdb, 'duels/' + key);
-    const result = await M.rtdbMod.runTransaction(ref, function (cur) {
-      if (!cur) return null;
-      if (cur.host && cur.host.uid === state.uid) return cur;
-      if (cur.guest && cur.guest.uid !== state.uid) return;
-      if (cur.state === 'finished') return;
-      cur.guest = { uid: state.uid, name: localProfile().name || 'Jugador', score: 0 };
-      cur.state = 'playing';
-      cur.updatedAt = Date.now();
-      return cur;
-    });
-    if (!result || !result.snapshot || !result.snapshot.exists()) throw new Error('Sala no encontrada o completa');
-    return result.snapshot.val();
+    const name = localProfile().name || 'Jugador';
+    const snap = await M.rtdbMod.get(ref);
+    if (!snap.exists()) throw new Error('Sala no encontrada, completa o ya terminada');
+    const cur = snap.val();
+    if (cur.host && cur.host.uid === state.uid) return cur;   // reconexión del anfitrión
+    if (cur.guest && cur.guest.uid === state.uid) return cur; // reconexión del invitado
+    if (cur.guest && cur.guest.uid) throw new Error('La sala ya está completa');
+    if (cur.state === 'finished') throw new Error('La carrera ya terminó');
+    const guest = duelSide(state.uid, name);
+    const now = Date.now();
+    await M.rtdbMod.update(ref, { guest: guest, updatedAt: now });
+    return Object.assign({}, cur, { guest: guest, updatedAt: now });
   }
 
-  async function updateDuelScore(code, score) {
+  async function startDuel(code) {
     if (!state.ready || !rtdb) return false;
-    const key = String(code || '').toUpperCase().slice(0, 6);
+    const key = cleanDuelCode(code);
+    if (key.length !== 6) return false;
     const ref = M.rtdbMod.ref(rtdb, 'duels/' + key);
     try {
       const snap = await M.rtdbMod.get(ref);
-      const duel = snap.val();
-      if (!duel) return false;
-      let side = null;
-      if (duel.host && duel.host.uid === state.uid) side = 'host';
-      else if (duel.guest && duel.guest.uid === state.uid) side = 'guest';
+      if (!snap.exists()) return false;
+      const cur = snap.val();
+      if (!cur.host || cur.host.uid !== state.uid) return false; // solo el anfitrión
+      if (!cur.guest || !cur.guest.uid) return false;            // falta rival
+      if (cur.state === 'playing' || cur.state === 'finished') return true;
+      const now = Date.now();
+      await M.rtdbMod.update(ref, {
+        state: 'playing',
+        startAt: now + DUEL_START_DELAY,
+        updatedAt: now
+      });
+      return true;
+    } catch (err) {
+      warn('startDuel:', err);
+      return false;
+    }
+  }
+
+  function duelWinner(room) {
+    if (!room || !room.host || !room.guest) return '';
+    if (window.MP && typeof MP.judgeSides === 'function') return MP.judgeSides(room.host, room.guest);
+    return '';
+  }
+
+  async function updateDuelProgress(code, progress) {
+    if (!state.ready || !rtdb) return false;
+    const key = cleanDuelCode(code);
+    if (key.length !== 6) return false;
+    const ref = M.rtdbMod.ref(rtdb, 'duels/' + key);
+    const p = (window.MP && MP.sanitizeProgress) ? MP.sanitizeProgress(progress) : progress;
+    try {
+      const snap = await M.rtdbMod.get(ref);
+      if (!snap.exists()) return false;
+      const cur = snap.val();
+      const side = (cur.host && cur.host.uid === state.uid) ? 'host'
+        : (cur.guest && cur.guest.uid === state.uid) ? 'guest' : '';
       if (!side) return false;
-      const patch = { updatedAt: Date.now() };
-      patch[side + '/score'] = clampInt(score, 0, 10000000);
+      const prev = cur[side] || {};
+      if (prev.finished && !p.finished) return true; // no retroceder un resultado ya enviado
+      const now = Date.now();
+      const patch = {};
+      patch[side + '/uid'] = prev.uid;
+      patch[side + '/name'] = prev.name;
+      patch[side + '/score'] = p.score;
+      patch[side + '/pipes'] = p.pipes;
+      patch[side + '/alive'] = p.alive;
+      patch[side + '/finished'] = p.finished;
+      patch[side + '/time'] = p.time;
+      patch.updatedAt = now;
+      const other = cur[side === 'host' ? 'guest' : 'host'];
+      if (p.finished && other && other.finished && cur.state !== 'finished') {
+        const self = Object.assign({}, prev, p);
+        const winner = side === 'host'
+          ? duelWinner({ host: self, guest: other })
+          : duelWinner({ host: other, guest: self });
+        patch.state = 'finished';
+        if (!cur.winner) patch.winner = winner || '';
+      }
       await M.rtdbMod.update(ref, patch);
       return true;
     } catch (err) {
-      warn('updateDuelScore:', err);
+      warn('updateDuelProgress:', err);
       return false;
     }
+  }
+
+  // Compatibilidad con la API antigua: solo cambia la puntuación.
+  async function updateDuelScore(code, score) {
+    const key = cleanDuelCode(code);
+    const snap = await getDuel(key);
+    if (!snap) return false;
+    const side = (snap.host && snap.host.uid === state.uid) ? snap.host : (snap.guest && snap.guest.uid === state.uid ? snap.guest : null);
+    if (!side) return false;
+    return updateDuelProgress(key, {
+      score: clampInt(score, 0, 10000000),
+      pipes: side.pipes || 0,
+      alive: side.alive !== false,
+      finished: !!side.finished,
+      time: side.time || 0
+    });
+  }
+
+  // Finaliza la partida propia y deja que la sala decida el ganador cuando
+  // ambos hayan terminado.
+  function finishDuel(code, result) {
+    return updateDuelProgress(code, result);
   }
 
   function watchDuel(code, cb) {
@@ -1471,16 +1602,48 @@ window.CLOUD = (function () {
 
   async function leaveDuel(code) {
     if (!state.ready || !rtdb) return false;
-    const key = String(code || '').toUpperCase().slice(0, 6);
+    const key = cleanDuelCode(code);
+    if (key.length !== 6) return false;
     const ref = M.rtdbMod.ref(rtdb, 'duels/' + key);
     try {
       const snap = await M.rtdbMod.get(ref);
-      const duel = snap.val();
-      if (!duel) return false;
-      if (duel.host && duel.host.uid === state.uid) {
-        await M.rtdbMod.remove(ref);
-      } else if (duel.guest && duel.guest.uid === state.uid) {
-        await M.rtdbMod.update(ref, { guest: null, state: 'waiting', updatedAt: Date.now() });
+      if (!snap.exists()) return true; // la sala ya no está: nada que liberar
+      const cur = snap.val();
+      const now = Date.now();
+
+      if (cur.host && cur.host.uid === state.uid) {
+        if (cur.state === 'playing') {
+          // El anfitrión deja la carrera: si no había terminado, gana el invitado.
+          const winner = cur.host.finished ? (duelWinner(cur) || 'host') : 'guest';
+          await M.rtdbMod.update(ref, {
+            'host/alive': false,
+            'host/finished': true,
+            'host/time': cur.host.time || 0,
+            state: 'finished',
+            winner: winner,
+            updatedAt: now
+          });
+        } else {
+          await M.rtdbMod.remove(ref); // en espera o ya resuelta: se cierra la sala
+        }
+        return true;
+      }
+
+      if (!cur.guest || cur.guest.uid !== state.uid) return false;
+      if (cur.state === 'playing') {
+        // El invitado deja la carrera: gana el anfitrión (o decide el marcador).
+        const finished = !!(cur.guest.finished || (cur.host && cur.host.finished));
+        const winner = finished ? (duelWinner(cur) || 'host') : 'host';
+        await M.rtdbMod.update(ref, {
+          'guest/alive': false,
+          'guest/finished': true,
+          'guest/time': cur.guest.time || 0,
+          state: 'finished',
+          winner: winner,
+          updatedAt: now
+        });
+      } else {
+        await M.rtdbMod.update(ref, { guest: null, updatedAt: now }); // queda libre
       }
       return true;
     } catch (err) {
@@ -1590,7 +1753,11 @@ window.CLOUD = (function () {
     liveLeaderboard: liveLeaderboard,
     updateLiveBoard: updateLiveBoard,
     createDuel: createDuel,
+    getDuel: getDuel,
     joinDuel: joinDuel,
+    startDuel: startDuel,
+    updateDuelProgress: updateDuelProgress,
+    finishDuel: finishDuel,
     updateDuelScore: updateDuelScore,
     watchDuel: watchDuel,
     stopWatchDuel: stopWatchDuel,

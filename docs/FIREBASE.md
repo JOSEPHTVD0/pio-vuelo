@@ -288,12 +288,32 @@ Versión mínima, mantenimiento y banderas de funciones.
 ```text
 presence/{uid}                     { name, level, online, lastSeen, board, best }
 leaderboard_live/{board}/{uid}     { name, best, updatedAt }
-duels/{CODE}                       { code, seed, state, createdAt, updatedAt,
-                                     host: { uid, name, score },
-                                     guest: { uid, name, score } | null }
+duels/{CODE}                       { code, seed, state, createdAt, updatedAt, startAt, winner,
+                                     config: { pipes, time, map, diff, tools, seedMode, seed },
+                                     host: { uid, name, score, pipes, alive, finished, time },
+                                     guest: { uid, name, score, pipes, alive, finished, time } | null }
 ```
 
-Estados de duelo: `waiting`, `playing`, `finished`.
+Estados de duelo:
+
+- `waiting`: sala creada, el invitado aún no ha entrado o la carrera no ha empezado.
+- `playing`: el anfitrión llamó a `startDuel`; `startAt` guarda el instante (ms epoch)
+  en que arranca la carrera, 3,5 s después, para que ambos clientes empiecen a la vez.
+- `finished`: la sala ya tiene `winner` (`host`, `guest`, `draw` o `''`).
+
+Reglas de la sala:
+
+- `code` son 6 caracteres `A–Z0–9`; `createdAt`, `seed` y todo `config` son inmutables.
+- `config.pipes` (1–100), `config.time` (0–3600 s, 0 = sin límite), `config.map`
+  (id de `DAT.MAPS`), `config.diff` (`easy`, `normal`, `hard`, `insane`),
+  `config.tools` (booleano), `config.seedMode` (`daily` o `manual`) y `config.seed`
+  (1–2147483646) los fija el anfitrión al crear la sala; ambos jugadores vuelan
+  exactamente esa configuración y semilla.
+- Cada lado (`host`/`guest`) solo puede escribirlo su propio `uid`, y únicamente
+  los campos `score`, `pipes`, `alive`, `finished` y `time`.
+- El invitado puede entrar una sola vez y liberar su lado en la sala de espera;
+  el anfitrión puede borrar la sala entera. Si alguien abandona durante la carrera,
+  la sala pasa a `finished` con el ganador correspondiente.
 
 ---
 
@@ -306,7 +326,9 @@ Estados de duelo: `waiting`, `playing`, `finished`.
   denegada (solo Admin SDK / consola).
 - `presence/{uid}` y `leaderboard_live/{board}/{uid}`: escritura solo del propio
   UID.
-- `duels/{code}`: solo el anfitrión o el invitado pueden modificarlo.
+- `duels/{code}`: lectura pública; escritura limitada al anfitrión y al invitado.
+  Cada jugador solo puede modificar su propio lado y el progreso tiene límites
+  validados. `code`, `createdAt`, `seed` y `config` no cambian una vez creados.
 - Cualquier ruta no listada queda denegada.
 
 Puedes probar las reglas con el emulador:
@@ -333,10 +355,20 @@ firebase emulators:start --only firestore,database,auth
 await CLOUD.init();
 const top = await CLOUD.leaderboard('global', 25);
 CLOUD.watchLeaderboard('global', rows => console.log(rows));
-const code = await CLOUD.createDuel();
-await CLOUD.joinDuel(code);
-CLOUD.watchDuel(code, duel => console.log(duel));
+const room = await CLOUD.createDuel({
+  pipes: 12, time: 180, map: 'day', diff: 'normal', tools: true, seedMode: 'daily'
+});
+await CLOUD.joinDuel(room.code);       // el invitado, desde otro dispositivo
+await CLOUD.startDuel(room.code);      // solo el anfitrión
+CLOUD.watchDuel(room.code, duel => console.log(duel));
+await CLOUD.updateDuelProgress(room.code, { score, pipes, alive, finished, time });
+await CLOUD.leaveDuel(room.code);      // libera el lado o cierra la sala
 ```
+
+`createDuel` devuelve el objeto completo de la sala (con `code`), no solo el
+código. `CLOUD.session().uid` identifica al jugador para saber si es `host` o
+`guest`; `finishDuel(code, result)` es un alias de `updateDuelProgress` y
+`updateDuelScore(code, score)` se mantiene por compatibilidad.
 
 La pantalla **RÉCORDS** muestra automáticamente el ranking global cuando la
 nube está configurada; si no, sigue mostrando el ranking local.

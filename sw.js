@@ -1,4 +1,4 @@
-var CACHE = 'piovuelo-v29';
+var CACHE = 'piovuelo-v30';
 var FILES = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ var FILES = [
   './css/style.css',
   './js/firebase-config.js',
   './js/data.js',
+  './js/mp.js',
   './js/audio.js',
   './js/save.js',
   './js/cloud.js',

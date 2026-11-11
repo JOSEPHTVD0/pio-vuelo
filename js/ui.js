@@ -426,6 +426,7 @@ window.UI = (function () {
     const s = SAVE.get();
     setTag('mpFreeSub', s.stats.best ? '· Récord ' + s.stats.best + ' pts' : '');
     setTag('mpDuelSub', (s.stats.duelWins || 0) ? '· 🏆 ' + s.stats.duelWins : '');
+    setTag('mpPvpSub', (s.stats.mpWins || 0) ? '· 🌐 ' + s.stats.mpWins + ' victorias' : (s.stats.mpMatches ? '· ' + s.stats.mpMatches + ' carreras' : '· Online 1v1'));
     setTag('mpDailySub', SAVE.challengePlayedToday() ? '🌙 Ya jugaste hoy' : '');
     setTag('mpZenSub', (s.stats.zenBest || 0) ? '· Mejor ' + s.stats.zenBest + ' m' : '');
     setTag('mpBossSub', (s.stats.bossDefeated || 0) ? '· 👹 ' + s.stats.bossDefeated + ' derrotados' : '');
@@ -435,6 +436,361 @@ window.UI = (function () {
       const el = document.getElementById(pair[0]);
       if (el) el.classList.toggle('active', m === pair[1]);
     });
+  }
+
+  /* ---------- MULTIJUGADOR ONLINE ---------- */
+  let mpRoom = null;
+  let mpStopWatch = null;
+  let mpCountdownTimer = null;
+  let mpLaunching = false;
+
+  function mpServerReady() {
+    return !!(window.CLOUD && CLOUD.configured && CLOUD.configured());
+  }
+
+  function mpOpts() {
+    return {
+      maps: (window.DAT && DAT.MAPS) ? DAT.MAPS.map(m => m.id) : [],
+      diffs: (window.DAT && DAT.DIFFS) ? DAT.DIFFS.map(d => d.id) : []
+    };
+  }
+
+  function mpSelect(parent, label, id, options, value) {
+    const row = document.createElement('label');
+    row.className = 'set-row mp-row';
+    const span = document.createElement('span');
+    span.textContent = label;
+    const sel = document.createElement('select');
+    sel.id = id;
+    sel.className = 'mp-input';
+    options.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o[0];
+      opt.textContent = o[1];
+      if (String(o[0]) === String(value)) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    row.appendChild(span);
+    row.appendChild(sel);
+    parent.appendChild(row);
+    return sel;
+  }
+
+  function mpVal(id) {
+    const el = document.getElementById(id);
+    return el ? el.value : '';
+  }
+
+  function mpCreate(btn) {
+    if (btn && btn.disabled) return;
+    SND.sfx.click();
+    const raw = {
+      pipes: mpVal('mpPipes'),
+      time: mpVal('mpTime'),
+      map: mpVal('mpMap'),
+      diff: mpVal('mpDiff'),
+      tools: !!(document.getElementById('mpTools') && document.getElementById('mpTools').checked),
+      seedMode: mpVal('mpSeedMode') || 'daily',
+      seed: mpVal('mpSeed')
+    };
+    const cfg = MP.normalizeConfig(raw, mpOpts());
+    if (btn) { btn.disabled = true; btn.textContent = 'CREANDO…'; }
+    CLOUD.createDuel(cfg).then(room => {
+      if (btn) { btn.disabled = false; btn.textContent = 'CREAR SALA'; }
+      if (!room) { toast('No se pudo crear la sala', 'warning'); return; }
+      SND.sfx.level();
+      mpRoom = room;
+      mpWatch();
+      renderMultiplayer();
+    }).catch(err => {
+      if (btn) { btn.disabled = false; btn.textContent = 'CREAR SALA'; }
+      toast('⚠️ ' + ((err && err.message) || 'No se pudo crear la sala'), 'warning');
+    });
+  }
+
+  function mpJoin(btn) {
+    if (btn && btn.disabled) return;
+    SND.sfx.click();
+    const code = MP.cleanCode(mpVal('mpJoinCode'));
+    if (!MP.isValidCode(code)) { SND.sfx.deny(); toast('Escribe un código de 6 caracteres', 'warning'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'ENTRANDO…'; }
+    CLOUD.joinDuel(code).then(room => {
+      if (btn) { btn.disabled = false; btn.textContent = 'UNIRSE'; }
+      SND.sfx.level();
+      mpRoom = room;
+      mpWatch();
+      renderMultiplayer();
+    }).catch(err => {
+      if (btn) { btn.disabled = false; btn.textContent = 'UNIRSE'; }
+      toast('⚠️ ' + ((err && err.message) || 'No se pudo entrar en la sala'), 'warning');
+    });
+  }
+
+  function mpWatch() {
+    if (!mpRoom || !CLOUD.watchDuel) return;
+    if (mpStopWatch) { try { mpStopWatch(); } catch (e) { } mpStopWatch = null; }
+    const code = mpRoom.code;
+    mpStopWatch = CLOUD.watchDuel(code, room => {
+      if (!mpRoom || mpRoom.code !== code) return;
+      mpRoom = room;
+      if (!room) {
+        mpStopWatch = null;
+        mpRoom = null;
+        toast('La sala se cerró', 'info');
+        if (currentGeneric === 'pvp') renderMultiplayer();
+        return;
+      }
+      mpHandleRoom(room);
+    });
+  }
+
+  function mpHandleRoom(room) {
+    if (!room || !mpRoom) return;
+    if (room.state === 'playing') {
+      if (room.startAt && Date.now() < room.startAt) {
+        if (currentGeneric === 'pvp') renderMultiplayer();
+        mpShowCountdown(room);
+        return;
+      }
+      mpLaunch(room);
+      return;
+    }
+    if (mpCountdownTimer) { clearInterval(mpCountdownTimer); mpCountdownTimer = null; }
+    if (currentGeneric === 'pvp') renderMultiplayer();
+  }
+
+  function mpShowCountdown(room) {
+    if (mpCountdownTimer) { clearInterval(mpCountdownTimer); mpCountdownTimer = null; }
+    const paint = () => {
+      const el = document.getElementById('mpCount');
+      if (!el) return;
+      const left = Math.max(0, Math.ceil((room.startAt - Date.now()) / 1000));
+      el.textContent = left > 0 ? ('🕒 Empieza en ' + left + '…') : '🕒 ¡Ya!';
+    };
+    paint();
+    mpCountdownTimer = setInterval(() => {
+      if (!mpRoom || mpRoom.code !== room.code) { clearInterval(mpCountdownTimer); mpCountdownTimer = null; return; }
+      paint();
+      if (Date.now() >= room.startAt - 40) {
+        clearInterval(mpCountdownTimer);
+        mpCountdownTimer = null;
+        mpLaunch(room);
+      }
+    }, 150);
+  }
+
+  function mpLaunch(room) {
+    if (mpLaunching || !room) return;
+    mpLaunching = true;
+    if (mpCountdownTimer) { clearInterval(mpCountdownTimer); mpCountdownTimer = null; }
+    if (mpStopWatch) { try { mpStopWatch(); } catch (e) { } mpStopWatch = null; }
+    mpRoom = null;
+    currentGeneric = null; // el juego toma el control de la pantalla
+    G.startPvp(room);
+    mpLaunching = false;
+  }
+
+  function mpLeaveRoom() {
+    if (mpCountdownTimer) { clearInterval(mpCountdownTimer); mpCountdownTimer = null; }
+    if (mpStopWatch) { try { mpStopWatch(); } catch (e) { } mpStopWatch = null; }
+    const code = mpRoom && mpRoom.code;
+    mpRoom = null;
+    if (code && window.CLOUD && CLOUD.leaveDuel) {
+      try { CLOUD.leaveDuel(code); } catch (e) { }
+    }
+  }
+
+  function openMultiplayer() {
+    openGeneric('pvp');
+  }
+
+  function renderMultiplayer() {
+    const body = $('genBody');
+    body.innerHTML = '';
+    if (mpRoom) { mpRoomView(); return; }
+
+    const intro = document.createElement('div');
+    intro.className = 'prog-card';
+    intro.innerHTML = '<h3>🌐 CARRERA ONLINE 1v1</h3>' +
+      '<div class="set-note">Crea una sala privada y comparte su código de 6 caracteres, o únete con el código de un amigo. Los dos volaréis con la misma semilla, mapa, dificultad y meta. Gana quien llegue antes a la meta o cruce más tubos.</div>';
+    body.appendChild(intro);
+
+    if (!mpServerReady()) {
+      const warn = document.createElement('div');
+      warn.className = 'prog-card';
+      warn.innerHTML = '<h3>⚠️ SIN CONEXIÓN</h3><div class="set-note">El multijugador necesita Firebase. Comprueba tu conexión y vuelve a intentarlo. La web y el APK se conectan solos al abrirse.</div>';
+      body.appendChild(warn);
+      return;
+    }
+
+    const s = SAVE.get();
+    const def = MP.normalizeConfig({
+      pipes: 12, time: 0, map: s.map, diff: s.set.diff, tools: true, seedMode: 'daily'
+    }, mpOpts());
+
+    const create = document.createElement('div');
+    create.className = 'prog-card';
+    create.innerHTML = '<h3>➕ CREAR SALA</h3>';
+    mpSelect(create, 'Meta de tubos', 'mpPipes', MP.PIPE_GOALS.map(n => [n, n + ' tubos']), def.pipes);
+    mpSelect(create, 'Límite de tiempo', 'mpTime', MP.TIME_LIMITS.map(n => [n, n ? n + ' s' : 'Sin límite']), def.time);
+    mpSelect(create, 'Mapa', 'mpMap', DAT.MAPS.map(m => [m.id, m.icon + ' ' + m.name]), def.map);
+    mpSelect(create, 'Dificultad', 'mpDiff', DAT.DIFFS.map(d => [d.id, d.name]), def.diff);
+    mpSelect(create, 'Semilla', 'mpSeedMode', [['daily', 'Del día (igual para ambos)'], ['manual', 'Manual (texto o número)']], 'daily');
+
+    const seedRow = document.createElement('label');
+    seedRow.className = 'set-row mp-row';
+    const seedLbl = document.createElement('span');
+    seedLbl.textContent = 'Semilla manual';
+    const seedInput = document.createElement('input');
+    seedInput.id = 'mpSeed';
+    seedInput.className = 'mp-input';
+    seedInput.placeholder = 'p. ej. 2026';
+    seedInput.maxLength = 24;
+    seedRow.appendChild(seedLbl);
+    seedRow.appendChild(seedInput);
+    create.appendChild(seedRow);
+
+    const toolsRow = document.createElement('label');
+    toolsRow.className = 'set-row mp-row';
+    const toolsLbl = document.createElement('span');
+    toolsLbl.textContent = 'Permitir herramientas';
+    const tools = document.createElement('input');
+    tools.type = 'checkbox';
+    tools.id = 'mpTools';
+    tools.className = 'mp-check';
+    tools.checked = true;
+    toolsRow.appendChild(toolsLbl);
+    toolsRow.appendChild(tools);
+    create.appendChild(toolsRow);
+
+    const seedSel = create.querySelector('#mpSeedMode');
+    const syncSeed = () => { seedRow.style.display = seedSel.value === 'manual' ? '' : 'none'; };
+    seedSel.onchange = syncSeed;
+    syncSeed();
+
+    const btnCreate = document.createElement('button');
+    btnCreate.className = 'btn btn-play';
+    btnCreate.textContent = 'CREAR SALA';
+    btnCreate.onclick = () => mpCreate(btnCreate);
+    create.appendChild(btnCreate);
+    body.appendChild(create);
+
+    const join = document.createElement('div');
+    join.className = 'prog-card';
+    join.innerHTML = '<h3>🔑 UNIRSE A UNA SALA</h3><div class="set-note">Escribe el código que te ha pasado el anfitrión.</div>';
+    const codeInput = document.createElement('input');
+    codeInput.id = 'mpJoinCode';
+    codeInput.className = 'mp-code-input';
+    codeInput.maxLength = 6;
+    codeInput.placeholder = 'ABC234';
+    codeInput.autocapitalize = 'characters';
+    codeInput.oninput = () => { codeInput.value = MP.cleanCode(codeInput.value); };
+    join.appendChild(codeInput);
+    const btnJoin = document.createElement('button');
+    btnJoin.className = 'btn';
+    btnJoin.textContent = 'UNIRSE';
+    btnJoin.onclick = () => mpJoin(btnJoin);
+    join.appendChild(btnJoin);
+    body.appendChild(join);
+  }
+
+  function mpRoomView() {
+    const room = mpRoom;
+    const body = $('genBody');
+    body.innerHTML = '';
+    if (!room) { renderMultiplayer(); return; }
+    const me = (window.CLOUD && CLOUD.session) ? (CLOUD.session().uid || '') : '';
+    const isHost = !!(room.host && room.host.uid === me);
+    const cfg = MP.normalizeConfig(room.config, mpOpts());
+    const full = !!(room.guest && room.guest.uid);
+    const started = room.state === 'playing' || room.state === 'finished';
+
+    const card = document.createElement('div');
+    card.className = 'prog-card mp-room';
+    card.innerHTML = '<h3>🌐 SALA PRIVADA</h3><div class="mp-code" id="mpRoomCode">' + esc(room.code) + '</div>' +
+      '<div class="set-note">Comparte este código. Ambos jugaréis exactamente la misma carrera.</div>';
+    const copy = document.createElement('button');
+    copy.className = 'btn btn-small';
+    copy.textContent = '📋 COPIAR CÓDIGO';
+    copy.onclick = () => {
+      SND.sfx.click();
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(room.code).then(() => toast('Código copiado: ' + room.code, 'good'))
+            .catch(() => toast('Código de sala: ' + room.code, 'info'));
+        } else toast('Código de sala: ' + room.code, 'info');
+      } catch (e) { toast('Código de sala: ' + room.code, 'info'); }
+    };
+    card.appendChild(copy);
+    body.appendChild(card);
+
+    const rules = document.createElement('div');
+    rules.className = 'prog-card';
+    const mapName = DAT.getMap(cfg.map).name;
+    const diffName = DAT.getDiff(cfg.diff).name;
+    rules.innerHTML = '<h3>⚙️ REGLAS DE LA CARRERA</h3>' +
+      '<div class="stat-row"><span>Meta</span><b>' + cfg.pipes + ' tubos</b></div>' +
+      '<div class="stat-row"><span>Tiempo</span><b>' + (cfg.time > 0 ? cfg.time + ' s' : 'Sin límite') + '</b></div>' +
+      '<div class="stat-row"><span>Mapa</span><b>' + esc(mapName) + '</b></div>' +
+      '<div class="stat-row"><span>Dificultad</span><b>' + esc(diffName) + '</b></div>' +
+      '<div class="stat-row"><span>Herramientas</span><b>' + (cfg.tools ? 'Sí' : 'No') + '</b></div>' +
+      '<div class="stat-row"><span>Semilla</span><b>' + cfg.seed + '</b></div>';
+    body.appendChild(rules);
+
+    const players = document.createElement('div');
+    players.className = 'prog-card';
+    const hostName = room.host ? room.host.name : '—';
+    const guestName = full ? room.guest.name : 'Esperando…';
+    players.innerHTML = '<h3>👥 JUGADORES</h3>' +
+      '<div class="stat-row"><span>🟦 ' + esc(hostName) + ((room.host && room.host.uid === me) ? ' (tú)' : '') + '</span><b>Anfitrión</b></div>' +
+      '<div class="stat-row"><span>🟥 ' + esc(guestName) + ((full && room.guest.uid === me) ? ' (tú)' : '') + '</span><b>Invitado</b></div>';
+    body.appendChild(players);
+
+    const status = document.createElement('div');
+    status.className = 'prog-card';
+    const statusText = room.state === 'finished' ? 'La carrera ya terminó.'
+      : room.state === 'playing' ? 'Preparando la salida…'
+      : full ? (isHost ? 'Rival listo. ¡Puedes empezar!' : 'Esperando a que el anfitrión empiece…')
+      : 'Esperando a que entre un rival…';
+    status.innerHTML = '<h3>⏳ ESTADO</h3><div id="mpCount" class="set-note">' + statusText + '</div>';
+    body.appendChild(status);
+
+    if (isHost && full && room.state === 'waiting') {
+      const start = document.createElement('button');
+      start.className = 'btn btn-play';
+      start.textContent = '▶ EMPEZAR CARRERA';
+      start.onclick = () => {
+        SND.sfx.click();
+        start.disabled = true;
+        start.textContent = 'PREPARANDO…';
+        CLOUD.startDuel(room.code).then(ok => {
+          if (!ok) {
+            start.disabled = false;
+            start.textContent = '▶ EMPEZAR CARRERA';
+            toast('No se pudo empezar la carrera', 'warning');
+          }
+        });
+      };
+      body.appendChild(start);
+    }
+
+    const leave = document.createElement('button');
+    leave.className = 'btn btn-danger';
+    leave.textContent = '✖ SALIR DE LA SALA';
+    leave.onclick = () => {
+      SND.sfx.click();
+      mpLeaveRoom();
+      renderMultiplayer();
+    };
+    body.appendChild(leave);
+
+    if (room.state === 'playing') {
+      if (!room.startAt || Date.now() >= room.startAt) {
+        setTimeout(() => { if (mpRoom && mpRoom.code === room.code) mpLaunch(room); }, 200);
+      } else if (currentGeneric === 'pvp') {
+        mpShowCountdown(room);
+      }
+    }
   }
 
   function drawDailyRun() {
@@ -792,7 +1148,7 @@ window.UI = (function () {
     currentGeneric = kind;
     $('screen-generic').classList.remove('hidden');
     $('genBody').innerHTML = '';
-    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤', inventory: 'INVENTARIO 📦', stats: 'ESTADÍSTICAS 📊', help: 'AYUDA ❓' };
+    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤', inventory: 'INVENTARIO 📦', stats: 'ESTADÍSTICAS 📊', help: 'AYUDA ❓', pvp: 'MULTIJUGADOR 🌐' };
     $('genTitle').textContent = titles[kind] || '';
     $('genCoins').textContent = SAVE.get().coins;
     switch (kind) {
@@ -808,6 +1164,7 @@ window.UI = (function () {
       case 'inventory': renderInventory(tab); break;
       case 'stats': renderStats(); break;
       case 'help': renderHelp(); break;
+      case 'pvp': renderMultiplayer(); break;
       default: break;
     }
     $('genBody').scrollTop = 0;
@@ -819,6 +1176,7 @@ window.UI = (function () {
       const oldCloud = $('genBody').querySelector('.lb-cloud');
       if (oldCloud && oldCloud.__stopCloud) oldCloud.__stopCloud();
     }
+    if (currentGeneric === 'pvp') mpLeaveRoom();
     currentGeneric = null;
     hideAllScreens();
     if (inGame) {
@@ -2904,7 +3262,7 @@ window.UI = (function () {
     const about = document.createElement('div');
     about.className = 'prog-card';
     about.style.textAlign = 'center';
-    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.3.3 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.4.0 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
     body.appendChild(about);
   }
 
@@ -3333,6 +3691,7 @@ window.UI = (function () {
     setHudVisible, showStartHint, setPaused, setResumeCountdown, refreshHudTools, updateEffectTimers,
     showGameOver, showModeClear, toast, confirm, openGeneric, closeGeneric,
     showModePick, closeModePick, isModePickOpen,
+    openMultiplayer, leaveMultiplayer: mpLeaveRoom, refreshMultiplayer: renderMultiplayer,
     accountChoice,
     popAch,
     current: () => currentGeneric

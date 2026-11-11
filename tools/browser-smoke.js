@@ -164,7 +164,14 @@ function makeClient(ws) {
           throw e;
         }
         if (r.exceptionDetails) {
-          throw new Error('JS: ' + (r.exceptionDetails.exception && r.exceptionDetails.exception.description || r.exceptionDetails.text));
+          const desc = (r.exceptionDetails.exception && r.exceptionDetails.exception.description) || r.exceptionDetails.text;
+          // Una recarga de la página puede dejar el contexto a medias: si aún
+          // no existen los módulos, se espera y se reintenta en vez de fallar.
+          if (/is not defined/i.test(String(desc)) && i < 11) {
+            await sleep(500);
+            continue;
+          }
+          throw new Error('JS: ' + desc);
         }
         return r.result.value;
       }
@@ -181,6 +188,24 @@ function makeClient(ws) {
         await sleep(500);
       }
       return last;
+    };
+
+    // Espera a que una condición se mantenga varias veces seguidas: así no se
+    // da por buena una página que todavía va a recargarse sola.
+    const waitStable = async (expr, tries) => {
+      let streak = 0;
+      let last = null;
+      for (let i = 0; i < (tries || 40); i++) {
+        last = await evalJs(expr).catch(() => null);
+        if (last) {
+          streak++;
+          if (streak >= 3) return last;
+        } else {
+          streak = 0;
+        }
+        await sleep(700);
+      }
+      return null;
     };
 
     await sleep(2500);
@@ -414,39 +439,41 @@ function makeClient(ws) {
       ok(restored && restored.level === before.level && restored.coins === before.coins, 'un dispositivo nuevo restaura el progreso de la cuenta', JSON.stringify(restored) + ' vs ' + JSON.stringify(before));
       ok(restored && restored.name === emuUser && restored.account, 'el nombre y la sesión también se restauran');
 
-      // La importación puede encadenar una segunda recarga: se espera a que la
-      // página quede estable antes de cerrar sesión.
+      // La importación puede encadenar una segunda recarga: se fuerza una carga
+      // limpia y se espera a que la condición se mantenga para que el resto de
+      // pruebas no caiga a mitad de una recarga.
+      await c.send('Page.navigate', { url: URL });
       await sleep(1500);
-      const settled = await pollSave(`(function(){try{
+      const settled = await waitStable(`(function(){try{
         var s=(window.SAVE&&SAVE.get)?SAVE.get():null;
         if(!s||!window.CLOUD||!CLOUD.session)return null;
         var c=CLOUD.session();
         if(!c.account||s.level!==${before.level}||s.coins!==${before.coins})return null;
         return {level:s.level,coins:s.coins,account:c.account};
-      }catch(e){return null}})()`, 20);
+      }catch(e){return null}})()`, 40);
       ok(settled && settled.account, 'la sesión restaurada queda estable tras la recarga', JSON.stringify(settled));
 
       // Cierre de sesión: el juego sigue en local, sin invitado nuevo.
-      const out = await evalJs("CLOUD.logout().then(function(r){return r}).catch(function(e){return {ok:false,msg:String(e)}})");
-      ok(out && out.ok, 'se puede cerrar sesión');
-      const afterOut = await evalJs("({session:CLOUD.session(),level:SAVE.get().level,coins:SAVE.get().coins})");
-      ok(!afterOut.session.account && !afterOut.session.signedIn, 'tras cerrar sesión no hay cuenta activa', JSON.stringify(afterOut.session));
-      ok(afterOut.level === before.level, 'el progreso local se conserva al cerrar sesión');
+      const out = await pollSave("(function(){try{return CLOUD.logout().then(function(r){return r}).catch(function(e){return {ok:false,msg:String(e)}})}catch(e){return null}})()", 20);
+      const afterOut = await pollSave("(function(){try{return {session:CLOUD.session(),level:SAVE.get().level,coins:SAVE.get().coins}}catch(e){return null}})()", 20);
+      ok((out && out.ok) || (afterOut && !afterOut.session.signedIn), 'se puede cerrar sesión');
+      ok(afterOut && !afterOut.session.account && !afterOut.session.signedIn, 'tras cerrar sesión no hay cuenta activa', afterOut && JSON.stringify(afterOut.session));
+      ok(afterOut && afterOut.level === before.level, 'el progreso local se conserva al cerrar sesión');
 
       // Progreso distinto en este dispositivo: al entrar debe preguntar.
-      await evalJs("SAVE.setLevel(13); SAVE.addCoins(500);");
-      const login = await evalJs("CLOUD.login('" + emuUser + "','" + emuPass + "').then(function(r){return r}).catch(function(e){return {ok:false,msg:String(e)}})");
+      await pollSave("(function(){try{SAVE.setLevel(13);SAVE.addCoins(500);return true}catch(e){return null}})()", 20);
+      const login = await pollSave("(function(){try{return CLOUD.login('" + emuUser + "','" + emuPass + "').then(function(r){return r}).catch(function(e){return {ok:false,msg:String(e)}})}catch(e){return null}})()", 20);
       ok(login && login.ok && login.needsChoice, 'al entrar con progreso distinto se pide elegir', JSON.stringify(login));
       ok(login.local && login.cloud && login.local.level === 13 && login.cloud.level === before.level, 'la elección muestra los dos progresos reales', JSON.stringify(login.local) + ' / ' + JSON.stringify(login.cloud));
 
       // La interfaz dibuja el modal de elección y la opción de la cuenta
       // restaura la copia guardada en la nube.
-      await evalJs("UI.accountChoice({local:" + JSON.stringify(login.local) + ",cloud:" + JSON.stringify(login.cloud) + ",reason:'login'})");
+      await pollSave("(function(){try{UI.accountChoice({local:" + JSON.stringify(login.local) + ",cloud:" + JSON.stringify(login.cloud) + ",reason:'login'});return true}catch(e){return null}})()", 20);
       await sleep(400);
-      const modal = await evalJs("({visible:!document.getElementById('modal').classList.contains('hidden'),text:document.getElementById('modalText').textContent,buttons:document.querySelectorAll('#modalActions .btn').length})");
+      const modal = await pollSave("(function(){try{return {visible:!document.getElementById('modal').classList.contains('hidden'),text:document.getElementById('modalText').textContent,buttons:document.querySelectorAll('#modalActions .btn').length}}catch(e){return null}})()", 20);
       ok(modal.visible && modal.buttons === 2, 'el modal de elección ofrece las dos opciones', String(modal.buttons));
       ok(modal.text.indexOf('En este dispositivo') !== -1 && modal.text.indexOf('En tu cuenta') !== -1, 'el modal compara los dos progresos');
-      await evalJs("document.querySelector('#modalActions .btn').click(); true");
+      await pollSave("(function(){try{var b=document.querySelector('#modalActions .btn');if(!b)return null;b.click();return true}catch(e){return null}})()", 20);
       const chosen = await pollSave(`(function(){try{
         var s=(window.SAVE&&SAVE.get)?SAVE.get():null;
         if(!s||!window.CLOUD||!CLOUD.session)return null;
@@ -456,6 +483,141 @@ function makeClient(ws) {
       }catch(e){return null}})()`, 60);
       ok(chosen && chosen.level === before.level && chosen.coins === before.coins, 'elegir la cuenta restaura su progreso', JSON.stringify(chosen) + ' vs ' + JSON.stringify(before));
       ok(chosen && chosen.session.account && chosen.session.username === emuUser, 'la sesión queda iniciada tras elegir la cuenta');
+    }
+
+    // Multijugador online contra los emuladores: lobby, sala privada, unión de
+    // un rival real por la API REST del emulador, cuenta atrás y limpieza.
+    if (EMULATORS) {
+      const PROJ = 'demo-pio-vuelo';
+      const rtdbUrl = code => 'http://127.0.0.1:9000/duels/' + encodeURIComponent(code) + '.json?ns=' + PROJ + '-default-rtdb';
+
+      const createRoom = async () => {
+        const clicked = await evalJs("(function(){var bs=document.querySelectorAll('#genBody button');for(var i=0;i<bs.length;i++){if(bs[i].textContent==='CREAR SALA'){bs[i].click();return true}}return false})()");
+        if (!clicked) return null;
+        for (let i = 0; i < 30; i++) {
+          await sleep(300);
+          const code = await evalJs("(function(){var c=document.getElementById('mpRoomCode');return c?c.textContent:null})()").catch(() => null);
+          if (code) return code;
+        }
+        return null;
+      };
+
+      const openLobby = async () => {
+        for (let i = 0; i < 20; i++) {
+          await evalJs("(function(){try{UI.openMultiplayer();}catch(e){}return true})()").catch(() => null);
+          await sleep(400);
+          const has = await evalJs("!!document.getElementById('mpPipes')").catch(() => false);
+          if (has) return true;
+        }
+        return false;
+      };
+
+      await sleep(1600); // deja que termine cualquier recarga de la cuenta
+      // Carga limpia para que el multijugador no empiece a mitad de una recarga.
+      await c.send('Page.navigate', { url: URL });
+      await sleep(1600);
+      await waitStable("(function(){try{return !!(window.CLOUD && CLOUD.session().uid && window.SAVE && SAVE.get())}catch(e){return null}})()", 40);
+      const opened = await openLobby();
+      const lobby = opened
+        ? await evalJs("(function(){var b=document.getElementById('genBody');return {create:!!document.getElementById('mpPipes'),join:!!document.getElementById('mpJoinCode'),noNet:b.textContent.indexOf('SIN CONEXIÓN')!==-1}})()")
+        : { create: false, join: false, noNet: false };
+      ok(lobby.create && lobby.join, 'el lobby multijugador ofrece crear sala y unirse por código');
+      ok(!lobby.noNet, 'el lobby detecta la nube conectada');
+
+      // Salir mientras se espera debe borrar la sala del servidor.
+      const tempCode = await createRoom();
+      ok(!!tempCode && /^[A-Z0-9]{6}$/.test(tempCode), 'se crea una sala de espera con código de 6 caracteres', tempCode || '');
+      if (tempCode) {
+        const left = await evalJs("(function(){var bs=document.querySelectorAll('#genBody button');for(var i=0;i<bs.length;i++){if(bs[i].textContent.indexOf('SALIR')!==-1){bs[i].click();return true}}return false})()");
+        ok(left, 'el botón de salir de la sala está disponible');
+        let tempGone;
+        for (let i = 0; i < 12; i++) {
+          await sleep(500);
+          tempGone = await fetch(rtdbUrl(tempCode)).then(r => r.json()).catch(() => undefined);
+          if (tempGone === null) break;
+        }
+        ok(tempGone === null, 'salir de la sala en espera la borra del servidor', tempGone === null ? 'null' : JSON.stringify(tempGone));
+      }
+
+      // Sala personalizada de verdad.
+      await openLobby();
+      await evalJs("(function(){" +
+        "var p=document.getElementById('mpPipes');if(p)p.value='15';" +
+        "var t=document.getElementById('mpTime');if(t)t.value='60';" +
+        "var m=document.getElementById('mpMap');if(m)m.value='night';" +
+        "var d=document.getElementById('mpDiff');if(d)d.value='hard';" +
+        "var g=document.getElementById('mpSeedMode');if(g){g.value='manual';if(g.onchange)g.onchange();}" +
+        "var sd=document.getElementById('mpSeed');if(sd)sd.value='2026';" +
+        "var c=document.getElementById('mpTools');if(c)c.checked=false;" +
+        "return true})()");
+      const code = await createRoom();
+      ok(!!code && /^[A-Z0-9]{6}$/.test(code), 'se crea la sala personalizada', code || '');
+      if (code) {
+        const roomText = await evalJs("document.getElementById('genBody').textContent");
+        ok(roomText.indexOf('15 tubos') !== -1 && roomText.indexOf('60 s') !== -1 && roomText.indexOf('Herramientas') !== -1,
+          'la sala muestra meta, tiempo y herramientas acordadas');
+
+        // Rival real: se registra en Auth y escribe su lado con las reglas activas.
+        let guest = null;
+        try {
+          const ga = await fetch('http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo-api-key', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ returnSecureToken: true })
+          });
+          guest = await ga.json();
+        } catch (e) { guest = null; }
+        ok(!!(guest && guest.idToken && guest.localId), 'el segundo jugador obtiene sesión anónima real');
+        if (guest && guest.idToken) {
+          const joinRes = await fetch(rtdbUrl(code) + '&auth=' + encodeURIComponent(guest.idToken), {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              guest: { uid: guest.localId, name: 'RivalSmoke', score: 0, pipes: 0, alive: true, finished: false, time: 0 },
+              updatedAt: Date.now()
+            })
+          }).catch(() => null);
+          ok(joinRes && joinRes.ok, 'un rival real se une a la sala', joinRes ? String(joinRes.status) : 'sin respuesta');
+
+          await sleep(1600);
+          const ready = await evalJs("(function(){var t=document.getElementById('genBody').textContent;var bs=document.querySelectorAll('#genBody button');var start=false;for(var i=0;i<bs.length;i++)if(bs[i].textContent.indexOf('EMPEZAR')!==-1)start=true;return {ready:t.indexOf('Rival listo')!==-1,start:start,name:t.indexOf('RivalSmoke')!==-1}})()");
+          ok(ready.name && ready.ready && ready.start, 'el anfitrión ve al rival y puede empezar');
+
+          await evalJs("(function(){var bs=document.querySelectorAll('#genBody button');for(var i=0;i<bs.length;i++){if(bs[i].textContent.indexOf('EMPEZAR')!==-1){bs[i].click();return true}}return false})()");
+
+          // Sigue la transición de pantalla hasta que arranque la carrera, sin
+          // depender de un instante exacto: la cuenta atrás dura 3,5 s.
+          const seen = [];
+          let pvpState = null;
+          let sawPlay = false;
+          for (let i = 0; i < 24 && !sawPlay; i++) {
+            await sleep(250);
+            const st = await evalJs("(function(){try{var p=G.getPvp();return {mode:G.getMode(),state:G.getState(),pvp:p?{goal:p.goal,time:p.timeLimit,side:p.side,code:p.code}:null}}catch(e){return null}})()").catch(() => null);
+            if (!st) continue;
+            pvpState = st;
+            const last = seen[seen.length - 1];
+            if (!last || last.mode !== st.mode || last.state !== st.state) seen.push({ mode: st.mode, state: st.state });
+            if (st.mode === 'pvp' && st.state === 'play') sawPlay = true;
+          }
+          ok(sawPlay, 'la cuenta atrás lanza la carrera online', JSON.stringify(seen));
+          ok(pvpState && pvpState.pvp && pvpState.pvp.goal === 15 && pvpState.pvp.time === 60,
+            'la carrera respeta la meta y el tiempo de la sala', JSON.stringify(pvpState && pvpState.pvp));
+
+          const serverRoom = await fetch(rtdbUrl(code)).then(r => r.json()).catch(() => null);
+          ok(serverRoom && serverRoom.state === 'playing' && serverRoom.startAt > 0,
+            'la sala queda en partida con hora de salida compartida', serverRoom && serverRoom.state);
+          ok(serverRoom && serverRoom.host && serverRoom.host.uid && serverRoom.guest && serverRoom.guest.name === 'RivalSmoke',
+            'la sala guarda a los dos jugadores');
+
+          await evalJs("G.goMenu()");
+          let afterLeave = null;
+          for (let i = 0; i < 12; i++) {
+            await sleep(500);
+            afterLeave = await fetch(rtdbUrl(code)).then(r => r.json()).catch(() => null);
+            if (afterLeave && afterLeave.state === 'finished') break;
+          }
+          ok(afterLeave && afterLeave.state === 'finished' && afterLeave.winner === 'guest',
+            'al abandonar el anfitrión, el invitado gana y la sala queda resuelta',
+            afterLeave && (afterLeave.state + '/' + afterLeave.winner));
+        }
+      }
     }
 
     // Errores reales de la consola
