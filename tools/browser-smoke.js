@@ -503,8 +503,10 @@ function makeClient(ws) {
       };
 
       const openLobby = async () => {
+        await evalJs("(function(){try{UI.showModePick();}catch(e){}return true})()").catch(() => null);
+        await sleep(300);
+        await evalJs("(function(){try{document.getElementById('mpPvp').click();}catch(e){}return true})()").catch(() => null);
         for (let i = 0; i < 20; i++) {
-          await evalJs("(function(){try{UI.openMultiplayer();}catch(e){}return true})()").catch(() => null);
           await sleep(400);
           const has = await evalJs("!!document.getElementById('mpPipes')").catch(() => false);
           if (has) return true;
@@ -519,9 +521,10 @@ function makeClient(ws) {
       await waitStable("(function(){try{return !!(window.CLOUD && CLOUD.session().uid && window.SAVE && SAVE.get())}catch(e){return null}})()", 40);
       const opened = await openLobby();
       const lobby = opened
-        ? await evalJs("(function(){var b=document.getElementById('genBody');return {create:!!document.getElementById('mpPipes'),join:!!document.getElementById('mpJoinCode'),noNet:b.textContent.indexOf('SIN CONEXIÓN')!==-1}})()")
+        ? await evalJs("(function(){var b=document.getElementById('genBody');var mp=document.getElementById('screen-modepick');var gs=document.getElementById('screen-generic');return {create:!!document.getElementById('mpPipes'),join:!!document.getElementById('mpJoinCode'),noNet:b.textContent.indexOf('SIN CONEXIÓN')!==-1,modePickHidden:getComputedStyle(mp).display==='none',genericVisible:getComputedStyle(gs).display!=='none'}})()")
         : { create: false, join: false, noNet: false };
       ok(lobby.create && lobby.join, 'el lobby multijugador ofrece crear sala y unirse por código');
+      ok(lobby.modePickHidden && lobby.genericVisible, 'tocar Multijugador cierra la elección de modo y muestra el lobby', JSON.stringify(lobby));
       ok(!lobby.noNet, 'el lobby detecta la nube conectada');
 
       // Salir mientras se espera debe borrar la sala del servidor.

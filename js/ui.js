@@ -601,6 +601,10 @@ window.UI = (function () {
   }
 
   function openMultiplayer() {
+    // El lobby es una pantalla genérica (z-index 50) y la elección de modo
+    // queda por encima (55): hay que cerrarla o el botón parece no hacer nada.
+    modePickOpen = false;
+    $('screen-modepick').classList.add('hidden');
     openGeneric('pvp');
   }
 
@@ -3262,7 +3266,7 @@ window.UI = (function () {
     const about = document.createElement('div');
     about.className = 'prog-card';
     about.style.textAlign = 'center';
-    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.4.0 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.4.1 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
     body.appendChild(about);
   }
 

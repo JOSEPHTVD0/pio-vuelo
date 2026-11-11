@@ -59,6 +59,11 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
 
+## Correcciones de la versión 3.4.1
+
+- **Multijugador accesible desde el móvil:** el botón **Multijugador** ya abre el lobby. Antes la pantalla de elección de modo se quedaba por encima y parecía que el botón no hacía nada.
+- **Caché renovada:** la PWA actualiza a `piovuelo-v31`, así los jugadores que ya tenían abierta la 3.4.0 reciben la corrección al recargar.
+
 ## Novedades de la versión 3.4
 
 - **Carrera online 1v1:** crea una sala privada y comparte su código de 6 caracteres; el rival se une desde otro dispositivo. Los dos jugadores vuelan la misma semilla, mapa, dificultad, meta y tiempo, y la carrera arranca a la vez con una cuenta atrás de 3,5 s.
@@ -228,7 +233,7 @@ Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con
 
 ## Limitaciones conocidas
 
-- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.4.0 (versionCode 37)**: **7.051.691 bytes** y SHA-256 `815F468406E5E9EF1C9EA2FBE079D77A217E3782E80F508FDCCD9CAB62B2CCF6`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.4.1 (versionCode 38)**: **7.051.691 bytes** y SHA-256 `518ECE28BC60824A20EA9405DBF272B2EFE2B81CF8113D5C728E677B6E189334`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
 - La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (62/62) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 70/70 con emuladores, incluido el modo offline, las cuentas y las salas online). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos, el ranking online y una carrera 1v1 en dos dispositivos Android reales antes de darlos por cerrados.
 - El ranking global solo muestra marcas con más de 0 puntos. Las entradas antiguas con 0 puntos que ya existan en Firestore no se muestran y no se pueden borrar desde el cliente porque las reglas lo impiden; para limpiarlas hace falta la consola de Firebase o el Admin SDK.
 - La primera carga del ranking online necesita red. Si se abre sin conexión y nunca se ha visto la tabla, se muestra un aviso y se puede reintentar; el juego local no se bloquea.
