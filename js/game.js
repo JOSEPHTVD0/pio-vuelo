@@ -54,8 +54,11 @@ window.G = (function () {
   let diff = null;
   let mapCfgCur = { speedMul: 1, gravMul: 1, gapMul: 1, spawnMul: 1, coinMul: 1, wind: false }; // mecánicas del mapa activo
   let lvl = 1;
-  let mode = 'free';       // free | challenge | duel | zen | boss | wind | replay | pvp
+  let mode = 'free';       // free | goal | challenge | duel | zen | boss | wind | replay | pvp
   let clearedFlag = false; // evita disparar la superación de un modo 2 veces
+  let goalTarget = 0;      // meta de tubos del modo 'Con metas' (0 = sin meta)
+  let radarTick = 0;       // acumulador para refrescar el mapa táctico a ~8 fps
+  let runMap = 'day';      // escenario con el que se empezó la carrera (para los récords)
 
   // Multijugador online (sala privada 1v1)
   let pvp = null;          // { code, side, cfg, rival, done, stopWatch, lastReport, room, result }
@@ -229,6 +232,9 @@ function difficultyFor(sc, diffc) {
     wind.on = false; windZoneLast = 0; giantsMade = 0; nextWindPts = 150;
     windArrows = mode === 'wind';
     bossGroup = null; bossNext = false; bossPendAt = 20; zenLast = 0;
+    goalTarget = mode === 'goal' ? SAVE.getGoalPipes() : 0;
+    radarTick = 0;
+    if (window.RADAR) RADAR.resetTrail();
     if (mode === 'pvp' && pvp) { curSeed = pvp.cfg.seed; rng = mulberry32(curSeed); }
     else if (mode === 'challenge') { curSeed = daySeed(); rng = mulberry32(curSeed); }
     else if (mode === 'replay') {
@@ -245,6 +251,7 @@ function difficultyFor(sc, diffc) {
       ? { prog: 0, strength: clamp(0.6 + SAVE.get().level * 0.02, 0.55, 1.3) }
       : null;
     const mapId = mode === 'pvp' && pvp ? pvp.cfg.map : (mode === 'challenge' ? challengeMap : (mode === 'replay' && replayMode && rp ? rp.map : SAVE.get().map));
+    runMap = mapId;
     mapCfgCur = DAT.mapCfg(mapId); // cada mapa altera velocidad, gravedad, huecos, monedas y viento
     diff = DAT.getDiff(mode === 'pvp' && pvp ? pvp.cfg.diff : (mode === 'challenge' ? 'normal' : SAVE.get().set.diff));
     ENTS.setHC(!!SAVE.get().set.hc);
@@ -657,6 +664,47 @@ function difficultyFor(sc, diffc) {
     }
   }
 
+  function radarMarks() {
+    const out = [];
+    if (!bird) return out;
+    const span = Math.max(1, W * 1.25);
+    for (let i = 0; i < pipes.length && out.length < 6; i++) {
+      const x = 0.5 + (pipes[i].x - bird.x) / span;
+      if (x > 0.05 && x < 0.97) out.push(x);
+    }
+    return out.sort((a, b) => a - b);
+  }
+
+  // Datos del mapa táctico: progreso y altura de ambos jugadores.
+  function radarUpdate() {
+    if (!window.RADAR || !bird) return;
+    const h = Math.max(1, H - groundH);
+    const mine = {
+      x: (mode === 'pvp' && pvpGoal > 0) ? Math.min(1, pipesDone / pvpGoal)
+        : (mode === 'goal' && goalTarget > 0) ? Math.min(1, pipesDone / goalTarget)
+        : Math.min(1, pipesDone / (pipesDone + 10)),
+      y: Math.max(0, Math.min(1, 1 - bird.y / h)),
+      name: (SAVE.getProfile() || {}).name || 'Tú',
+      pipes: pipesDone,
+      score: score
+    };
+    let foe = null;
+    if (mode === 'pvp' && pvp) {
+      const o = pvpRivalData();
+      if (o && o.uid) {
+        const done = Math.max(0, o.pipes || 0);
+        foe = {
+          x: pvpGoal > 0 ? Math.min(1, done / pvpGoal) : Math.min(1, done / (done + 10)),
+          y: (typeof o.alt === 'number') ? Math.max(0, Math.min(1, o.alt)) : 0.5,
+          name: o.name || 'Rival',
+          pipes: done
+        };
+      }
+    }
+    const cfg = SAVE.getRadar ? SAVE.getRadar() : null;
+    RADAR.update({ me: mine, rival: foe, pipes: (cfg && cfg.pipes) ? radarMarks() : [], goal: goalTarget, mode: mode });
+  }
+
   function loop(ms) {
     loopActive = true;
     if (halted || document.hidden) { halted = true; loopActive = false; lastTime = ms; return; } // no sigue tras apagar pantalla
@@ -809,7 +857,12 @@ function difficultyFor(sc, diffc) {
           if (rt.bala && pipesDone % 10 === 0) balaShot();
           if (mode === 'pvp' && pvp && !pvp.done) {
             pvpReport(true);
-            if (pipesDone >= pvpGoal) { pvpFinish(true); break; }
+            if (pvpGoal > 0 && pipesDone >= pvpGoal) { pvpFinish(true); break; }
+          }
+          if (mode === 'goal' && !clearedFlag && goalTarget > 0 && pipesDone >= goalTarget) {
+            clearedFlag = true;
+            goalClear();
+            break;
           }
           if (mode === 'duel' && !clearedFlag && !bird.dead && pipesDone >= DUEL_PIPES) {
             clearedFlag = true;
@@ -933,6 +986,9 @@ function difficultyFor(sc, diffc) {
           }
         });
       }
+
+      radarTick += dt;
+      if (radarTick >= 0.12) { radarTick = 0; radarUpdate(); }
 
     }
 
@@ -1124,6 +1180,64 @@ function difficultyFor(sc, diffc) {
     }
   }
 
+  // Metadatos del récord completo por modo (se guarda en SAVE.matchLog)
+  function runMeta(completedGoal) {
+    const prof = SAVE.getProfile();
+    const target = mode === 'goal' ? (goalTarget || SAVE.getGoalPipes()) : 0;
+    let result = mode;
+    if (mode === 'goal') result = completedGoal ? ('Meta ' + target + '/' + target + ' · completada') : ('Meta ' + Math.min(pipesDone, target) + '/' + target);
+    else if (mode === 'free') result = 'Vuelo libre';
+    else if (mode === 'challenge') result = 'Semilla ' + dayKey();
+    else if (mode === 'duel') result = 'Duelo vs IA';
+    else if (mode === 'pvp') result = 'Sala online';
+    else if (mode === 'zen') result = 'Zen';
+    else if (mode === 'boss') result = 'Boss';
+    else if (mode === 'wind') result = 'Viento';
+    return {
+      mode: mode,
+      variant: mode === 'goal' ? 'goal' : (mode === 'free' ? 'free' : undefined),
+      map: runMap,
+      result: result,
+      online: mode === 'pvp',
+      participants: [{
+        name: prof.name || 'Jugador',
+        score: score,
+        pipes: pipesDone,
+        finished: !!completedGoal,
+        online: mode === 'pvp'
+      }]
+    };
+  }
+
+  // Modo Con metas: se alcanzó el número exacto de tubos y se cierra la carrera
+  function goalClear() {
+    const target = goalTarget || SAVE.getGoalPipes();
+    const dist = Math.floor(totalDist / 30);
+    const xpGain = Math.floor(score * 3 + pipesDone * 2 + coinCount * 3);
+    const lvUps = SAVE.addXp(xpGain);
+    awardSkinXp(xpGain);
+    const reward = 50 + target * 6;
+    SAVE.addCoins(reward);
+    SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, 'goal', runMeta(true));
+    SAVE.save();
+    const ach = SAVE.checkAch();
+    state = 'cleared';
+    SND.stopMusic();
+    SND.sfx.medal();
+    FX.confetti(bird.x, bird.y - 30);
+    UI.setHudVisible(false);
+    if (window.RADAR) RADAR.setActive(false);
+    UI.showModeClear({
+      title: '¡META COMPLETADA!',
+      lvLbl: 'Tubos', lv: pipesDone + '/' + target,
+      tgtLbl: 'Puntuación', tgt: '' + score,
+      reward: reward, xp: xpGain, lvUps: lvUps, ach: ach,
+      stars: '🎯 Meta de ' + target + ' tubos',
+      btn: '🎯 OTRA META'
+    });
+    if (window.ADS) ADS.onRunEnd('goal');
+  }
+
   function endRun() {
     // Replay terminado: se sale sin alterar las estadísticas reales
     if (replayMode) {
@@ -1139,12 +1253,13 @@ function difficultyFor(sc, diffc) {
     // Multijugador: la muerte cierra la carrera y se decide contra el rival.
     if (mode === 'pvp' && pvp && !pvp.done) { pvpFinish(false); return; }
     state = 'over';
+    if (window.RADAR) RADAR.setActive(false);
     const xp = Math.floor(score * 3 + pipesDone * 2 + coinCount * 3);
     const xpTotal = rt.amuleto ? Math.floor(xp * 1.05) : xp;
     const levelUps = SAVE.addXp(xpTotal);
     awardSkinXp(xp);
     const dist = Math.floor(totalDist / 30);
-    const isRecord = SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, mode);
+    const isRecord = SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, mode, runMeta(false));
     const s = SAVE.get();
     if (mode === 'zen') s.stats.zenBest = Math.max(s.stats.zenBest || 0, score);
     // medallas ocultas (condiciones raras)
@@ -1216,9 +1331,12 @@ function difficultyFor(sc, diffc) {
   /* ------------------------------------------------------------------ */
 
   function pvpSelf(finished) {
+    const h = Math.max(1, H - groundH);
     return {
       score: score,
       pipes: pipesDone,
+      dist: Math.floor(totalDist / 30),
+      alt: Math.max(0, Math.min(1, Math.round((1 - bird.y / h) * 1000) / 1000)),
       alive: !(bird && bird.dead),
       finished: !!finished,
       time: Math.round(runSeconds * 100) / 100
@@ -1266,6 +1384,7 @@ function difficultyFor(sc, diffc) {
     SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, 'pvp');
     SAVE.save();
     state = 'cleared';
+    if (window.RADAR) RADAR.setActive(false);
     SND.stopMusic();
     UI.setHudVisible(false);
     const waitUntil = Date.now() + 3000;
@@ -1292,6 +1411,7 @@ function difficultyFor(sc, diffc) {
     SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, 'pvp');
     SAVE.save();
     state = 'cleared';
+    if (window.RADAR) RADAR.setActive(false);
     SND.stopMusic();
     UI.setHudVisible(false);
     pvpShowResult(verdict);
@@ -1323,14 +1443,45 @@ function difficultyFor(sc, diffc) {
     st.mpMatches = (st.mpMatches || 0) + 1;
     if (win) st.mpWins = (st.mpWins || 0) + 1;
     SAVE.save();
+    // Récord completo de la partida online, con ambos participantes y veredicto.
+    const goalMode = !!(pvp.cfg && pvp.cfg.mode === 'goal');
+    const verdictTxt = win ? 'Victoria' : draw ? 'Empate' : 'Derrota';
+    SAVE.logMatch({
+      mode: 'pvp',
+      variant: goalMode ? 'goal' : 'free',
+      map: pvp.cfg ? pvp.cfg.map : runMap,
+      pipes: pvpGoal > 0 ? pvpGoal : pipesDone,
+      result: verdictTxt + (goalMode ? ' · Meta ' + pvpGoal : ' · Carrera libre'),
+      time: Math.round(runSeconds * 100) / 100,
+      score: score,
+      coins: coinCount,
+      dist: Math.floor(totalDist / 30),
+      online: true,
+      participants: [
+        {
+          name: SAVE.getProfile().name || 'Jugador',
+          score: score,
+          pipes: pipesDone,
+          finished: !!(pvp.self && pvp.self.finished),
+          online: true
+        },
+        {
+          name: opp.name || 'Rival',
+          score: opp.score || 0,
+          pipes: opp.pipes || 0,
+          finished: !!opp.finished,
+          online: true
+        }
+      ]
+    });
     const ach = SAVE.checkAch();
     SND.sfx.medal();
     if (win) SND.sfx.achieve();
     FX.confetti(bird.x, bird.y - 30);
     UI.showModeClear({
       title: win ? '¡GANASTE LA CARRERA!' : draw ? 'EMPATE EN LA CARRERA' : 'CARRERA PERDIDA',
-      lvLbl: 'Tus tubos', lv: pipesDone + '/' + pvpGoal,
-      tgtLbl: (opp.name || 'Rival') + ' (tubos)', tgt: (opp.pipes || 0) + '/' + pvpGoal,
+      lvLbl: 'Tus tubos', lv: pipesDone + '/' + (pvpGoal > 0 ? pvpGoal : '∞'),
+      tgtLbl: (opp.name || 'Rival') + ' (tubos)', tgt: (opp.pipes || 0) + '/' + (pvpGoal > 0 ? pvpGoal : '∞'),
       reward: reward, xp: xpGain, lvUps: lvUps, ach: ach,
       stars: win ? '🆚 Victoria online' : draw ? '🆚 Empate' : '🆚 Derrota online',
       btn: '🆚 OTRA SALA'
@@ -1376,7 +1527,7 @@ function difficultyFor(sc, diffc) {
       reportBusy: false,
       cleaned: false
     };
-    pvpGoal = cfg.pipes;
+    pvpGoal = (cfg.mode === 'goal' && cfg.pipes > 0) ? cfg.pipes : 0;
     pvpTimeLimit = cfg.time;
     if (window.CLOUD && CLOUD.watchDuel) pvp.stopWatch = CLOUD.watchDuel(room.code, pvpApplyRoom);
     startPlay('pvp');
@@ -1397,7 +1548,7 @@ function difficultyFor(sc, diffc) {
   }
 
   function startPlay(m) {
-    const valid = m === undefined || m === 'free' || m === 'challenge' || m === 'duel' || m === 'replay' || m === 'zen' || m === 'boss' || m === 'wind' || m === 'pvp';
+    const valid = m === undefined || m === 'free' || m === 'goal' || m === 'challenge' || m === 'duel' || m === 'replay' || m === 'zen' || m === 'boss' || m === 'wind' || m === 'pvp';
     if (m !== undefined && !valid) return; // modos no disponibles no inician vuelo
     if (m === 'pvp' && !pvp) return;       // el multijugador exige una sala activa
     if (valid && m !== undefined) mode = m;
@@ -1406,6 +1557,7 @@ function difficultyFor(sc, diffc) {
     if (mode === 'challenge') challengeMap = dailyChallengeMap();
     newRun();
     state = 'play';
+    if (window.RADAR) RADAR.setActive(true);
     if (mode !== 'replay' && !(mode === 'pvp' && pvp && !pvp.cfg.tools)) consumeTools();
     if (mode === 'pvp' && pvp) { pvp.reportT = 0; pvpReport(true); }
     if (state !== 'play') { SND.startMusic(); return; }
@@ -1767,7 +1919,7 @@ function difficultyFor(sc, diffc) {
   }
 
   function setMode(m) {
-    if (m !== 'free' && m !== 'challenge' && m !== 'duel' && m !== 'zen' && m !== 'boss' && m !== 'wind') return;
+    if (m !== 'free' && m !== 'goal' && m !== 'challenge' && m !== 'duel' && m !== 'zen' && m !== 'boss' && m !== 'wind') return;
     mode = m;
     if (m !== 'challenge' && m !== 'duel') SAVE.setSetting('mode', mode);
   }
@@ -1829,6 +1981,7 @@ function difficultyFor(sc, diffc) {
     usedStockShield = false;
     if (typeof UI !== 'undefined' && UI.updateEffectTimers) UI.updateEffectTimers([]);
     pvpCleanup(); // salir del multijugador cierra/libera la sala
+    if (window.RADAR) RADAR.setActive(false);
     if (mode === 'challenge' || mode === 'duel' || mode === 'replay' || mode === 'pvp') mode = SAVE.get().set.mode; // salir del modo especial libera el modo
     replayMode = false;
     if (replayRec) { try { replayRec.stop(); } catch (e) { } replayRec = null; }
@@ -1996,7 +2149,9 @@ function difficultyFor(sc, diffc) {
     ctx.font = '700 12px "Segoe UI", sans-serif';
     const sub = mode === 'challenge'
       ? '🌱 Semilla del día ' + dayKey() + ' · misma partida para todos · ¡Suma puntos!'
-      : mode === 'duel'
+      : mode === 'goal'
+        ? '🎯 Con metas · cruza ' + goalTarget + ' tubos para completar la carrera'
+        : mode === 'duel'
         ? '🆚 Duelo de Aves · Pasa ' + DUEL_PIPES + ' tubos antes que la IA'
         : mode === 'replay'
           ? '🎬 Replay de tu mejor vuelo (se grabará un video)'
@@ -2092,15 +2247,20 @@ function difficultyFor(sc, diffc) {
       levelText = '🌱 Semilla ' + dayKey();
       grad = 'linear-gradient(90deg,#b39ddb,#7c4dff)';
       prog = Math.max(0, Math.min(100, score / 60 * 100));
+    } else if (mode === 'goal') {
+      levelText = '🎯 Meta ' + pipesDone + '/' + (goalTarget || SAVE.getGoalPipes());
+      grad = 'linear-gradient(90deg,#ffe066,#ff9800)';
+      prog = fracTo(pipesDone, Math.max(1, goalTarget || SAVE.getGoalPipes()), curD(effScore()));
     } else if (mode === 'duel') {
       levelText = '🆚 ' + pipesDone + '/' + DUEL_PIPES + (rival ? ' · IA ' + rival.prog : '');
       grad = 'linear-gradient(90deg,#ff7043,#d32f2f)';
       const Dx = curD(score);
       prog = fracTo(pipesDone, DUEL_PIPES, Dx);
     } else if (mode === 'pvp') {
-      levelText = '🌐 ' + pipesDone + '/' + pvpGoal + (pvpTimeLimit > 0 ? ' · ⏱ ' + Math.max(0, Math.ceil(pvpTimeLimit - runSeconds)) + 's' : '');
+      const goalTxt = pvpGoal > 0 ? (pipesDone + '/' + pvpGoal) : ('∞ · ' + pipesDone + ' tubos');
+      levelText = '🌐 ' + goalTxt + (pvpTimeLimit > 0 ? ' · ⏱ ' + Math.max(0, Math.ceil(pvpTimeLimit - runSeconds)) + 's' : '');
       grad = 'linear-gradient(90deg,#4fc3f7,#1565c0)';
-      prog = fracTo(pipesDone, Math.max(1, pvpGoal), curD(effScore()));
+      prog = pvpGoal > 0 ? fracTo(pipesDone, pvpGoal, curD(effScore())) : null;
     } else if (mode === 'zen') {
       levelText = '🧘 Zen · ' + Math.floor(totalDist / 30) + ' m';
       grad = 'linear-gradient(90deg,#69f0ae,#00bfa5)';
@@ -2137,7 +2297,7 @@ function difficultyFor(sc, diffc) {
         const o = pvpRivalData();
         rvEl.classList.remove('hidden');
         rvEl.textContent = (o && o.uid)
-          ? ('🆚 ' + String(o.name || 'Rival').slice(0, 10) + ' · ' + (o.pipes || 0) + '/' + pvpGoal + (o.finished ? ' 🏁' : ''))
+          ? ('🆚 ' + String(o.name || 'Rival').slice(0, 10) + ' · ' + (o.pipes || 0) + (pvpGoal > 0 ? '/' + pvpGoal : ' tubos') + (o.finished ? ' 🏁' : ''))
           : '🆚 Rival · esperando';
       } else {
         rvEl.classList.add('hidden');
@@ -2187,6 +2347,7 @@ function difficultyFor(sc, diffc) {
     }),
     useBagTool, manualToolList,
     getScore: () => score,
+    getGoal: () => goalTarget,
     getSeed: () => curSeed,
     getDist: () => Math.floor(totalDist / 30),
     getW: () => W, getH: () => H,

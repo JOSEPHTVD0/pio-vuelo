@@ -338,7 +338,54 @@ window.CLOUD = (function () {
     return writeAccount(state.username);
   }
 
+  /* Propiedad de mapas en RTDB: las reglas de las salas pueden comprobar que
+     un jugador solo compite con escenarios que realmente ha adquirido. */
+  let entTimer = null;
+  function entitledMaps() {
+    const save = localSave();
+    const out = { day: true };
+    const owned = (save && Array.isArray(save.mapsOwned)) ? save.mapsOwned : [];
+    owned.forEach(function (e) {
+      const id = (typeof e === 'string') ? e : (e && e.id);
+      if (id && /^[a-z0-9_-]{1,32}$/i.test(id)) out[id] = true;
+    });
+    return out;
+  }
+
+  function ownsLocalMap(id) {
+    if (!id || id === 'day') return true;
+    const save = localSave();
+    const owned = (save && Array.isArray(save.mapsOwned)) ? save.mapsOwned : [];
+    return owned.some(function (e) {
+      const v = (typeof e === 'string') ? e : (e && e.id);
+      return v === id;
+    });
+  }
+
+  async function syncEntitlements() {
+    if (!state.ready || !rtdb || !state.uid) return false;
+    try {
+      await M.rtdbMod.set(M.rtdbMod.ref(rtdb, 'entitlements/' + state.uid), {
+        maps: entitledMaps(),
+        updatedAt: Date.now()
+      });
+      return true;
+    } catch (err) {
+      warn('syncEntitlements:', err);
+      return false;
+    }
+  }
+  function scheduleEntitlements() {
+    if (!state.ready || !rtdb || !state.uid) return;
+    if (entTimer) clearTimeout(entTimer);
+    entTimer = setTimeout(function () {
+      entTimer = null;
+      syncEntitlements();
+    }, 1200);
+  }
+
   function scheduleSaveSync() {
+    scheduleEntitlements();
     if (!state.account || !state.ready || state.pending || state.restoring) return;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
@@ -590,6 +637,7 @@ window.CLOUD = (function () {
       }
 
       await syncProfile();
+      await syncEntitlements();
       await syncLeaderboard();
       await flushQueue();
       // Los invitados ya no reservan nombres: el nombre solo se fija al crear
@@ -1405,7 +1453,8 @@ window.CLOUD = (function () {
     // Respaldo mínimo si mp.js no estuviera cargado (nunca debería ocurrir).
     const src = raw && typeof raw === 'object' ? raw : {};
     return {
-      pipes: clampInt(src.pipes || 12, 1, 100),
+      mode: src.mode === 'free' ? 'free' : 'goal',
+      pipes: clampInt(src.pipes || 12, 0, 100),
       time: clampInt(src.time || 0, 0, 3600),
       map: String(src.map || 'day').slice(0, 32),
       diff: String(src.diff || 'normal'),
@@ -1417,7 +1466,7 @@ window.CLOUD = (function () {
 
   function duelSide(uid, name) {
     if (window.MP && typeof MP.emptySide === 'function') return MP.emptySide(uid, name);
-    return { uid: uid, name: name, score: 0, pipes: 0, alive: true, finished: false, time: 0 };
+    return { uid: uid, name: name, score: 0, pipes: 0, dist: 0, alt: 0, alive: true, finished: false, time: 0 };
   }
 
   function cleanDuelCode(code) {
@@ -1429,6 +1478,8 @@ window.CLOUD = (function () {
     await init();
     if (!state.ready || !rtdb) throw new Error('Firebase no está conectado');
     const cfg = duelConfig(config);
+    if (!ownsLocalMap(cfg.map)) throw new Error('Ese mapa no está desbloqueado en tu cuenta');
+    await syncEntitlements();
     const name = localProfile().name || 'Jugador';
     for (let attempt = 0; attempt < 8; attempt++) {
       const code = (window.MP && MP.randomCode) ? MP.randomCode() : 'ABC234';
@@ -1470,11 +1521,14 @@ window.CLOUD = (function () {
     if (!state.ready || !rtdb) throw new Error('Firebase no está conectado');
     const key = cleanDuelCode(code);
     if (key.length !== 6) throw new Error('Código inválido');
+    await syncEntitlements();
     const ref = M.rtdbMod.ref(rtdb, 'duels/' + key);
     const name = localProfile().name || 'Jugador';
     const snap = await M.rtdbMod.get(ref);
     if (!snap.exists()) throw new Error('Sala no encontrada, completa o ya terminada');
     const cur = snap.val();
+    const roomCfg = duelConfig(cur.config);
+    if (!ownsLocalMap(roomCfg.map)) throw new Error('Esta sala usa un mapa que no tienes desbloqueado');
     if (cur.host && cur.host.uid === state.uid) return cur;   // reconexión del anfitrión
     if (cur.guest && cur.guest.uid === state.uid) return cur; // reconexión del invitado
     if (cur.guest && cur.guest.uid) throw new Error('La sala ya está completa');
@@ -1537,6 +1591,8 @@ window.CLOUD = (function () {
       patch[side + '/name'] = prev.name;
       patch[side + '/score'] = p.score;
       patch[side + '/pipes'] = p.pipes;
+      patch[side + '/dist'] = p.dist;
+      patch[side + '/alt'] = p.alt;
       patch[side + '/alive'] = p.alive;
       patch[side + '/finished'] = p.finished;
       patch[side + '/time'] = p.time;
@@ -1568,6 +1624,8 @@ window.CLOUD = (function () {
     return updateDuelProgress(key, {
       score: clampInt(score, 0, 10000000),
       pipes: side.pipes || 0,
+      dist: side.dist || 0,
+      alt: side.alt || 0,
       alive: side.alive !== false,
       finished: !!side.finished,
       time: side.time || 0
@@ -1740,6 +1798,7 @@ window.CLOUD = (function () {
     resolveLogin: resolveLogin,
     uploadSave: uploadSave,
     syncProfile: syncProfile,
+    syncEntitlements: syncEntitlements,
     syncLeaderboard: syncLeaderboard,
     checkName: checkName,
     claimName: claimName,

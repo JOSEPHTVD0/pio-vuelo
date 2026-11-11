@@ -2,7 +2,6 @@
   "rules": {
     ".read": false,
     ".write": false,
-
     "presence": {
       "$uid": {
         ".read": "auth != null",
@@ -31,11 +30,12 @@
         }
       }
     },
-
     "leaderboard_live": {
       "$board": {
         ".read": true,
-        ".indexOn": ["best"],
+        ".indexOn": [
+          "best"
+        ],
         "$uid": {
           ".write": "auth != null && auth.uid === $uid",
           ".validate": "newData.hasChildren(['name', 'best', 'updatedAt'])",
@@ -54,12 +54,11 @@
         }
       }
     },
-
     "duels": {
       "$code": {
         ".read": true,
         ".write": "auth != null && ((!data.exists() && newData.child('host/uid').val() === auth.uid) || (data.exists() && newData.exists() && (data.child('host/uid').val() === auth.uid || data.child('guest/uid').val() === auth.uid)) || (data.exists() && newData.exists() && !data.child('guest').exists() && newData.child('guest/uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('host/uid').val() === auth.uid))",
-        ".validate": "newData.val() === null || (newData.hasChildren(['code', 'host', 'state', 'seed', 'createdAt', 'updatedAt', 'config']) && (!data.exists() || (data.child('code').val() === newData.child('code').val() && data.child('createdAt').val() === newData.child('createdAt').val() && data.child('seed').val() === newData.child('seed').val() && data.child('config/pipes').val() === newData.child('config/pipes').val() && data.child('config/time').val() === newData.child('config/time').val() && data.child('config/map').val() === newData.child('config/map').val() && data.child('config/diff').val() === newData.child('config/diff').val() && data.child('config/tools').val() === newData.child('config/tools').val() && data.child('config/seedMode').val() === newData.child('config/seedMode').val() && data.child('config/seed').val() === newData.child('config/seed').val() && (data.child('host/uid').val() === newData.child('host/uid').val() || data.child('host/uid').val() === auth.uid) && (data.child('host/name').val() === newData.child('host/name').val() || data.child('host/uid').val() === auth.uid) && ((data.child('host/score').val() === newData.child('host/score').val() && data.child('host/pipes').val() === newData.child('host/pipes').val() && data.child('host/alive').val() === newData.child('host/alive').val() && data.child('host/finished').val() === newData.child('host/finished').val() && data.child('host/time').val() === newData.child('host/time').val()) || data.child('host/uid').val() === auth.uid) && ((data.child('guest/uid').val() === newData.child('guest/uid').val() && data.child('guest/score').val() === newData.child('guest/score').val() && data.child('guest/pipes').val() === newData.child('guest/pipes').val() && data.child('guest/alive').val() === newData.child('guest/alive').val() && data.child('guest/finished').val() === newData.child('guest/finished').val() && data.child('guest/time').val() === newData.child('guest/time').val()) || (!data.child('guest').exists() && newData.child('guest/uid').val() === auth.uid) || data.child('guest/uid').val() === auth.uid) && (data.child('startAt').val() === newData.child('startAt').val() || data.child('host/uid').val() === auth.uid) && (data.child('state').val() === newData.child('state').val() || data.child('host/uid').val() === auth.uid || newData.child('state').val() === 'finished'))))",
+        ".validate": "newData.val() === null || (newData.hasChildren(['code', 'host', 'state', 'seed', 'createdAt', 'updatedAt', 'config']) && (!data.exists() ? root.child('entitlements/' + newData.child('host/uid').val() + '/maps/' + newData.child('config/map').val()).val() === true : true) && (!data.exists() || (data.child('code').val() === newData.child('code').val() && data.child('createdAt').val() === newData.child('createdAt').val() && data.child('seed').val() === newData.child('seed').val() && data.child('config/pipes').val() === newData.child('config/pipes').val() && data.child('config/time').val() === newData.child('config/time').val() && data.child('config/map').val() === newData.child('config/map').val() && data.child('config/diff').val() === newData.child('config/diff').val() && data.child('config/tools').val() === newData.child('config/tools').val() && data.child('config/seedMode').val() === newData.child('config/seedMode').val() && data.child('config/seed').val() === newData.child('config/seed').val() && data.child('config/mode').val() === newData.child('config/mode').val() && (data.child('host/uid').val() === newData.child('host/uid').val() || data.child('host/uid').val() === auth.uid) && (data.child('host/name').val() === newData.child('host/name').val() || data.child('host/uid').val() === auth.uid) && ((data.child('host/score').val() === newData.child('host/score').val() && data.child('host/pipes').val() === newData.child('host/pipes').val() && data.child('host/alive').val() === newData.child('host/alive').val() && data.child('host/finished').val() === newData.child('host/finished').val() && data.child('host/time').val() === newData.child('host/time').val() && data.child('host/dist').val() === newData.child('host/dist').val() && data.child('host/alt').val() === newData.child('host/alt').val()) || data.child('host/uid').val() === auth.uid) && ((data.child('guest/uid').val() === newData.child('guest/uid').val() && data.child('guest/score').val() === newData.child('guest/score').val() && data.child('guest/pipes').val() === newData.child('guest/pipes').val() && data.child('guest/alive').val() === newData.child('guest/alive').val() && data.child('guest/finished').val() === newData.child('guest/finished').val() && data.child('guest/time').val() === newData.child('guest/time').val() && data.child('guest/dist').val() === newData.child('guest/dist').val() && data.child('guest/alt').val() === newData.child('guest/alt').val()) || (!data.child('guest').exists() && newData.child('guest/uid').val() === auth.uid && root.child('entitlements/' + auth.uid + '/maps/' + newData.child('config/map').val()).val() === true) || data.child('guest/uid').val() === auth.uid) && (data.child('startAt').val() === newData.child('startAt').val() || data.child('host/uid').val() === auth.uid) && (data.child('state').val() === newData.child('state').val() || data.child('host/uid').val() === auth.uid || newData.child('state').val() === 'finished'))))",
         "code": {
           ".validate": "newData.isString() && newData.val() === $code && newData.val().length === 6"
         },
@@ -84,7 +83,7 @@
         "config": {
           ".validate": "newData.hasChildren(['pipes', 'time', 'map', 'diff', 'tools', 'seedMode', 'seed'])",
           "pipes": {
-            ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 100"
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
           },
           "time": {
             ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3600"
@@ -106,6 +105,9 @@
           },
           "$other": {
             ".validate": false
+          },
+          "mode": {
+            ".validate": "newData.isString() && (newData.val() === 'free' || newData.val() === 'goal')"
           }
         },
         "host": {
@@ -133,6 +135,12 @@
           },
           "$other": {
             ".validate": false
+          },
+          "dist": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000"
+          },
+          "alt": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1"
           }
         },
         "guest": {
@@ -160,7 +168,32 @@
           },
           "$other": {
             ".validate": false
+          },
+          "dist": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000"
+          },
+          "alt": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1"
           }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "entitlements": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['maps', 'updatedAt'])",
+        "maps": {
+          ".validate": "newData.hasChildren(['day']) && newData.child('day').val() === true",
+          "$map": {
+            ".validate": "newData.isBoolean() && newData.val() === true"
+          }
+        },
+        "updatedAt": {
+          ".validate": "newData.isNumber() && newData.val() > 0"
         },
         "$other": {
           ".validate": false

@@ -642,9 +642,131 @@ body.no-ui-anim *, body.no-ui-anim *::before, body.no-ui-anim *::after {
   padding:5px 12px; border-radius:999px;
 }
 
+/* ---------- Radar / mapa táctico 2D ---------- */
+.radar {
+  position:absolute; z-index:16; pointer-events:none;
+  width:196px; opacity:var(--rd-opacity,.86);
+  background:rgba(7,16,36,.74);
+  border:1px solid rgba(144,202,249,.38);
+  border-radius:14px; overflow:hidden;
+  box-shadow:0 6px 18px rgba(0,0,0,.35), inset 0 0 18px rgba(79,195,247,.08);
+  backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
+  transition:opacity .18s ease, transform .18s ease;
+}
+.radar-pos-tl { top:calc(env(safe-area-inset-top,0px) + 96px); left:10px; }
+.radar-pos-tr { top:calc(env(safe-area-inset-top,0px) + 96px); right:10px; }
+.radar-pos-bl { bottom:calc(env(safe-area-inset-bottom,0px) + 86px); left:10px; }
+.radar-pos-br { bottom:calc(env(safe-area-inset-bottom,0px) + 86px); right:10px; }
+.radar-size-sm { width:148px; }
+.radar-size-md { width:196px; }
+.radar-size-lg { width:260px; }
+.radar-size-sm canvas { height:88px; }
+.radar-size-md canvas { height:118px; }
+.radar-size-lg canvas { height:156px; }
+.radar-head { display:flex; align-items:center; gap:4px; padding:4px 6px; background:rgba(255,255,255,.06); }
+.radar-title { flex:1; font-size:9px; font-weight:900; letter-spacing:.9px; color:#bbdefb; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.radar-btn { pointer-events:auto; width:20px; height:20px; border:none; border-radius:6px; background:rgba(255,255,255,.14); color:#e3f6ff; font-size:13px; line-height:1; font-weight:900; cursor:pointer; }
+.radar-btn:active { transform:scale(.9); }
+.radar canvas { display:block; width:100%; height:auto; }
+.radar-foot { display:flex; justify-content:space-between; gap:6px; padding:3px 7px 5px; font-size:9px; font-weight:800; letter-spacing:.3px; }
+.radar-foot .rd-me { color:var(--rd-me,#4fc3f7); }
+.radar-foot .rd-rival { color:var(--rd-rival,#ff7043); }
+.radar-style-neon { border-color:rgba(79,195,247,.7); box-shadow:0 0 16px rgba(79,195,247,.45), inset 0 0 18px rgba(79,195,247,.18); }
+.radar-style-minimal { background:rgba(7,16,36,.55); border-color:rgba(144,202,249,.2); }
+.radar-min { width:auto; min-width:74px; }
+.radar-min canvas, .radar-min .radar-foot { display:none; }
+.radar-min .radar-title { text-align:center; font-size:14px; }
+.radar-restore {
+  position:absolute; right:10px; bottom:calc(env(safe-area-inset-bottom,0px) + 86px);
+  z-index:17; pointer-events:auto; width:38px; height:38px; border-radius:50%;
+  border:1px solid rgba(144,202,249,.5); background:rgba(7,16,36,.72); color:#e3f6ff;
+  font-size:18px; box-shadow:0 4px 12px rgba(0,0,0,.35); cursor:pointer;
+}
+.radar-restore:active { transform:scale(.92); }
+
+@media (max-width:360px) {
+  .radar-size-md { width:164px; }
+  .radar-size-lg { width:210px; }
+  .radar-size-md canvas { height:96px; }
+  .radar-size-lg canvas { height:124px; }
+}
+
 @media (max-width:360px) {
   .home-quick { grid-template-columns:repeat(3,1fr); }
   .stats-cards { grid-template-columns:1fr; }
   .hm-more .home-nav { grid-template-columns:repeat(2,1fr); }
 }
+
+/* ---------- Modo Con metas ---------- */
+.goal-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:10px 0 6px; }
+.goal-pick {
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  background:rgba(255,255,255,.1); border:2px solid rgba(255,255,255,.28);
+  border-radius:14px; padding:14px 8px; color:#fff; cursor:pointer;
+  transition:transform .12s ease, background .15s ease, border-color .15s ease;
+}
+.goal-pick b { font-size:22px; font-weight:900; line-height:1; color:#ffe066; }
+.goal-pick span { font-size:10px; font-weight:800; letter-spacing:.5px; color:#9fb4d8; text-transform:uppercase; }
+.goal-pick:hover { background:rgba(255,255,255,.16); }
+.goal-pick:active { transform:scale(.96); }
+.goal-pick.active {
+  background:linear-gradient(135deg,rgba(255,224,102,.32),rgba(255,152,0,.24));
+  border-color:#ffe066; box-shadow:0 0 0 2px rgba(255,224,102,.25);
+}
+.goal-pick.active b { color:#fff; }
+.goal-pick.active span { color:#ffe9a8; }
+.goal-info { background:rgba(0,0,0,.18); border-radius:10px; padding:8px 10px; margin-bottom:6px; }
+
+/* ---------- Récords por modo ---------- */
+.lb-log { margin-top:8px; }
+.lb-mode-sum { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+.lb-mode-chip {
+  display:flex; flex-direction:column; gap:1px; min-width:92px;
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.16);
+  border-radius:12px; padding:7px 10px;
+}
+.lb-mode-chip b { font-size:11px; font-weight:900; letter-spacing:.3px; color:#dbe7ff; white-space:nowrap; }
+.lb-mode-chip span { font-size:10px; color:#9fb4d8; }
+.lb-mode-chip.goal { border-color:rgba(255,224,102,.5); background:rgba(255,224,102,.12); }
+.lb-mode-chip.goal b { color:#ffe066; }
+.lb-mode-chip.online { border-color:rgba(79,195,247,.5); background:rgba(79,195,247,.12); }
+.lb-mode-chip.online b { color:#90caf9; }
+.lb-filters { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+.lb-chip {
+  background:rgba(255,255,255,.1); border:1.5px solid rgba(255,255,255,.22);
+  color:#dbe7ff; font-size:11px; font-weight:800; letter-spacing:.3px;
+  border-radius:999px; padding:6px 12px; cursor:pointer;
+}
+.lb-chip:active { transform:scale(.95); }
+.lb-chip.active { background:#ffe066; border-color:#ffe066; color:#1b2433; }
+.lb-matches { display:flex; flex-direction:column; gap:8px; }
+.lb-match {
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
+  border-radius:14px; padding:10px 12px;
+}
+.lb-match-goal { border-color:rgba(255,224,102,.42); background:linear-gradient(135deg,rgba(255,224,102,.12),rgba(255,255,255,.04)); }
+.lb-match-online { border-color:rgba(79,195,247,.42); background:linear-gradient(135deg,rgba(79,195,247,.12),rgba(255,255,255,.04)); }
+.lb-match-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.lb-match-top b { font-size:13px; font-weight:900; color:#fff; }
+.lb-match-score { flex:0 0 auto; font-size:12px; font-weight:900; color:#ffe066; }
+.lb-match-result { font-size:12px; font-weight:700; color:#dbe7ff; margin-top:3px; }
+.lb-match-meta { font-size:10px; color:#9fb4d8; margin-top:3px; line-height:1.4; }
+.lb-match-parts { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; }
+.lb-part {
+  font-size:10px; font-weight:700; color:#cdefff; background:rgba(0,0,0,.22);
+  border-radius:8px; padding:3px 7px;
+}
+.lb-part.on { color:#a5e6ff; border:1px solid rgba(79,195,247,.4); }
+.lb-empty-sm { padding:18px 12px; font-size:13px; }
+.lb-empty-sm .lb-empty-ico { font-size:28px; }
+
+/* ---------- Selector de color del radar ---------- */
+.radar-color {
+  width:42px; height:30px; padding:0; border:2px solid rgba(255,255,255,.35);
+  border-radius:9px; background:transparent; cursor:pointer;
+}
+.radar-color::-webkit-color-swatch-wrapper { padding:2px; }
+.radar-color::-webkit-color-swatch { border:none; border-radius:6px; }
+.radar-color::-moz-color-swatch { border:none; border-radius:6px; }
+.radar-color:active { transform:scale(.94); }
 

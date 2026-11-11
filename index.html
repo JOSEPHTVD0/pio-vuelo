@@ -53,6 +53,19 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
     </div>
     <div id="hudEffects" class="hud-effects hidden" aria-live="polite"></div>
     <div id="hudRival" class="hud-rival hidden" aria-live="polite"></div>
+    <div id="radar" class="radar hidden radar-pos-br radar-size-sm radar-style-tactical" aria-label="Mapa táctico">
+      <div class="radar-head">
+        <span id="radarTitle" class="radar-title">MAPA TÁCTICO</span>
+        <button id="radarMin" class="radar-btn" type="button" aria-label="Minimizar mapa">–</button>
+        <button id="radarHide" class="radar-btn" type="button" aria-label="Ocultar mapa">×</button>
+      </div>
+      <canvas id="radarCanvas" width="240" height="140"></canvas>
+      <div id="radarFoot" class="radar-foot">
+        <span class="rd-me">● Tú</span>
+        <span class="rd-rival">● Rival</span>
+      </div>
+    </div>
+    <button id="radarRestore" class="radar-restore hidden" type="button" aria-label="Mostrar mapa">🗺️</button>
   </div>
 
   <!-- CUENTA ATRÁS AL REANUDAR -->
@@ -200,6 +213,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
       </div>
       <div class="mode-list">
         <button class="mode-btn" id="mpFree"><span class="mb-ico">&#127919;</span><span class="mb-txt">Libre</span><span id="mpFreeSub" class="md-tag"></span></button>
+        <button class="mode-btn" id="mpGoal"><span class="mb-ico">&#127937;</span><span class="mb-txt">Con metas</span><span id="mpGoalSub" class="md-tag"></span></button>
         <button class="mode-btn" id="mpDuel"><span class="mb-ico">&#127928;</span><span class="mb-txt">Duelo</span><span id="mpDuelSub" class="md-tag"></span></button>
         <button class="mode-btn" id="mpPvp"><span class="mb-ico">&#127760;</span><span class="mb-txt">Multijugador</span><span id="mpPvpSub" class="md-tag"></span></button>
         <button class="mode-btn" id="mpDaily"><span class="mb-ico">&#127769;</span><span class="mb-txt">Desafío diario</span><span id="mpDailySub" class="md-tag"></span></button>
@@ -221,7 +235,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
       <button class="btn" data-nav="settings">&#9881; Ajustes</button>
       <button class="btn" data-nav="records">&#127942; Récords</button>
       <button class="btn btn-danger" id="btnExit">&#8962; Salir</button>
-      <div class="panel-note">P&#237;o Vuelo v3.4.1 · Temporada 2026 🌍</div>
+      <div class="panel-note">P&#237;o Vuelo v3.4.2 · Temporada 2026 🌍</div>
     </div>
   </div>
 
@@ -361,6 +375,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
 <script src="js/fx.js"></script>
 <script src="js/bg.js"></script>
 <script src="js/entities.js"></script>
+<script src="js/radar.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>

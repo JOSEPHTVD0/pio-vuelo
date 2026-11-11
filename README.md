@@ -59,6 +59,16 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
 
+## Novedades de la versión 3.4.2
+
+- **Modo Con metas:** elige una meta exacta de **8, 10, 12, 15, 20 o 30 tubos**. El HUD muestra el progreso y la carrera termina al alcanzarla; el modo **Libre** mantiene el vuelo sin meta (∞).
+- **Multijugador libre o con metas:** al crear la sala puedes jugar sin meta o fijar una. Ambos jugadores vuelan exactamente la misma carrera y comparten mapa, dificultad, tiempo y semilla.
+- **Solo mapas desbloqueados:** el lobby y las salas online usan únicamente escenarios comprados. La propiedad se publica en `entitlements/{uid}/maps` y las reglas de Realtime Database comprueban que el anfitrión y el invitado tengan el mapa antes de crear o unirse.
+- **Radar / mapa táctico:** overlay 2D con la posición de ambos jugadores, estela, línea de seguimiento, tubos y brújula. Se puede personalizar tamaño, posición, transparencia, estilo, colores y elementos visibles; la configuración se guarda en el dispositivo.
+- **Récords separados por modo:** cada carrera (individual u online) registra jugador, fecha, modo, mapa, tubos configurados, resultado, tiempo, estadísticas y participantes. La pantalla de récords permite filtrar por modo y ver el resumen de cada uno.
+- **Validación en servidor:** las reglas aceptan `mode` libre/metas, limitan `pipes` a 0..100, validan `dist` y `alt` en ambos lados y exigen los mapas adquiridos. Solo el anfitrión puede crear la sala y cada jugador escribe su propio lado.
+- **Pruebas:** `npm test` 479/479, reglas contra emuladores 70/70, humo de navegador sin conexión 42/42 y humo online real 84/84.
+
 ## Correcciones de la versión 3.4.1
 
 - **Multijugador accesible desde el móvil:** el botón **Multijugador** ya abre el lobby. Antes la pantalla de elección de modo se quedaba por encima y parecía que el botón no hacía nada.
@@ -233,7 +243,7 @@ Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con
 
 ## Limitaciones conocidas
 
-- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.4.1 (versionCode 38)**: **7.051.691 bytes** y SHA-256 `518ECE28BC60824A20EA9405DBF272B2EFE2B81CF8113D5C728E677B6E189334`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.4.2 (versionCode 39)**: **7.064.043 bytes** y SHA-256 `CFD35D026DED38E35343A07476916763B291BD5318F79FC121380843E929A532`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
 - La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (62/62) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 70/70 con emuladores, incluido el modo offline, las cuentas y las salas online). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos, el ranking online y una carrera 1v1 en dos dispositivos Android reales antes de darlos por cerrados.
 - El ranking global solo muestra marcas con más de 0 puntos. Las entradas antiguas con 0 puntos que ya existan en Firestore no se muestran y no se pueden borrar desde el cliente porque las reglas lo impiden; para limpiarlas hace falta la consola de Firebase o el Admin SDK.
 - La primera carga del ranking online necesita red. Si se abre sin conexión y nunca se ha visto la tabla, se muestra un aviso y se puede reintentar; el juego local no se bloquea.

@@ -11,8 +11,11 @@ window.MP = (function () {
   const TIME_LIMITS = [0, 60, 90, 120, 180, 300];
   const DIFF_IDS = ['easy', 'normal', 'hard', 'insane'];
   const SEED_MODES = ['daily', 'manual'];
+  // 'free' = carrera libre (sin meta de tubos) · 'goal' = carrera con meta.
+  const MODES = ['free', 'goal'];
 
   const DEFAULTS = {
+    mode: 'goal',
     pipes: 12,
     time: 0,
     map: 'day',
@@ -98,10 +101,16 @@ window.MP = (function () {
     const diffs = Array.isArray(o.diffs) && o.diffs.length ? o.diffs : DIFF_IDS;
     const maps = Array.isArray(o.maps) && o.maps.length ? o.maps : null;
 
-    let pipes = int(src.pipes, DEFAULTS.pipes, 1, 100);
-    if (goals.indexOf(pipes) === -1) {
-      // elige la meta permitida más cercana
-      pipes = goals.reduce((best, g) => Math.abs(g - pipes) < Math.abs(best - pipes) ? g : best, goals[0]);
+    let pipes = int(src.pipes, DEFAULTS.pipes, 0, 100);
+    const mode = oneOf(src.mode, MODES, DEFAULTS.mode);
+    if (mode === 'goal') {
+      if (pipes < 1) pipes = DEFAULTS.pipes;
+      if (goals.indexOf(pipes) === -1) {
+        // elige la meta permitida más cercana
+        pipes = goals.reduce((best, g) => Math.abs(g - pipes) < Math.abs(best - pipes) ? g : best, goals[0]);
+      }
+    } else {
+      pipes = 0; // la carrera libre nunca exige tubos
     }
     let time = int(src.time, DEFAULTS.time, 0, 3600);
     if (times.indexOf(time) === -1) {
@@ -113,6 +122,7 @@ window.MP = (function () {
     const seedMode = oneOf(src.seedMode, SEED_MODES, DEFAULTS.seedMode);
     const seed = resolveSeed(seedMode, src.seed, o.now instanceof Date ? o.now : new Date());
     return {
+      mode: mode,
       pipes: pipes,
       time: time,
       map: map,
@@ -125,8 +135,13 @@ window.MP = (function () {
 
   function sameConfig(a, b) {
     if (!a || !b) return false;
-    return a.pipes === b.pipes && a.time === b.time && a.map === b.map && a.diff === b.diff &&
+    return a.mode === b.mode && a.pipes === b.pipes && a.time === b.time && a.map === b.map && a.diff === b.diff &&
       !!a.tools === !!b.tools && a.seed === b.seed;
+  }
+
+  // ¿La sala exige una meta de tubos? (mode 'goal')
+  function hasGoal(config) {
+    return !!config && config.mode === 'goal' && config.pipes > 0;
   }
 
   /* Lado de un jugador dentro de la sala. */
@@ -136,6 +151,8 @@ window.MP = (function () {
       name: String(name || 'Jugador').slice(0, 16),
       score: 0,
       pipes: 0,
+      dist: 0,
+      alt: 0,
       alive: true,
       finished: false,
       time: 0
@@ -149,6 +166,8 @@ window.MP = (function () {
       name: String(s.name || 'Jugador').slice(0, 16),
       score: int(s.score, 0, 0, 10000000),
       pipes: int(s.pipes, 0, 0, 10000),
+      dist: int(s.dist, 0, 0, 10000000),
+      alt: Math.max(0, Math.min(1, Math.round(num(s.alt, 0) * 1000) / 1000)),
       alive: s.alive !== false,
       finished: !!s.finished,
       time: Math.max(0, Math.min(86400, Math.round(num(s.time, 0) * 100) / 100))
@@ -160,6 +179,8 @@ window.MP = (function () {
     return {
       score: int(p.score, 0, 0, 10000000),
       pipes: int(p.pipes, 0, 0, 10000),
+      dist: int(p.dist, 0, 0, 10000000),
+      alt: Math.max(0, Math.min(1, Math.round(num(p.alt, 0) * 1000) / 1000)),
       alive: p.alive !== false,
       finished: !!p.finished,
       time: Math.max(0, Math.min(86400, Math.round(num(p.time, 0) * 100) / 100))
@@ -174,6 +195,7 @@ window.MP = (function () {
     if (x.finished && y.finished && x.time !== y.time) return x.time < y.time ? 'win' : 'lose';
     if (x.pipes !== y.pipes) return x.pipes > y.pipes ? 'win' : 'lose';
     if (x.score !== y.score) return x.score > y.score ? 'win' : 'lose';
+    if (x.dist !== y.dist) return x.dist > y.dist ? 'win' : 'lose';
     return 'draw';
   }
 
@@ -200,10 +222,10 @@ window.MP = (function () {
   }
 
   return {
-    CODE_LEN, ALPHABET, PIPE_GOALS, TIME_LIMITS, DIFF_IDS, SEED_MODES, DEFAULTS,
+    CODE_LEN, ALPHABET, PIPE_GOALS, TIME_LIMITS, DIFF_IDS, SEED_MODES, MODES, DEFAULTS,
     cleanCode, isValidCode, randomCode,
     daySeed, hashSeed, resolveSeed,
-    normalizeConfig, sameConfig,
+    normalizeConfig, sameConfig, hasGoal,
     emptySide, sanitizeSide, sanitizeProgress,
     judge, judgeSides, isReady, roomPhase
   };

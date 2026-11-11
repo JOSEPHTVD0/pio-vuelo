@@ -361,6 +361,10 @@ window.APP = (function () {
     };
     $('btnPlay').onclick = () => { SND.sfx.click(); guardFirstRun(() => UI.showModePick()); };
     $('mpFree').onclick = () => startMode('free');
+    $('mpGoal').onclick = () => {
+      SND.sfx.click();
+      guardFirstRun(() => UI.openGoalMode());
+    };
     $('mpDuel').onclick = () => startMode('duel');
     $('mpPvp').onclick = () => {
       SND.sfx.click();
@@ -383,7 +387,7 @@ window.APP = (function () {
     if (btnContinue) btnContinue.onclick = () => {
       SND.sfx.click();
       const m = SAVE.get().set.mode || 'free';
-      const safeMode = ['free', 'duel', 'challenge', 'zen', 'boss', 'wind'].indexOf(m) !== -1 ? m : 'free';
+      const safeMode = ['free', 'goal', 'duel', 'challenge', 'zen', 'boss', 'wind'].indexOf(m) !== -1 ? m : 'free';
       if (safeMode === 'challenge' && SAVE.challengePlayedToday()) {
         UI.toast('Ya jugaste el desafío de hoy 🌙 Elige otro modo', 'info');
         UI.showModePick();
@@ -514,6 +518,7 @@ window.APP = (function () {
     bindAdmin();
     bindRegistrationPrompt();
     bindInput();
+    if (window.RADAR && RADAR.init) RADAR.init();
     // La portada también puede iniciar el desafío diario desde un aviso.
     window.__pioFirstRunGuard = guardFirstRun;
     runLoading();

@@ -1415,12 +1415,18 @@ section('25. MULTIJUGADOR ONLINE: SALAS, SEMILLAS Y RESULTADOS');
   ok(cfg.seed > 0 && cfg.seedMode === 'manual', 'la semilla manual se convierte en número', cfg.seed);
   ok(MP.normalizeConfig({ seedMode: 'daily' }, { maps: ['day'], diffs: ['normal'] }).seed === MP.daySeed(),
     'la semilla diaria coincide con el día actual');
+  ok(MP.normalizeConfig({ mode: 'free', pipes: 0 }).pipes === 0, 'la carrera libre no exige tubos');
+  ok(MP.normalizeConfig({ mode: 'free', pipes: 30 }).pipes === 0, 'en libre la meta se fuerza a 0');
+  ok(MP.hasGoal({ mode: 'goal', pipes: 12 }) && !MP.hasGoal({ mode: 'free', pipes: 0 }),
+    'hasGoal distingue salas con meta de las libres');
 
   const A = { score: 10, pipes: 20, finished: true, time: 30 };
   const B = { score: 99, pipes: 20, finished: true, time: 31 };
   ok(MP.judge(A, B) === 'win', 'llegar antes a la meta gana aunque el rival tenga más puntos');
   ok(MP.judge(B, A) === 'lose', 'la comparación es simétrica');
   ok(MP.judge({ pipes: 20, score: 5 }, { pipes: 18, score: 9 }) === 'win', 'sin meta, ganan más tubos');
+  ok(MP.judge({ pipes: 10, score: 9, dist: 120 }, { pipes: 10, score: 9, dist: 90 }) === 'win',
+    'a igualdad de tubos y puntos desempata la distancia');
   ok(MP.judge({ pipes: 10, score: 9 }, { pipes: 10, score: 9 }) === 'draw', 'mismo resultado = empate');
   ok(MP.judgeSides({ pipes: 2 }, { pipes: 3 }) === 'guest', 'el ganador se traduce a host/guest');
 
@@ -1436,7 +1442,7 @@ section('25. MULTIJUGADOR ONLINE: SALAS, SEMILLAS Y RESULTADOS');
   };
   const room = {
     code: 'ABC234', state: 'playing', startAt: 0, seed: 4321, winner: '',
-    config: { pipes: 15, time: 60, map: 'night', diff: 'hard', tools: false, seedMode: 'manual', seed: 4321 },
+    config: { mode: 'goal', pipes: 15, time: 60, map: 'night', diff: 'hard', tools: false, seedMode: 'manual', seed: 4321 },
     host: { uid: uid, name: 'Tester', score: 0, pipes: 0, alive: true, finished: false, time: 0 },
     guest: { uid: 'uid-mp-2', name: 'Rival', score: 9, pipes: 4, alive: true, finished: false, time: 0 }
   };
@@ -1465,12 +1471,85 @@ section('25. MULTIJUGADOR ONLINE: SALAS, SEMILLAS Y RESULTADOS');
   ok((SAVE.get().stats.mpMatches || 0) >= 1, 'la carrera online cuenta en las estadísticas');
   ok((SAVE.get().stats.mpWins || 0) === winBefore + 1, 'la victoria online se registra');
   ok(SAVE.get().coins > coinsBefore, 'la victoria online da monedas');
+  const onlineLog = SAVE.getMatches('online');
+  ok(onlineLog.length >= 1 && onlineLog[0].mode === 'pvp' && onlineLog[0].participants.length === 2,
+    'la partida online queda en el historial con ambos participantes');
+  ok(onlineLog[0] && onlineLog[0].map === 'night' && onlineLog[0].online === true,
+    'el récord online guarda mapa y marca de partida online');
 
   // Limpieza de la sala al salir.
   G.leavePvp();
   ok(G.getPvp() === null, 'salir libera la sesión multijugador');
   ok(calls.leave === 1, 'salir avisa a la nube para cerrar la sala', calls.leave);
   sandbox.CLOUD = undefined;
+}
+
+/* ---------------- 26. Modo Con metas, récords y radar ---------------- */
+section('26. MODO CON METAS, RÉCORDS POR MODO Y RADAR');
+{
+  SAVE.reset();
+  SAVE.load();
+
+  ok(SAVE.GOAL_PIPES.join(',') === '8,10,12,15,20,30', 'las metas permitidas son exactas', SAVE.GOAL_PIPES.join(','));
+  ok(SAVE.getGoalPipes() === 12, 'la meta arranca en 12 tubos', SAVE.getGoalPipes());
+  ok(SAVE.setGoalPipes(20) === 20 && SAVE.getGoalPipes() === 20, 'la meta elegida se guarda');
+  ok(SAVE.setGoalPipes(13) === 20, 'una meta inventada no se acepta', SAVE.getGoalPipes());
+
+  const rd = SAVE.getRadar();
+  ok(rd.on === true && rd.size === 'sm' && rd.pos === 'br' && rd.style === 'tactical' && rd.opacity > 0,
+    'el radar arranca con valores válidos');
+  SAVE.setRadar({ size: 'lg', pos: 'tl', style: 'neon', opacity: 0.5, trail: false, labels: false, me: '#112233' });
+  const rd2 = SAVE.getRadar();
+  ok(rd2.size === 'lg' && rd2.pos === 'tl' && rd2.style === 'neon' && rd2.opacity === 0.5 &&
+    rd2.trail === false && rd2.labels === false && rd2.me === '#112233',
+    'la personalización del radar se guarda', JSON.stringify(rd2));
+  SAVE.setRadar({ size: 'xxl', pos: 'nope', style: 'nope', opacity: 9, me: 'rojo' });
+  const rd3 = SAVE.getRadar();
+  ok(rd3.size === 'sm' && rd3.pos === 'br' && rd3.style === 'tactical' && rd3.opacity === 1 && rd3.me === '#4fc3f7',
+    'los valores inválidos del radar se corrigen', JSON.stringify(rd3));
+  SAVE.resetRadar();
+  ok(SAVE.getRadar().size === 'sm' && SAVE.getRadar().on === true, 'restablecer devuelve el radar por defecto');
+
+  SAVE.logMatch({
+    mode: 'goal', map: 'night', pipes: 12, result: 'Meta 12/12 · completada', score: 44,
+    coins: 5, time: 31.5, dist: 140,
+    participants: [{ name: 'Pío', score: 44, pipes: 12, finished: true }]
+  });
+  SAVE.logMatch({
+    mode: 'free', map: 'day', result: 'Vuelo libre', score: 20,
+    coins: 2, time: 18, dist: 70,
+    participants: [{ name: 'Pío', score: 20, pipes: 6, finished: false }]
+  });
+  const allM = SAVE.getMatches('all');
+  const goalM = SAVE.getMatches('goal');
+  const freeM = SAVE.getMatches('free');
+  const onlineM = SAVE.getMatches('online');
+  ok(allM.length === 2 && goalM.length === 1 && freeM.length === 1 && onlineM.length === 0,
+    'los récords se filtran por modo', allM.length + '/' + goalM.length + '/' + freeM.length);
+  ok(goalM[0].map === 'night' && goalM[0].pipes === 12 && goalM[0].result.indexOf('completada') !== -1 &&
+    goalM[0].participants[0].finished === true,
+    'el récord Con metas guarda mapa, tubos, resultado y participantes');
+
+  const runsBefore = SAVE.get().runs.length;
+  SAVE.endRun(30, 7, 2, 15, 60, 'goal', {
+    mode: 'goal', variant: 'goal', map: 'day', result: 'Meta 7/12',
+    participants: [{ name: 'Pío', score: 30, pipes: 7 }]
+  });
+  ok(SAVE.getMatches('all').length === 3, 'terminar una carrera añade su récord completo');
+  ok(SAVE.get().runs.length === runsBefore + 1, 'el récord completo no duplica el historial de vuelos');
+
+  for (let i = 0; i < 125; i++) SAVE.logMatch({ mode: 'free', map: 'day', score: i });
+  ok(SAVE.getMatches('all').length === 120, 'el historial completo se limita a 120 registros', SAVE.getMatches('all').length);
+
+  SAVE.setGoalPipes(8);
+  G.setMode('goal');
+  ok(G.getMode() === 'goal', 'el modo Con metas se activa');
+  G.startPlay('goal');
+  ok(G.getGoal() === 8, 'la carrera arranca con la meta exacta', G.getGoal());
+  ok(G.getState() === 'play', 'la carrera Con metas empieza a volar');
+  G.goMenu();
+  ok(G.getMode() === 'goal', 'salir de la carrera mantiene el modo Con metas');
+  G.setMode('free');
 }
 
 /* ---------------- Resumen ---------------- */

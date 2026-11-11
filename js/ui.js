@@ -425,6 +425,7 @@ window.UI = (function () {
     };
     const s = SAVE.get();
     setTag('mpFreeSub', s.stats.best ? '· Récord ' + s.stats.best + ' pts' : '');
+    setTag('mpGoalSub', '· Meta ' + SAVE.getGoalPipes() + ' tubos');
     setTag('mpDuelSub', (s.stats.duelWins || 0) ? '· 🏆 ' + s.stats.duelWins : '');
     setTag('mpPvpSub', (s.stats.mpWins || 0) ? '· 🌐 ' + s.stats.mpWins + ' victorias' : (s.stats.mpMatches ? '· ' + s.stats.mpMatches + ' carreras' : '· Online 1v1'));
     setTag('mpDailySub', SAVE.challengePlayedToday() ? '🌙 Ya jugaste hoy' : '');
@@ -432,7 +433,7 @@ window.UI = (function () {
     setTag('mpBossSub', (s.stats.bossDefeated || 0) ? '· 👹 ' + s.stats.bossDefeated + ' derrotados' : '');
     setTag('mpWindSub', (s.stats.windZones || 0) ? '· 💨 ' + s.stats.windZones + ' tramos' : '');
     const m = G.getMode();
-    [['mpFree', 'free'], ['mpDuel', 'duel'], ['mpDaily', 'challenge'], ['mpZen', 'zen'], ['mpBoss', 'boss'], ['mpWind', 'wind']].forEach(pair => {
+    [['mpFree', 'free'], ['mpGoal', 'goal'], ['mpDuel', 'duel'], ['mpDaily', 'challenge'], ['mpZen', 'zen'], ['mpBoss', 'boss'], ['mpWind', 'wind']].forEach(pair => {
       const el = document.getElementById(pair[0]);
       if (el) el.classList.toggle('active', m === pair[1]);
     });
@@ -485,6 +486,7 @@ window.UI = (function () {
     if (btn && btn.disabled) return;
     SND.sfx.click();
     const raw = {
+      mode: mpVal('mpMode') || 'goal',
       pipes: mpVal('mpPipes'),
       time: mpVal('mpTime'),
       map: mpVal('mpMap'),
@@ -608,6 +610,74 @@ window.UI = (function () {
     openGeneric('pvp');
   }
 
+  /* ---------- MODO CON METAS (individual) ---------- */
+  function openGoalMode() {
+    modePickOpen = false;
+    $('screen-modepick').classList.add('hidden');
+    openGeneric('goal');
+  }
+
+  function renderGoalMode() {
+    const body = $('genBody');
+    body.innerHTML = '';
+    const cur = SAVE.getGoalPipes();
+    const card = document.createElement('div');
+    card.className = 'prog-card';
+    card.innerHTML = '<h3>🎯 CARRERA CON METAS</h3>' +
+      '<div class="set-note">Elige cuántos tubos hay que cruzar. La carrera termina al alcanzar la meta y queda un récord propio separado del modo Libre.</div>';
+    const grid = document.createElement('div');
+    grid.className = 'goal-grid';
+    const info = document.createElement('div');
+    info.className = 'set-note goal-info';
+    const paintInfo = n => {
+      info.textContent = 'Meta actual: ' + n + ' tubos · el progreso se ve en el HUD y en el mapa táctico.';
+    };
+    SAVE.GOAL_PIPES.forEach(n => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'goal-pick' + (n === cur ? ' active' : '');
+      b.innerHTML = '<b>' + n + '</b><span>tubos</span>';
+      b.onclick = () => {
+        SND.sfx.click();
+        const v = SAVE.setGoalPipes(n);
+        grid.querySelectorAll('.goal-pick').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        paintInfo(v);
+      };
+      grid.appendChild(b);
+    });
+    card.appendChild(grid);
+    paintInfo(cur);
+    card.appendChild(info);
+    body.appendChild(card);
+
+    const tips = document.createElement('div');
+    tips.className = 'prog-card';
+    tips.innerHTML = '<h3>📋 CÓMO FUNCIONA</h3>' +
+      '<div class="stat-row"><span>Fin de carrera</span><b>Al cruzar la meta</b></div>' +
+      '<div class="stat-row"><span>Récord</span><b>Solo modo Con metas</b></div>' +
+      '<div class="stat-row"><span>Radar</span><b>Activo durante el vuelo</b></div>' +
+      '<div class="stat-row"><span>Mapas</span><b>Solo los desbloqueados</b></div>';
+    body.appendChild(tips);
+
+    const go = document.createElement('button');
+    go.className = 'btn btn-play';
+    go.textContent = '🎯 EMPEZAR META';
+    go.onclick = () => {
+      SND.sfx.click();
+      const start = () => { G.setMode('goal'); G.startPlay('goal'); };
+      if (typeof window.__pioFirstRunGuard === 'function') window.__pioFirstRunGuard(start);
+      else start();
+    };
+    body.appendChild(go);
+
+    const back = document.createElement('button');
+    back.className = 'btn btn-small';
+    back.textContent = '↩ ELEGIR OTRO MODO';
+    back.onclick = () => { SND.sfx.click(); showModePick(); };
+    body.appendChild(back);
+  }
+
   function renderMultiplayer() {
     const body = $('genBody');
     body.innerHTML = '';
@@ -616,7 +686,7 @@ window.UI = (function () {
     const intro = document.createElement('div');
     intro.className = 'prog-card';
     intro.innerHTML = '<h3>🌐 CARRERA ONLINE 1v1</h3>' +
-      '<div class="set-note">Crea una sala privada y comparte su código de 6 caracteres, o únete con el código de un amigo. Los dos volaréis con la misma semilla, mapa, dificultad y meta. Gana quien llegue antes a la meta o cruce más tubos.</div>';
+      '<div class="set-note">Crea una sala privada y comparte su código de 6 caracteres, o únete con el código de un amigo. Los dos volaréis con la misma semilla, mapa, dificultad y reglas. Elige <b>Libre</b> (sin meta) o <b>Con metas</b> (selector exacto de tubos).</div>';
     body.appendChild(intro);
 
     if (!mpServerReady()) {
@@ -628,16 +698,26 @@ window.UI = (function () {
     }
 
     const s = SAVE.get();
+    const ownedMaps = DAT.MAPS.filter(m => SAVE.owns(s.mapsOwned, m.id));
+    const mapOpts = (ownedMaps.length ? ownedMaps : [DAT.getMap('day')]).map(m => [m.id, m.icon + ' ' + m.name]);
+    const defMap = mapOpts.some(o => o[0] === s.map) ? s.map : mapOpts[0][0];
     const def = MP.normalizeConfig({
-      pipes: 12, time: 0, map: s.map, diff: s.set.diff, tools: true, seedMode: 'daily'
+      mode: 'goal', pipes: SAVE.getGoalPipes(), time: 0, map: defMap, diff: s.set.diff, tools: true, seedMode: 'daily'
     }, mpOpts());
 
     const create = document.createElement('div');
     create.className = 'prog-card';
-    create.innerHTML = '<h3>➕ CREAR SALA</h3>';
-    mpSelect(create, 'Meta de tubos', 'mpPipes', MP.PIPE_GOALS.map(n => [n, n + ' tubos']), def.pipes);
+    create.innerHTML = '<h3>➕ CREAR SALA</h3>' +
+      '<div class="set-note">Solo aparecen los mapas que tienes desbloqueados. Los dos jugadores deben tener el mismo mapa para entrar.</div>';
+    const modeSel = mpSelect(create, 'Tipo de carrera', 'mpMode',
+      [['goal', 'Con metas (termina al cruzar)'], ['free', 'Libre (sin meta)']], def.mode);
+    const pipesSel = mpSelect(create, 'Meta de tubos', 'mpPipes', MP.PIPE_GOALS.map(n => [n, n + ' tubos']), def.pipes);
+    const pipesRow = pipesSel.parentElement;
+    const syncMode = () => { pipesRow.style.display = modeSel.value === 'goal' ? '' : 'none'; };
+    modeSel.onchange = syncMode;
+    syncMode();
     mpSelect(create, 'Límite de tiempo', 'mpTime', MP.TIME_LIMITS.map(n => [n, n ? n + ' s' : 'Sin límite']), def.time);
-    mpSelect(create, 'Mapa', 'mpMap', DAT.MAPS.map(m => [m.id, m.icon + ' ' + m.name]), def.map);
+    mpSelect(create, 'Mapa', 'mpMap', mapOpts, def.map);
     mpSelect(create, 'Dificultad', 'mpDiff', DAT.DIFFS.map(d => [d.id, d.name]), def.diff);
     mpSelect(create, 'Semilla', 'mpSeedMode', [['daily', 'Del día (igual para ambos)'], ['manual', 'Manual (texto o número)']], 'daily');
 
@@ -733,9 +813,10 @@ window.UI = (function () {
     const mapName = DAT.getMap(cfg.map).name;
     const diffName = DAT.getDiff(cfg.diff).name;
     rules.innerHTML = '<h3>⚙️ REGLAS DE LA CARRERA</h3>' +
-      '<div class="stat-row"><span>Meta</span><b>' + cfg.pipes + ' tubos</b></div>' +
+      '<div class="stat-row"><span>Modo</span><b>' + (cfg.mode === 'goal' ? 'Con metas 🎯' : 'Libre ♾️') + '</b></div>' +
+      '<div class="stat-row"><span>Meta</span><b>' + (cfg.mode === 'goal' ? cfg.pipes + ' tubos' : 'Sin meta') + '</b></div>' +
       '<div class="stat-row"><span>Tiempo</span><b>' + (cfg.time > 0 ? cfg.time + ' s' : 'Sin límite') + '</b></div>' +
-      '<div class="stat-row"><span>Mapa</span><b>' + esc(mapName) + '</b></div>' +
+      '<div class="stat-row"><span>Mapa</span><b>' + esc(mapName) + (SAVE.owns(SAVE.get().mapsOwned, cfg.map) ? '' : ' ⚠️') + '</b></div>' +
       '<div class="stat-row"><span>Dificultad</span><b>' + esc(diffName) + '</b></div>' +
       '<div class="stat-row"><span>Herramientas</span><b>' + (cfg.tools ? 'Sí' : 'No') + '</b></div>' +
       '<div class="stat-row"><span>Semilla</span><b>' + cfg.seed + '</b></div>';
@@ -1152,7 +1233,7 @@ window.UI = (function () {
     currentGeneric = kind;
     $('screen-generic').classList.remove('hidden');
     $('genBody').innerHTML = '';
-    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤', inventory: 'INVENTARIO 📦', stats: 'ESTADÍSTICAS 📊', help: 'AYUDA ❓', pvp: 'MULTIJUGADOR 🌐' };
+    const titles = { shop: 'TIENDA', maps: 'MAPAS', progress: 'PROGRESO', settings: 'AJUSTES', ach: 'LOGROS', missions: 'MISIONES 📋', pass: 'PASE DE VUELO 🎫', home: 'HOGAR 🏡', records: 'RÉCORDS 🏆', profile: 'PERFIL 🐤', inventory: 'INVENTARIO 📦', stats: 'ESTADÍSTICAS 📊', help: 'AYUDA ❓', pvp: 'MULTIJUGADOR 🌐', goal: 'CON METAS 🎯' };
     $('genTitle').textContent = titles[kind] || '';
     $('genCoins').textContent = SAVE.get().coins;
     switch (kind) {
@@ -1169,6 +1250,7 @@ window.UI = (function () {
       case 'stats': renderStats(); break;
       case 'help': renderHelp(); break;
       case 'pvp': renderMultiplayer(); break;
+      case 'goal': renderGoalMode(); break;
       default: break;
     }
     $('genBody').scrollTop = 0;
@@ -1181,8 +1263,7 @@ window.UI = (function () {
       if (oldCloud && oldCloud.__stopCloud) oldCloud.__stopCloud();
     }
     if (currentGeneric === 'pvp') mpLeaveRoom();
-    currentGeneric = null;
-    hideAllScreens();
+    currentGeneric = null;    hideAllScreens();
     if (inGame) {
       // Se entró a ajustes desde la pausa: el juego queda donde estaba, sin reiniciarse
       if (G.isPaused()) $('screen-pause').classList.remove('hidden');
@@ -2113,7 +2194,7 @@ window.UI = (function () {
     } catch (e) { return '—'; }
   }
   const MODE_LABEL = {
-    free: 'Vuelo libre', zen: 'Zen 🧘', boss: 'Boss 👹', wind: 'Viento 💨',
+    free: 'Vuelo libre', goal: 'Con metas 🎯', pvp: 'Online 🌐', zen: 'Zen 🧘', boss: 'Boss 👹', wind: 'Viento 💨',
     challenge: 'Semilla 🌱', duel: 'Duelo 🆚', replay: 'Replay 🎬'
   };
 
@@ -2199,6 +2280,99 @@ window.UI = (function () {
         body.appendChild(rl);
       }
     }
+
+    /* ---- Récords completos por modo (historial separado de los vuelos) ---- */
+    const matches = SAVE.getMatches ? SAVE.getMatches('all') : [];
+    const logWrap = document.createElement('section');
+    logWrap.className = 'lb-log';
+    const logTitle = document.createElement('h3');
+    logTitle.className = 'lb-title';
+    logTitle.textContent = '🗂 RÉCORDS POR MODO';
+    logWrap.appendChild(logTitle);
+
+    if (!matches.length) {
+      const emptyLog = document.createElement('div');
+      emptyLog.className = 'lb-empty lb-empty-sm';
+      emptyLog.innerHTML = '<div class="lb-empty-ico">📝</div><div>Aquí se guardará cada carrera con su modo, mapa y resultado.<br><span class="lb-empty-sub">Juega Libre, Con metas u Online y aparecerá automáticamente.</span></div>';
+      logWrap.appendChild(emptyLog);
+    } else {
+      // Resumen por modo: cuántas carreras y la mejor marca
+      const summary = document.createElement('div');
+      summary.className = 'lb-mode-sum';
+      const order = ['free', 'goal', 'pvp', 'challenge', 'duel', 'zen', 'boss', 'wind'];
+      const used = [];
+      matches.forEach(m => { if (used.indexOf(m.mode) === -1) used.push(m.mode); });
+      order.forEach(k => { if (used.indexOf(k) !== -1) used.push(used.splice(used.indexOf(k), 1)[0]); });
+      used.forEach(k => {
+        const list = matches.filter(m => m.mode === k);
+        const best = list.reduce((a, b) => (b.score > a ? b.score : a), 0);
+        const chip = document.createElement('div');
+        chip.className = 'lb-mode-chip' + (k === 'goal' ? ' goal' : k === 'pvp' ? ' online' : '');
+        chip.innerHTML = '<b>' + esc(MODE_LABEL[k] || k) + '</b><span>' + list.length + ' · mejor ' + best + ' pts</span>';
+        summary.appendChild(chip);
+      });
+      logWrap.appendChild(summary);
+
+      const filters = document.createElement('div');
+      filters.className = 'lb-filters';
+      const fdefs = [['all', 'Todos'], ['free', 'Libre'], ['goal', 'Con metas'], ['online', 'Online'], ['other', 'Otros']];
+      const activeFilter = 'all';
+      const listBox = document.createElement('div');
+      listBox.className = 'lb-matches';
+
+      const showMatches = filter => {
+        const rows = matches.filter(m => {
+          if (filter === 'all') return true;
+          if (filter === 'online') return m.online || m.mode === 'pvp';
+          if (filter === 'goal') return m.mode === 'goal' || m.variant === 'goal';
+          if (filter === 'free') return m.mode === 'free' && m.variant !== 'goal';
+          return ['free', 'goal', 'pvp'].indexOf(m.mode) === -1;
+        });
+        listBox.innerHTML = '';
+        if (!rows.length) {
+          const none = document.createElement('div');
+          none.className = 'lb-empty lb-empty-sm';
+          none.innerHTML = '<div class="lb-empty-ico">🔎</div><div>No hay carreras con este filtro.</div>';
+          listBox.appendChild(none);
+          return;
+        }
+        rows.slice(0, 40).forEach(m => {
+          const row = document.createElement('div');
+          row.className = 'lb-match' + (m.mode === 'goal' ? ' lb-match-goal' : '') + (m.online ? ' lb-match-online' : '');
+          const mapName = (window.DAT && DAT.getMap) ? DAT.getMap(m.map).name : m.map;
+          const parts = (m.participants || []).map(p =>
+            '<span class="lb-part' + (p.online ? ' on' : '') + '">' + esc(p.name) +
+            ' · ' + (p.pipes || 0) + ' tubos' + (p.finished ? ' 🏁' : '') + '</span>'
+          ).join('');
+          row.innerHTML =
+            '<div class="lb-match-top"><b>' + esc(MODE_LABEL[m.mode] || m.mode) + '</b>' +
+              '<span class="lb-match-score">' + (m.score || 0) + ' pts</span></div>' +
+            '<div class="lb-match-result">' + esc(m.result || '') + '</div>' +
+            '<div class="lb-match-meta">' + esc(mapName) + ' · ' + (m.pipes || 0) + ' tubos · ' +
+              (Math.round((m.time || 0) * 10) / 10) + ' s · ' + (m.dist || 0) + ' m · ' + fmtDate(m.date) + '</div>' +
+            (parts ? '<div class="lb-match-parts">' + parts + '</div>' : '');
+          listBox.appendChild(row);
+        });
+      };
+
+      fdefs.forEach(f => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'lb-chip' + (f[0] === activeFilter ? ' active' : '');
+        b.textContent = f[1];
+        b.onclick = () => {
+          SND.sfx.click();
+          filters.querySelectorAll('.lb-chip').forEach(x => x.classList.remove('active'));
+          b.classList.add('active');
+          showMatches(f[0]);
+        };
+        filters.appendChild(b);
+      });
+      logWrap.appendChild(filters);
+      showMatches(activeFilter);
+      logWrap.appendChild(listBox);
+    }
+    body.appendChild(logWrap);
 
     const note = document.createElement('div');
     note.className = 'panel-note lb-note';
@@ -3160,6 +3334,117 @@ window.UI = (function () {
     gGame.appendChild(langNote);
     body.appendChild(gGame);
 
+    /* ---- Radar / mapa táctico (personalización persistente) ---- */
+    const gRadar = groupTitle('🗺️ Radar / mapa táctico');
+    const rcfg = SAVE.getRadar();
+    const applyRadar = patch => {
+      SAVE.setRadar(patch);
+      if (window.RADAR) RADAR.refresh();
+    };
+    const radarSwitch = (label, key, val) => {
+      const row = document.createElement('div');
+      row.className = 'set-row';
+      row.innerHTML = '<span>' + label + '</span><div class="switch' + (val ? ' on' : '') + '"></div>';
+      const sw = row.querySelector('.switch');
+      sw.onclick = () => {
+        const on = !sw.classList.contains('on');
+        sw.classList.toggle('on', on);
+        applyRadar({ [key]: on });
+        SND.sfx.click();
+      };
+      return row;
+    };
+    const radarPick = (label, opts, val, key) => {
+      const row = document.createElement('div');
+      row.className = 'set-row';
+      row.innerHTML = '<span>' + label + '</span>';
+      const wrap = document.createElement('div');
+      wrap.className = 'set-pick';
+      opts.forEach(o => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = o[1];
+        b.className = String(val) === String(o[0]) ? 'active' : '';
+        b.onclick = () => {
+          applyRadar({ [key]: o[0] });
+          wrap.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+          b.classList.add('active');
+          SND.sfx.click();
+        };
+        wrap.appendChild(b);
+      });
+      row.appendChild(wrap);
+      return row;
+    };
+    const radarColor = (label, key, val) => {
+      const row = document.createElement('div');
+      row.className = 'set-row';
+      row.innerHTML = '<span>' + label + '</span>';
+      const inp = document.createElement('input');
+      inp.type = 'color';
+      inp.className = 'radar-color';
+      inp.value = val;
+      inp.oninput = () => applyRadar({ [key]: inp.value });
+      row.appendChild(inp);
+      return row;
+    };
+
+    gRadar.appendChild(radarSwitch('👁 Mostrar en el vuelo', 'on', rcfg.on));
+    gRadar.appendChild(radarPick('📐 Tamaño', [['sm', 'Pequeño'], ['md', 'Medio'], ['lg', 'Grande']], rcfg.size, 'size'));
+    gRadar.appendChild(radarPick('📍 Posición', [['tl', 'Arriba izq.'], ['tr', 'Arriba der.'], ['bl', 'Abajo izq.'], ['br', 'Abajo der.']], rcfg.pos, 'pos'));
+    gRadar.appendChild(radarPick('🎨 Estilo', [['tactical', 'Táctico'], ['minimal', 'Mínimo'], ['neon', 'Neón']], rcfg.style, 'style'));
+
+    const opRow = document.createElement('div');
+    opRow.className = 'set-row';
+    opRow.innerHTML = '<span>🌫 Transparencia</span>';
+    const opWrap = document.createElement('div');
+    opWrap.className = 'set-slider';
+    const opInput = document.createElement('input');
+    opInput.type = 'range';
+    opInput.min = '25';
+    opInput.max = '100';
+    opInput.step = '1';
+    opInput.value = String(Math.round(rcfg.opacity * 100));
+    const opVal = document.createElement('span');
+    opVal.className = 'set-val';
+    opVal.textContent = Math.round(rcfg.opacity * 100) + '%';
+    opInput.oninput = () => {
+      const v = parseInt(opInput.value, 10);
+      opVal.textContent = v + '%';
+      applyRadar({ opacity: v / 100 });
+    };
+    opWrap.appendChild(opInput);
+    opWrap.appendChild(opVal);
+    opRow.appendChild(opWrap);
+    gRadar.appendChild(opRow);
+
+    gRadar.appendChild(radarSwitch('— Estela del recorrido', 'trail', rcfg.trail));
+    gRadar.appendChild(radarSwitch('▮ Marcas de tubos', 'pipes', rcfg.pipes));
+    gRadar.appendChild(radarSwitch('🪙 Monedas cercanas', 'coins', rcfg.coins));
+    gRadar.appendChild(radarSwitch('🧭 Brújula de progreso', 'compass', rcfg.compass));
+    gRadar.appendChild(radarSwitch('🏷 Nombres y etiquetas', 'labels', rcfg.labels));
+    gRadar.appendChild(radarColor('🔵 Color propio', 'me', rcfg.me));
+    gRadar.appendChild(radarColor('🟠 Color del rival', 'rival', rcfg.rival));
+    gRadar.appendChild(radarColor('🔷 Color de rejilla', 'grid', rcfg.grid));
+
+    const radarReset = document.createElement('button');
+    radarReset.className = 'btn btn-ghost';
+    radarReset.style.marginTop = '8px';
+    radarReset.textContent = '↩ Restablecer radar';
+    radarReset.onclick = () => {
+      SND.sfx.click();
+      SAVE.resetRadar();
+      if (window.RADAR) RADAR.refresh();
+      renderSettings();
+      toast('🗺️ Radar restablecido', 'good');
+    };
+    gRadar.appendChild(radarReset);
+    const radarNote = document.createElement('div');
+    radarNote.className = 'set-note';
+    radarNote.textContent = 'Los cambios se guardan al instante y se aplican en la siguiente carrera. Durante el vuelo puedes minimizar u ocultar el radar con sus botones.';
+    gRadar.appendChild(radarNote);
+    body.appendChild(gRadar);
+
     const gData = groupTitle('💾 Datos');
     const resetBtn = document.createElement('button');
     resetBtn.className = 'btn btn-danger';
@@ -3266,7 +3551,7 @@ window.UI = (function () {
     const about = document.createElement('div');
     about.className = 'prog-card';
     about.style.textAlign = 'center';
-    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.4.1 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
+    about.innerHTML = '<h3>ACERCA DE</h3><div style="font-size:13px;color:#dbe7ff">Pío Vuelo v3.4.2 · Temporada ' + DAT.seasonInfo().name + ' 🌍<br>Toca la pantalla para volar y esquivar obstáculos.<br><b style="color:#ffe066">Creado por Joseph Games</b> 🐤</div>';
     body.appendChild(about);
   }
 
@@ -3696,6 +3981,7 @@ window.UI = (function () {
     showGameOver, showModeClear, toast, confirm, openGeneric, closeGeneric,
     showModePick, closeModePick, isModePickOpen,
     openMultiplayer, leaveMultiplayer: mpLeaveRoom, refreshMultiplayer: renderMultiplayer,
+    openGoalMode,
     accountChoice,
     popAch,
     current: () => currentGeneric

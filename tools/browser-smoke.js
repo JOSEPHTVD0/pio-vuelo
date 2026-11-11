@@ -250,7 +250,48 @@ function makeClient(ws) {
     await evalJs("G.goMenu()");
     await sleep(400);
 
-    // Tienda sin exclusivos
+    // Modo Con metas: selector exacto, carrera y radar táctico.
+    await evalJs("document.getElementById('btnPlay').click()");
+    await sleep(300);
+    await evalJs("document.getElementById('mpGoal').click()");
+    await sleep(400);
+    const goalInfo = await evalJs("(function(){var b=document.getElementById('genBody');var bs=b.querySelectorAll('button');var start=false;for(var i=0;i<bs.length;i++){if(bs[i].textContent.indexOf('EMPEZAR META')!==-1)start=true}return {title:document.getElementById('genTitle').textContent,picks:b.querySelectorAll('.goal-pick').length,start:start}})()");
+    ok(goalInfo.title.indexOf('CON METAS') !== -1, 'el selector Con metas se abre', goalInfo.title);
+    ok(goalInfo.picks === 6, 'el selector ofrece las 6 metas exactas', String(goalInfo.picks));
+    ok(goalInfo.start, 'el selector tiene un botón real para empezar');
+    await evalJs("(function(){var bs=document.querySelectorAll('#genBody .goal-pick');for(var i=0;i<bs.length;i++){if(bs[i].textContent.indexOf('15')!==-1){bs[i].click();return true}}return false})()");
+    await sleep(150);
+    ok(await evalJs("SAVE.getGoalPipes() === 15"), 'la meta elegida se guarda al instante');
+    await evalJs("(function(){var bs=document.querySelectorAll('#genBody button');for(var i=0;i<bs.length;i++){if(bs[i].textContent.indexOf('EMPEZAR META')!==-1){bs[i].click();return true}}return false})()");
+    await sleep(1200);
+    ok(await evalJs("G.getMode() === 'goal' && G.getGoal() === 15"), 'la carrera Con metas arranca con la meta exacta');
+    ok(await evalJs("!document.getElementById('radar').classList.contains('hidden')"), 'el radar aparece durante el vuelo');
+    await evalJs("G.setPaused(true)");
+    await sleep(150);
+    await evalJs("G.goMenu()");
+    await sleep(400);
+
+    // Récords por modo y personalización del radar en ajustes.
+    await evalJs("SAVE.logMatch({mode:'goal',map:'day',pipes:15,score:40,coins:3,time:22,dist:90,result:'Meta 15/15 · completada',participants:[{name:'Pío',score:40,pipes:15,finished:true}]}); SAVE.logMatch({mode:'free',map:'day',pipes:8,score:21,coins:1,time:18,dist:60,result:'Vuelo libre',participants:[{name:'Pío',score:21,pipes:8}]})");
+    await evalJs("UI.openGeneric('records')");
+    await sleep(500);
+    ok(await evalJs("!!document.querySelector('.lb-log') && document.getElementById('genBody').textContent.indexOf('RÉCORDS POR MODO') !== -1"),
+      'los récords muestran la sección por modo');
+    ok(await evalJs("document.querySelectorAll('.lb-chip').length >= 4"), 'los récords tienen filtros por modo');
+    ok(await evalJs("document.querySelectorAll('.lb-match').length === 2 && document.querySelectorAll('.lb-mode-chip').length === 2"),
+      'los récords agrupan y muestran las carreras por modo');
+    await evalJs("UI.openGeneric('settings')");
+    await sleep(500);
+    ok(await evalJs("!!document.querySelector('.radar-color') && document.getElementById('genBody').textContent.indexOf('Radar / mapa táctico') !== -1"),
+      'los ajustes incluyen la personalización del radar');
+    ok(await evalJs("document.querySelectorAll('#genBody .radar-color').length === 3"), 'el radar permite elegir los colores propios, del rival y de la rejilla');
+    await evalJs("SAVE.setRadar({size:'lg',style:'neon',opacity:0.6,pos:'tl'}); UI.openGeneric('settings')");
+    await sleep(400);
+    ok(await evalJs("SAVE.getRadar().size === 'lg' && SAVE.getRadar().style === 'neon' && SAVE.getRadar().pos === 'tl'"),
+      'la configuración del radar persiste y se vuelve a pintar');
+    await evalJs("SAVE.resetRadar()");
+    await evalJs("UI.closeGeneric()");
+    await sleep(300);
     await evalJs("UI.openGeneric('shop')");
     await sleep(500);
     const shopInfo = await evalJs("(function(){var b=document.getElementById('genBody');return {vis:!!b && b.offsetHeight>0, excl:b?b.querySelectorAll('.exclusive-item').length:-1}})()");
@@ -570,6 +611,12 @@ function makeClient(ws) {
         } catch (e) { guest = null; }
         ok(!!(guest && guest.idToken && guest.localId), 'el segundo jugador obtiene sesión anónima real');
         if (guest && guest.idToken) {
+          // Igual que el juego real: antes de unirse publica sus mapas.
+          const entRes = await fetch('http://127.0.0.1:9000/entitlements/' + encodeURIComponent(guest.localId) + '.json?ns=' + PROJ + '-default-rtdb&auth=' + encodeURIComponent(guest.idToken), {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ maps: { day: true, night: true }, updatedAt: Date.now() })
+          }).catch(() => null);
+          ok(entRes && entRes.ok, 'el rival publica sus mapas desbloqueados', entRes ? String(entRes.status) : 'sin respuesta');
           const joinRes = await fetch(rtdbUrl(code) + '&auth=' + encodeURIComponent(guest.idToken), {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

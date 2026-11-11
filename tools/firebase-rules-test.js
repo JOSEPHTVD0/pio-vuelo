@@ -164,6 +164,7 @@ function accountPayload(uid, username, save) {
 
 function duelConfig(overrides) {
   return Object.assign({
+    mode: 'goal',
     pipes: 12,
     time: 0,
     map: 'day',
@@ -172,6 +173,10 @@ function duelConfig(overrides) {
     seedMode: 'daily',
     seed: 20261110
   }, overrides || {});
+}
+
+function entitlementsPayload(maps) {
+  return { maps: maps, updatedAt: Date.now() };
 }
 
 function duelPayload(code, uid, name, config) {
@@ -287,10 +292,30 @@ async function main() {
     return get(ref(publicApp.rtdb, 'presence/' + uidA));
   });
 
+  console.log('\nRealtime Database · mapas desbloqueados');
+  await expectOk('el dueño publica sus mapas desbloqueados', function () {
+    return set(ref(a.rtdb, 'entitlements/' + uidA), entitlementsPayload({ day: true, sunset: true }));
+  });
+  await expectDenied('nadie publica mapas por otro UID', function () {
+    return set(ref(a.rtdb, 'entitlements/otro-uid'), entitlementsPayload({ day: true }));
+  });
+  await expectDenied('los mapas deben incluir el mapa gratuito', function () {
+    return set(ref(a.rtdb, 'entitlements/' + uidA), entitlementsPayload({ sunset: true }));
+  });
+
   console.log('\nRealtime Database · duelos');
   const code = 'ABC234';
   await expectOk('el anfitrión crea el duelo', function () {
     return set(ref(a.rtdb, 'duels/' + code), duelPayload(code, uidA, 'TesterA'));
+  });
+  await expectDenied('no se puede crear una sala con un mapa no adquirido', function () {
+    return set(ref(a.rtdb, 'duels/ABC235'), duelPayload('ABC235', uidA, 'TesterA', { map: 'night' }));
+  });
+  await expectOk('se puede crear una sala libre sin meta de tubos', function () {
+    return set(ref(a.rtdb, 'duels/ABC236'), duelPayload('ABC236', uidA, 'TesterA', { mode: 'free', pipes: 0 }));
+  });
+  await expectOk('el anfitrión puede borrar la sala libre de prueba', function () {
+    return remove(ref(a.rtdb, 'duels/ABC236'));
   });
 
   const b = makeClient('player-b');
@@ -394,7 +419,7 @@ async function main() {
 
   console.log('\nRealtime Database · duelo 1v1: crear, unirse, empezar y progreso');
   await expectDenied('una meta de tubos fuera de rango se rechaza', function () {
-    return set(ref(a.rtdb, 'duels/ZZZ234'), duelPayload('ZZZ234', uidA, 'TesterA', { pipes: 0 }));
+    return set(ref(a.rtdb, 'duels/ZZZ234'), duelPayload('ZZZ234', uidA, 'TesterA', { pipes: -1 }));
   });
   await expectDenied('una dificultad inventada se rechaza', function () {
     return set(ref(a.rtdb, 'duels/ZZZ235'), duelPayload('ZZZ235', uidA, 'TesterA', { diff: 'imposible' }));
@@ -410,6 +435,9 @@ async function main() {
     return set(ref(a.rtdb, 'duels/ZZZ237'), p);
   });
 
+  await expectOk('el invitado publica sus mapas desbloqueados', function () {
+    return set(ref(b.rtdb, 'entitlements/' + uidB), entitlementsPayload({ day: true }));
+  });
   await expectOk('un invitado se une al duelo con herramientas desactivadas', function () {
     return update(ref(b.rtdb, 'duels/' + code), {
       guest: { uid: uidB, name: 'TesterB', score: 0, pipes: 0, alive: true, finished: false, time: 0 },
@@ -464,9 +492,17 @@ async function main() {
     return update(ref(b.rtdb, 'duels/' + code), {
       'guest/pipes': 7,
       'guest/score': 21,
+      'guest/dist': 120,
+      'guest/alt': 0.42,
       'guest/alive': true,
       'guest/finished': true,
       'guest/time': 24.5,
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('una altura de radar fuera de rango se rechaza', function () {
+    return update(ref(b.rtdb, 'duels/' + code), {
+      'guest/alt': 1.5,
       updatedAt: Date.now()
     });
   });
@@ -486,6 +522,8 @@ async function main() {
     return update(ref(a.rtdb, 'duels/' + code), {
       'host/pipes': 9,
       'host/score': 27,
+      'host/dist': 140,
+      'host/alt': 0.63,
       'host/alive': true,
       'host/finished': true,
       'host/time': 22.1,

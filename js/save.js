@@ -4,6 +4,53 @@ window.SAVE = (function () {
 
   const KEY = 'piovuelo_v1';
   const DEFAULT_PERKS = { coins: 80 };
+  const GOAL_PIPES = [8, 10, 12, 15, 20, 30];
+  const MATCH_LOG_MAX = 120;
+
+  // Mapa táctico: valores por defecto y límites de la personalización.
+  const RADAR_DEFAULTS = {
+    on: true,        // visible durante la carrera
+    hidden: false,   // oculto manualmente (persistente)
+    minimized: false,// reducido a una pastilla
+    size: 'sm',      // sm | md | lg
+    pos: 'br',       // tl | tr | bl | br
+    opacity: 0.86,   // 0.25 .. 1
+    style: 'tactical', // tactical | minimal | neon
+    me: '#4fc3f7',
+    rival: '#ff7043',
+    grid: '#90caf9',
+    trail: true,     // estela del recorrido
+    pipes: true,     // marcas de tubos
+    coins: false,    // monedas cercanas
+    compass: true,   // brújula de progreso
+    labels: true     // nombres/etiquetas
+  };
+  const RADAR_SIZES = ['sm', 'md', 'lg'];
+  const RADAR_POS = ['tl', 'tr', 'bl', 'br'];
+  const RADAR_STYLES = ['tactical', 'minimal', 'neon'];
+  const RADAR_COLORS = ['me', 'rival', 'grid'];
+
+  function radarDefaults() {
+    return Object.assign({}, RADAR_DEFAULTS);
+  }
+  function validColor(v, fallback) {
+    return (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) ? v.toLowerCase() : fallback;
+  }
+  function normalizeRadar(raw) {
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const out = radarDefaults();
+    out.on = src.on !== false;
+    out.hidden = src.hidden === true;
+    out.minimized = src.minimized === true;
+    out.size = RADAR_SIZES.indexOf(src.size) !== -1 ? src.size : RADAR_DEFAULTS.size;
+    out.pos = RADAR_POS.indexOf(src.pos) !== -1 ? src.pos : RADAR_DEFAULTS.pos;
+    const op = Number(src.opacity);
+    out.opacity = isFinite(op) ? Math.max(0.25, Math.min(1, Math.round(op * 100) / 100)) : RADAR_DEFAULTS.opacity;
+    out.style = RADAR_STYLES.indexOf(src.style) !== -1 ? src.style : RADAR_DEFAULTS.style;
+    RADAR_COLORS.forEach(k => { out[k] = validColor(src[k], RADAR_DEFAULTS[k]); });
+    ['trail', 'pipes', 'coins', 'compass', 'labels'].forEach(k => { out[k] = src[k] !== false; });
+    return out;
+  }
 
   function defaults() {
     return {
@@ -28,7 +75,7 @@ window.SAVE = (function () {
       hat: null, hatsOwned: [],
       fx: 'fx-none', fxOwned: [{ id: 'fx-none' }],
       map: 'day', mapsOwned: [{ id: 'day' }],
-      set: { sfx: true, music: true, vib: true, diff: 'normal', gfx: 'high', mode: 'free', hc: false, moon: false, volS: 1, volM: 1, volG: 1, reduced: false, shake: true, lift: false, fps: 0, sens: 1, notif: true, uiAnim: true, confirmBuy: false },
+      set: { sfx: true, music: true, vib: true, diff: 'normal', gfx: 'high', mode: 'free', hc: false, moon: false, volS: 1, volM: 1, volG: 1, reduced: false, shake: true, lift: false, fps: 0, sens: 1, notif: true, uiAnim: true, confirmBuy: false, goalPipes: 12, radar: radarDefaults() },
       tutorialDone: false,
       registrationPrompted: false,   // ya se ofreció crear cuenta en el primer vuelo
       history: [],          // últimas compras/mejoras/reparaciones (máx. 30)
@@ -49,6 +96,7 @@ window.SAVE = (function () {
       knownNames: [],       // nombres usados en este dispositivo (evita duplicados locales)
       players: [],          // registro agregado para la tabla de récords local
       runs: [],             // historial reciente de vuelos (máx. RUN_HISTORY)
+      matchLog: [],         // récords completos por modo (máx. MATCH_LOG_MAX)
       shields: 0,           // inventario persistente de escudos (no se reinicia por partida)
       nest: {
         decor: { bg: 'bg-cielo', floor: 'fl-pasto', poster: 'po-estrella', rug: 'rug-nada' },
@@ -151,6 +199,11 @@ window.SAVE = (function () {
       r.date = Math.max(0, num(r.date));
       r.mode = typeof r.mode === 'string' ? r.mode : 'free';
     });
+    if (!Array.isArray(data.matchLog)) data.matchLog = [];
+    data.matchLog = data.matchLog
+      .filter(m => m && typeof m === 'object' && typeof m.score === 'number' && isFinite(m.score))
+      .slice(0, MATCH_LOG_MAX)
+      .map(m => normalizeMatch(m));
     if (typeof data.shields !== 'number' || !isFinite(data.shields)) data.shields = 0;
     data.shields = Math.max(0, Math.floor(data.shields));
   }
@@ -285,7 +338,7 @@ window.SAVE = (function () {
         if (typeof data.lastDaily !== 'string') data.lastDaily = '';
         if (typeof data.dailyStreak !== 'number') data.dailyStreak = 0;
         if (!data.set) data.set = defaults().set;
-        ['sfx', 'music', 'vib', 'diff', 'gfx', 'mode', 'hc', 'moon', 'volS', 'volM', 'volG', 'reduced', 'shake', 'lift', 'fps', 'sens', 'notif', 'uiAnim', 'confirmBuy'].forEach(k => {
+        ['sfx', 'music', 'vib', 'diff', 'gfx', 'mode', 'hc', 'moon', 'volS', 'volM', 'volG', 'reduced', 'shake', 'lift', 'fps', 'sens', 'notif', 'uiAnim', 'confirmBuy', 'goalPipes', 'radar'].forEach(k => {
           if (data.set[k] === undefined) data.set[k] = defaults().set[k];
         });
         // sanea ajustes numéricos/booleanos (saves antiguos o manipulados)
@@ -297,7 +350,10 @@ window.SAVE = (function () {
         ['sfx', 'music', 'vib', 'hc', 'moon', 'reduced', 'shake', 'lift', 'notif', 'uiAnim', 'confirmBuy'].forEach(k => {
           data.set[k] = data.set[k] !== false;
         });
-        if (['free', 'zen', 'boss', 'wind'].indexOf(data.set.mode) === -1) data.set.mode = 'free'; // migración: solo modos continuos se guardan
+        if (['free', 'zen', 'boss', 'wind', 'goal'].indexOf(data.set.mode) === -1) data.set.mode = 'free'; // migración: solo modos continuos se guardan
+        data.set.radar = normalizeRadar(data.set.radar);
+        const gp = Math.floor(num(data.set.goalPipes));
+        data.set.goalPipes = GOAL_PIPES.indexOf(gp) !== -1 ? gp : 12;
         if (!data.dailyM || typeof data.dailyM !== 'object') data.dailyM = { date: '', claimed: [] };
         if (typeof data.dailyM.date !== 'string') data.dailyM.date = '';
         if (!Array.isArray(data.dailyM.claimed)) data.dailyM.claimed = [];
@@ -448,7 +504,7 @@ window.SAVE = (function () {
   function skinStage(id) { return DAT.evolveStage(skinXp(id)); }
 
   /* --- Stats --- */
-  function endRun(score, pipesPassed, coinsGot, timeSec, distMeters, modeName) {
+  function endRun(score, pipesPassed, coinsGot, timeSec, distMeters, modeName, meta) {
     data.stats.flights += 1;
     data.stats.pipes += pipesPassed;
     data.stats.timePlayed += Math.floor(timeSec);
@@ -459,6 +515,21 @@ window.SAVE = (function () {
     const isRecord = score > data.stats.best;
     if (isRecord) data.stats.best = score;
     recordRun(score, pipesPassed, coinsGot, distMeters, modeName);
+    if (meta && typeof meta === 'object') {
+      logMatch({
+        score: score,
+        pipes: pipesPassed,
+        coins: coinsGot,
+        time: timeSec,
+        dist: distMeters,
+        mode: meta.mode || modeName,
+        variant: meta.variant,
+        map: meta.map,
+        result: meta.result,
+        online: meta.online === true,
+        participants: meta.participants
+      });
+    }
     // 🔩 Piezas: 1 por vuelo + 1 por buena marca + 1 si es récord personal
     const gotParts = 1 + (score >= 20 ? 1 : 0) + (isRecord ? 1 : 0);
     addParts(gotParts);
@@ -491,6 +562,95 @@ window.SAVE = (function () {
     });
     if (data.runs.length > RUN_HISTORY) data.runs.length = RUN_HISTORY;
     save();
+  }
+
+  /* --- Récords completos por modo (historial separado de runs) --- */
+  function matchMode(v) {
+    const allowed = ['free', 'goal', 'pvp', 'duel', 'challenge', 'zen', 'boss', 'wind', 'replay'];
+    return allowed.indexOf(v) !== -1 ? v : 'free';
+  }
+
+  function normalizeParticipant(p) {
+    const o = p && typeof p === 'object' ? p : {};
+    return {
+      name: cleanName(o.name) || 'Jugador',
+      score: Math.max(0, Math.floor(num(o.score))),
+      pipes: Math.max(0, Math.floor(num(o.pipes))),
+      finished: !!o.finished,
+      online: !!o.online
+    };
+  }
+
+  function normalizeMatch(raw) {
+    const m = raw && typeof raw === 'object' ? raw : {};
+    const mode = matchMode(m.mode);
+    const parts = (Array.isArray(m.participants) ? m.participants : []).slice(0, 2).map(normalizeParticipant);
+    let variant = '';
+    if (m.variant === 'goal' || m.variant === 'free') variant = m.variant;
+    else if (mode === 'goal') variant = 'goal';
+    else if (mode === 'free') variant = 'free';
+    return {
+      id: typeof m.id === 'string' && m.id ? m.id.slice(0, 40) : ('m_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)),
+      player: cleanName(m.player) || (parts[0] && parts[0].name) || data.profile.name || 'Jugador',
+      date: Math.max(0, num(m.date)) || Date.now(),
+      mode: mode,
+      variant: variant,
+      map: typeof m.map === 'string' && m.map ? m.map.slice(0, 32) : 'day',
+      pipes: Math.max(0, Math.floor(num(m.pipes))),
+      result: typeof m.result === 'string' ? m.result.slice(0, 32) : '',
+      time: Math.max(0, Math.min(86400, Math.round(num(m.time) * 100) / 100)),
+      score: Math.max(0, Math.floor(num(m.score))),
+      coins: Math.max(0, Math.floor(num(m.coins))),
+      dist: Math.max(0, Math.floor(num(m.dist))),
+      online: m.online === true,
+      participants: parts
+    };
+  }
+
+  function logMatch(entry) {
+    const m = normalizeMatch(Object.assign({}, entry, {
+      player: (entry && entry.player) || data.profile.name,
+      date: Date.now()
+    }));
+    data.matchLog.unshift(m);
+    if (data.matchLog.length > MATCH_LOG_MAX) data.matchLog.length = MATCH_LOG_MAX;
+    save();
+    return m;
+  }
+
+  function getMatches(filter) {
+    const list = (data.matchLog || []).map(m => Object.assign({}, m, {
+      participants: (m.participants || []).map(p => Object.assign({}, p))
+    }));
+    if (!filter || filter === 'all') return list;
+    if (filter === 'online') return list.filter(m => m.online || m.mode === 'pvp');
+    if (filter === 'goal') return list.filter(m => m.mode === 'goal' || m.variant === 'goal');
+    if (filter === 'free') return list.filter(m => m.mode === 'free');
+    return list.filter(m => m.mode === filter);
+  }
+
+  /* --- Radar / mapa táctico --- */
+  function getRadar() { return normalizeRadar(data.set.radar); }
+  function setRadar(patch) {
+    data.set.radar = normalizeRadar(Object.assign({}, data.set.radar, patch || {}));
+    save();
+    return getRadar();
+  }
+  function resetRadar() {
+    data.set.radar = radarDefaults();
+    save();
+    return getRadar();
+  }
+  function getGoalPipes() {
+    const n = Math.floor(num(data.set.goalPipes));
+    return GOAL_PIPES.indexOf(n) !== -1 ? n : 12;
+  }
+  function setGoalPipes(n) {
+    const v = Math.floor(num(n));
+    if (GOAL_PIPES.indexOf(v) === -1) return getGoalPipes();
+    data.set.goalPipes = v;
+    save();
+    return v;
   }
 
   // Ranking local (sin servidor): jugadores del dispositivo + mejores vuelos.
@@ -1318,6 +1478,8 @@ window.SAVE = (function () {
     // perfil, ranking local y escudos persistentes
     getProfile, rename, setProfileName, checkName, nameKey, randomName, cleanName, leaderboard,
     shieldCount, addShield, useShield,
+    getRadar, setRadar, resetRadar, getGoalPipes, setGoalPipes,
+    getMatches, logMatch, normalizeRadar, GOAL_PIPES,
     lastSaveError, lastLoadError
   };
   return SAVE;
