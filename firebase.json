@@ -6,6 +6,16 @@
   "database": {
     "rules": "database.rules.json"
   },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "*.log",
+      ".firebase/**"
+    ]
+  },
   "hosting": {
     "public": ".",
     "ignore": [
@@ -18,6 +28,7 @@
       "**/.*",
       "**/node_modules/**",
       "firebase/**",
+      "functions/**",
       "tools/**",
       "android/**",
       "dist/**",
@@ -48,6 +59,7 @@
     "auth": { "port": 9099 },
     "firestore": { "port": 8080 },
     "database": { "port": 9000 },
+    "functions": { "port": 5001 },
     "hosting": { "port": 5000 },
     "ui": { "enabled": true, "port": 4000 },
     "singleProjectMode": true

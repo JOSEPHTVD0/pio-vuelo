@@ -57,6 +57,7 @@ window.CLOUD = (function () {
   let auth = null;
   let db = null;
   let rtdb = null;
+  let functions = null;         // Cloud Functions (backend dedicado)
   let M = null;                 // módulos del SDK
   let initPromise = null;
   let boardUnsub = null;
@@ -522,11 +523,12 @@ window.CLOUD = (function () {
       const version = CFG.sdkVersion || '11.0.2';
       const base = 'https://www.gstatic.com/firebasejs/' + version + '/';
 
-      const [appMod, authMod, fsMod, rtdbMod] = await Promise.all([
+      const [appMod, authMod, fsMod, rtdbMod, functionsMod] = await Promise.all([
         import(base + 'firebase-app.js'),
         import(base + 'firebase-auth.js'),
         import(base + 'firebase-firestore.js'),
-        import(base + 'firebase-database.js')
+        import(base + 'firebase-database.js'),
+        import(base + 'firebase-functions.js')
       ]);
 
       /* Reutiliza la app si un reintento ocurre tras un fallo parcial. */
@@ -566,7 +568,14 @@ window.CLOUD = (function () {
       }
 
       rtdb = rtdbMod.getDatabase(app);
-      M = { appMod: appMod, authMod: authMod, fsMod: fsMod, rtdbMod: rtdbMod };
+      functions = functionsMod.getFunctions(app, CFG.functionsRegion || 'us-central1');
+      M = {
+        appMod: appMod,
+        authMod: authMod,
+        fsMod: fsMod,
+        rtdbMod: rtdbMod,
+        functionsMod: functionsMod
+      };
 
       /* Solo para pruebas locales: permite apuntar a los emuladores sin
          tocar la configuración de producción. Auth ya se conectó arriba. */
@@ -583,6 +592,12 @@ window.CLOUD = (function () {
             rtdbMod.connectDatabaseEmulator(rtdb, hp[0], Number(hp[1] || 9000));
           }
         } catch (e) { warn('emulador database:', e); }
+        try {
+          if (CFG.emulators.functions) {
+            const hp = String(CFG.emulators.functions).split(':');
+            functionsMod.connectFunctionsEmulator(functions, hp[0], Number(hp[1] || 5001));
+          }
+        } catch (e) { warn('emulador functions:', e); }
       }
 
       /* Con la sesión cerrada a propósito no se crea un invitado anónimo:
@@ -1927,6 +1942,74 @@ window.CLOUD = (function () {
     }
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Backend dedicado (Cloud Functions)                                  */
+  /* ------------------------------------------------------------------ */
+
+  function backendReason(err) {
+    const code = String((err && (err.code || err.message)) || 'error');
+    return code.replace(/^functions\//, '');
+  }
+
+  // Permisos reales del operador, para que el panel no prometa lo que el
+  // backend va a rechazar.
+  async function getAdminStatus() {
+    await init();
+    if (!state.ready || !functions || !auth || !auth.currentUser) {
+      return { ok: false, admin: false, reason: 'offline' };
+    }
+    try {
+      const call = M.functionsMod.httpsCallable(functions, 'getAdminStatus');
+      const res = await call({});
+      return Object.assign({ ok: true }, res.data || {});
+    } catch (err) {
+      warn('getAdminStatus:', err);
+      return { ok: false, admin: false, reason: backendReason(err) };
+    }
+  }
+
+  // Envía un aviso real a cualquier buzón. El backend comprueba la sesión,
+  // los permisos de administrador y el límite de envíos; el cliente nunca
+  // escribe directamente en el buzón de otra cuenta.
+  async function sendAdminNotification(uid, data) {
+    const d = data || {};
+    await init();
+    if (!state.ready || !functions || !auth || !auth.currentUser) {
+      return { ok: false, reason: 'offline', message: 'Sin conexión con el backend.' };
+    }
+    try {
+      const call = M.functionsMod.httpsCallable(functions, 'sendAdminNotification');
+      const res = await call({
+        uid: String(uid || '').slice(0, 128),
+        title: String(d.title || '').slice(0, 64),
+        body: String(d.body || '').slice(0, 160),
+        type: String(d.type || 'admin').slice(0, 16)
+      });
+      return Object.assign({ ok: true }, res.data || {});
+    } catch (err) {
+      warn('sendAdminNotification:', err);
+      return {
+        ok: false,
+        reason: backendReason(err),
+        message: (err && err.message) || 'No se pudo enviar el aviso.'
+      };
+    }
+  }
+
+  async function markNotificationRead(id) {
+    if (!state.ready || !rtdb || !state.uid || !id) return false;
+    try {
+      await M.rtdbMod.update(
+        M.rtdbMod.ref(rtdb, 'notifications/' + state.uid + '/' + id),
+        { read: true }
+      );
+      return true;
+    } catch (err) {
+      warn('markNotificationRead:', err);
+      return false;
+    }
+  }
+
   let notifUnsub = null;
   function stopNotifications() {
     if (notifUnsub) { try { notifUnsub(); } catch (e) { } notifUnsub = null; }
@@ -2071,6 +2154,9 @@ window.CLOUD = (function () {
     getKillRecord: getKillRecord,
     getKillBoard: getKillBoard,
     sendNotification: sendNotification,
+    sendAdminNotification: sendAdminNotification,
+    getAdminStatus: getAdminStatus,
+    markNotificationRead: markNotificationRead,
     watchNotifications: watchNotifications,
     stopNotifications: stopNotifications
   };

@@ -1,19 +1,22 @@
 {
   "name": "pio-vuelo",
-  "version": "3.5.0",
+  "version": "3.5.1",
   "private": true,
   "description": "Pío Vuelo: juego arcade PWA con nube opcional en Firebase",
   "scripts": {
     "test": "node tools/test-game.js",
     "test:smoke": "node tools/browser-smoke.js",
     "test:firebase": "node tools/test-firebase-config.js",
+    "test:functions": "node tools/test-functions.js",
+    "test:functions:emu": "npx --yes firebase-tools@13 emulators:exec --only functions,database,auth,firestore --project demo-pio-vuelo \"node tools/firebase-functions-emulator-test.js\"",
     "test:rules": "npx --yes firebase-tools@13 emulators:exec --only firestore,database,auth --project demo-pio-vuelo \"node tools/firebase-rules-test.js\"",
     "serve": "node tools/test-server.js",
     "firebase:seed": "node firebase/seed.js",
     "firebase:seed:emulator": "node firebase/seed.js --emulator",
     "firebase:seed:demo": "node firebase/seed.js --demo",
     "firebase:emulators": "npx --yes firebase-tools@13 emulators:start",
-    "firebase:deploy": "npx --yes firebase-tools@13 deploy --only firestore:rules,firestore:indexes,database"
+    "firebase:deploy": "npx --yes firebase-tools@13 deploy --only firestore:rules,firestore:indexes,database",
+    "firebase:deploy:functions": "npx --yes firebase-tools@13 deploy --only functions --project pio-vuelo"
   },
   "devDependencies": {
     "firebase": "^11.10.0",

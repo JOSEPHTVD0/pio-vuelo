@@ -14,6 +14,8 @@ Con Firebase activado se añaden cuatro cosas:
 | Ranking en vivo | Realtime Database | `leaderboard_live/global/{uid}` |
 | Presencia (conectado) | Realtime Database | `presence/{uid}` |
 | Duelos por código | Realtime Database | `duels/{code}` |
+| Récord y notificaciones | Realtime Database | `records/kills`, `recordBoard`, `recordHistory`, `notifications/{uid}` |
+| Backend dedicado | Cloud Functions v2 | `onKillRecord`, `sendAdminNotification`, `getAdminStatus` |
 | Catálogo, temporadas, semilla diaria | Firestore (solo lectura) | `catalog`, `seasons`, `dailyChallenges` |
 
 ---
@@ -29,6 +31,7 @@ El proyecto **`pio-vuelo`** ya existe y está conectado:
 | Authentication | Proveedores **Anónimo** y **Correo/contraseña** activos |
 | App web | `PIO VUELO Web`, configuración en `js/firebase-config.js` |
 | Reglas e índices | Desplegados con `npm run firebase:deploy` |
+| Cloud Functions | Backend dedicado en `functions/` (requiere plan Blaze) |
 
 Con esto el juego ya sincroniza perfil, ranking, presencia y duelos. Los pasos
 1 a 4 quedan como referencia por si algún día creas otro proyecto o necesitas
@@ -53,9 +56,9 @@ volver a cargar el catálogo.
    registra la app (por ejemplo `Pío Vuelo Web`) y copia el objeto
    `firebaseConfig`.
 
-> No actives el plan Blaze hasta que lo necesites. El plan gratuito Spark
-> incluye Firestore, Realtime Database y Authentication anónima con límites
-> diarios más que suficientes para empezar.
+> El plan Spark incluye Firestore, Realtime Database y Authentication, pero
+> **Cloud Functions exige el plan Blaze**. Actívalo solo cuando quieras
+> desplegar el backend de notificaciones; el juego sigue funcionando sin él.
 
 ---
 
@@ -126,6 +129,89 @@ También puedes hacerlo desde el repo con:
 npm run firebase:deploy
 ```
 
+### 3.1 Backend dedicado (Cloud Functions)
+
+El backend vive en `functions/` y usa **Cloud Functions v2 + Admin SDK**. Es
+el único componente con permiso para escribir en el buzón de otra cuenta.
+
+| Función | Tipo | Qué hace |
+|---|---|---|
+| `onKillRecord` | Trigger RTDB sobre `records/kills` | Avisa al jugador anterior cuando otro supera su récord. Usa un ID determinista para no duplicar avisos si el evento se reintenta. |
+| `sendAdminNotification` | Callable autenticada | Envía un aviso a cualquier `notifications/{uid}`. Exige custom claim `admin === true` o documento Firestore `admins/{uid}`. Limita a 30 avisos/minuto y guarda auditoría. |
+| `getAdminStatus` | Callable autenticada | Devuelve al panel si la cuenta tiene permisos reales de backend. |
+
+Requisitos y despliegue:
+
+```powershell
+# 1. Activa el plan Blaze en la consola de Firebase (Cloud Functions lo exige).
+
+# 2. Instala las dependencias del backend.
+cd functions
+npm install
+cd ..
+
+# 3. Despliega solo las funciones.
+npm run firebase:deploy:functions
+# equivalente:
+npx --yes firebase-tools@13 deploy --only functions --project pio-vuelo
+```
+
+El runtime es **Node.js 20** y la región **`us-central1`**
+(`functionsRegion` en `js/firebase-config.js`).
+
+Autorizar a un operador (sin claves de servicio en el navegador):
+
+1. Abre el panel de administración y copia el **UID** que aparece bajo
+   “Notificaciones”.
+2. En Firestore crea el documento `admins/{UID}` con `role: "admin"`
+   (o `admin: true`). Las reglas del cliente no permiten crear ese documento:
+   hazlo desde la consola o con el Admin SDK.
+3. Vuelve a abrir el panel y pulsa **“Comprobar backend”**: debe mostrar
+   “Backend conectado ✅”. La comprobación es manual a propósito, para no
+   generar errores de consola cuando Functions aún no está desplegado.
+
+Alternativa con custom claim (Admin SDK o script propio):
+
+```js
+await getAuth().setCustomUserClaims(uid, { admin: true });
+```
+
+El JWT puede tardar hasta una hora en reflejar el claim; el documento
+`admins/{uid}` se comprueba en cada llamada y no requiere esperar.
+
+Pruebas sin emuladores (lógica pura de validación y formato):
+
+```powershell
+npm run test:functions
+```
+
+Prueba completa con emuladores (Auth, RTDB, Firestore y Functions en el puerto 5001):
+
+```powershell
+npm run test:functions:emu
+```
+
+Levanta los emuladores, ejecuta el trigger y las callables con tokens reales y
+comprueba la entrega del aviso, los permisos, el ID determinista y la auditoría.
+En el emulador el backend usa el mismo espacio de nombres que el cliente
+(`<proyecto>-default-rtdb`), aunque `FIREBASE_CONFIG` apunte al nombre corto.
+
+> `firebase-functions` está fijado en la rama 6.x a propósito: la 7.x rompe el
+> emulador de Firebase CLI 13 con `functions.config() has been removed`. El
+> aviso “outdated version” del emulador es esperado y no afecta al despliegue.
+
+Notas de seguridad:
+
+- El cliente **nunca** escribe en el buzón de otra cuenta. Las reglas siguen
+  denegando escrituras cruzadas; el backend las evita con Admin SDK.
+- El trigger valida rango de eliminaciones, UID, nombre y fecha, y no avisa si
+  el récord es del mismo jugador o si no es superior al anterior.
+- `sendAdminNotification` no acepta el tipo `record` desde el panel: ese tipo
+  solo lo genera el trigger.
+- La auditoría del backend se guarda en Firestore `adminAudit` (solo Admin SDK).
+- El límite se guarda en RTDB `adminRate/{uid}` y no es accesible desde el
+  cliente.
+
 ### Probar las reglas sin tocar producción
 
 ```powershell
@@ -133,7 +219,7 @@ npm run test:rules
 ```
 
 Levanta los emuladores de Firestore, Realtime Database y Authentication en el
-proyecto de demostración `demo-pio-vuelo`, ejecuta **26 comprobaciones** con el
+proyecto de demostración `demo-pio-vuelo`, ejecuta **89 comprobaciones** con el
 SDK real del cliente (no con Admin) y los apaga al terminar. No necesita cuenta
 ni credenciales de Firebase. Si no tienes la CLI instalada globalmente, el
 equivalente es:
@@ -292,6 +378,18 @@ duels/{CODE}                       { code, seed, state, createdAt, updatedAt, st
                                      config: { pipes, time, map, diff, tools, seedMode, seed },
                                      host: { uid, name, score, pipes, alive, finished, time },
                                      guest: { uid, name, score, pipes, alive, finished, time } | null }
+records/kills                      { kills, uid, name, at }
+recordBoard/{uid}                  { name, kills, at }
+recordHistory/{id}                 { uid, name, kills, at }
+notifications/{uid}/{id}           { type, title, body, from, fromName, record, at, read }
+adminRate/{uid}                    { at: [ms...], updatedAt }        (solo Admin SDK)
+```
+
+Firestore (solo Admin SDK / backend):
+
+```text
+admins/{uid}                       { role: "admin" } | { admin: true }
+adminAudit/{id}                    { action, adminUid, targetUid, title, notificationId, at }
 ```
 
 Estados de duelo:
@@ -329,6 +427,14 @@ Reglas de la sala:
 - `duels/{code}`: lectura pública; escritura limitada al anfitrión y al invitado.
   Cada jugador solo puede modificar su propio lado y el progreso tiene límites
   validados. `code`, `createdAt`, `seed` y `config` no cambian una vez creados.
+- `records/kills`, `recordBoard` y `recordHistory`: lectura pública; escritura
+  monotónica del propio UID (nunca se puede bajar una marca ni publicar a nombre
+  de otro).
+- `notifications/{uid}`: solo el dueño puede leer su buzón y marcar sus avisos.
+  La escritura cruzada está denegada; la entrega real la hace el backend con
+  Admin SDK.
+- `admins/{uid}`, `adminRate/{uid}` y `adminAudit/{id}`: sin acceso desde el
+  cliente; solo Admin SDK / consola.
 - Cualquier ruta no listada queda denegada.
 
 Puedes probar las reglas con el emulador:
@@ -370,6 +476,29 @@ código. `CLOUD.session().uid` identifica al jugador para saber si es `host` o
 `guest`; `finishDuel(code, result)` es un alias de `updateDuelProgress` y
 `updateDuelScore(code, score)` se mantiene por compatibilidad.
 
+Backend y notificaciones:
+
+```js
+await CLOUD.submitKillRecord(20);            // publica el récord global
+const top = await CLOUD.getKillBoard(10);    // clasificación por jugador
+
+CLOUD.watchNotifications(list => console.log(list)); // buzón en tiempo real
+await CLOUD.markNotificationRead(id);
+
+const status = await CLOUD.getAdminStatus(); // { admin, backend, uid }
+const res = await CLOUD.sendAdminNotification(uid, {
+  type: 'admin', title: 'Aviso', body: 'Texto breve'
+});
+```
+
+`watchNotifications` se inicia al cargar el juego. Los avisos nuevos se muestran
+como toast y se marcan como leídos; si el jugador estaba desconectado, los verá
+en la siguiente conexión. `sendAdminNotification` devuelve
+`{ ok: true, id, targetUid, at }` o `{ ok: false, reason, message }` con motivos
+como `permission-denied`, `unauthenticated`, `resource-exhausted` o
+`invalid-argument`. El cliente no intenta escribir directamente en el buzón de
+otra cuenta.
+
 La pantalla **RÉCORDS** muestra automáticamente el ranking global cuando la
 nube está configurada; si no, sigue mostrando el ranking local.
 
@@ -400,6 +529,12 @@ Comportamiento online:
   local salvo que importes una copia JSON.
 - Firestore y Realtime Database tienen cuotas gratuitas diarias. Revisa
   **Uso y facturación** antes de abrir el juego a muchos jugadores.
+- Cloud Functions requiere Blaze y consume invocaciones. El límite interno de
+  30 avisos/minuto por operador evita bucles accidentales desde el panel; el
+  trigger solo se ejecuta cuando cambia `records/kills`.
+- El buzón guarda como máximo los avisos que envíe el backend o el propio
+  jugador. No se guardan correos, teléfonos ni datos personales en las
+  notificaciones.
 - No se guardan datos de pago: el Pase Prémium se compra con monedas del juego.
 
 ---
@@ -415,6 +550,10 @@ Comportamiento online:
 | `Firebase no está conectado` | `enabled: false` o config incompleta | Revisa `js/firebase-config.js` |
 | La consola muestra error de importación | SDK bloqueado por la red | El juego sigue offline; revisa `sdkVersion` o el CSP |
 | `Missing or insufficient permissions` al crear perfil | El documento no cumple `firestore.rules` | Revisa que `schema` sea `1` y el nombre tenga 2–16 caracteres |
+| `permission-denied` al enviar un aviso | La cuenta no es administradora del backend | Crea `admins/{uid}` en Firestore o asigna el claim `admin: true` |
+| `unimplemented` / `not-found` en el panel | Functions sin desplegar | `npm run firebase:deploy:functions` |
+| `resource-exhausted` al enviar avisos | Límite de 30/minuto | Espera un minuto o revisa si hay un bucle en el panel |
+| El despliegue de Functions pide facturación | Proyecto en plan Spark | Activa Blaze; sin él el backend no se puede crear |
 
 ---
 
@@ -423,7 +562,8 @@ Comportamiento online:
 - **Nombres únicos:** transacción sobre `usernames/{slug}`.
 - **Anti-cheat:** validar los vuelos con una Cloud Function y marcar
   `verified: true`; el ranking puede filtrar solo verificados.
-- **Cloud Functions:** recalcular `best` y limpiar la cola de vuelos.
+- **Notificaciones push:** añadir FCM para que los avisos lleguen con la app
+  cerrada; el buzón de RTDB ya guarda el mensaje.
 - **App Check:** proteger Firestore/RTDB frente a clientes no oficiales.
 - **Cuentas reales:** enlazar el usuario anónimo con Google/Apple para que el
   progreso viaje entre dispositivos.

@@ -19,6 +19,9 @@ window.PIO_FIREBASE = {
   /* Versión del SDK modular de Firebase cargado desde gstatic. */
   sdkVersion: '11.0.2',
 
+  /* Región del backend dedicado (Cloud Functions). */
+  functionsRegion: 'us-central1',
+
   config: {
     apiKey: 'AIzaSyBs-ztKuUX1bpIU9JXDKLqqYiaI_pal1xI',
     authDomain: 'pio-vuelo.firebaseapp.com',

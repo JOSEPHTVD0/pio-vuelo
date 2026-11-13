@@ -228,6 +228,11 @@ function makeClient(ws) {
     // Panel ampliado v3.5.0: roles, tuning, auditoría, récords y sanciones.
     ok(await evalJs("!!document.getElementById('admRole') && document.querySelectorAll('#admSanctionType option').length === 3 && !!document.getElementById('admTuneSave')"),
       'el panel incluye roles, tuning y sanciones reales');
+    // Avisos reales: el panel tiene envío y comprobación explícita del backend.
+    ok(await evalJs("!!document.getElementById('admNotifSend') && !!document.getElementById('admNotifCheck') && !!document.getElementById('admNotifOut')"),
+      'el panel incluye envío de avisos y comprobación del backend');
+    ok(await evalJs("document.getElementById('admNotifOut').textContent.indexOf('Comprobar backend') !== -1 || document.getElementById('admNotifOut').textContent.indexOf('Conecta la nube') !== -1"),
+      'el panel explica el estado del backend sin lanzar peticiones automáticas');
     await evalJs("document.getElementById('admRole').value='moderador'; document.getElementById('admRoleSave').click()");
     await sleep(200);
     ok(await evalJs("SAVE.getAdmin().role === 'moderador' && SAVE.getAdminLog(1).length >= 1"),

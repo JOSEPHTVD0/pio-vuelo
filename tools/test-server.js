@@ -23,6 +23,7 @@ const EMULATOR_CONFIG = `/* Configuración generada por tools/test-server.js par
 window.PIO_FIREBASE = {
   enabled: true,
   sdkVersion: '11.0.2',
+  functionsRegion: 'us-central1',
   config: {
     apiKey: 'demo-api-key',
     authDomain: 'demo-pio-vuelo.firebaseapp.com',
@@ -35,7 +36,8 @@ window.PIO_FIREBASE = {
   emulators: {
     auth: 'http://127.0.0.1:9099',
     firestore: '127.0.0.1:8080',
-    database: '127.0.0.1:9000'
+    database: '127.0.0.1:9000',
+    functions: '127.0.0.1:5001'
   },
   options: {
     board: 'global',

@@ -51,6 +51,32 @@ window.APP = (function () {
     ENTS.drawBird(c, 60, 50, { skin, hat: null, t: Date.now() / 700, wingPhase: flap, squash: 1, rot: Math.sin(Date.now() / 200) * 0.08, r: 20 });
   }
 
+  /* --- Avisos reales de la nube (récords superados y panel admin) --- */
+  let notificationStop = null;
+  const seenNotifications = new Set();
+  function startNotifications() {
+    if (!window.CLOUD || typeof CLOUD.watchNotifications !== 'function') return;
+    if (notificationStop) {
+      try { notificationStop(); } catch (e) { }
+      notificationStop = null;
+    }
+    notificationStop = CLOUD.watchNotifications(function (list) {
+      let shown = 0;
+      (list || []).slice().reverse().forEach(function (n) {
+        if (!n || !n.id || n.read === true || seenNotifications.has(n.id) || shown >= 3) return;
+        shown++;
+        seenNotifications.add(n.id);
+        const title = String(n.title || 'Pío Vuelo').slice(0, 64);
+        const body = String(n.body || '').slice(0, 160);
+        const icon = n.type === 'record' ? '🏆 ' : '🔔 ';
+        UI.toast(icon + title + (body ? ' · ' + body : ''), n.type === 'record' ? 'good' : 'info');
+        if (typeof CLOUD.markNotificationRead === 'function') {
+          CLOUD.markNotificationRead(n.id);
+        }
+      });
+    });
+  }
+
   function finishLoading() {
     $('loadFill').style.width = '100%';
     SND.ensure();
@@ -80,10 +106,15 @@ window.APP = (function () {
     window.addEventListener('piovuelo:accountchoice', (ev) => {
       UI.accountChoice((ev && ev.detail) || {});
     });
-    // La sesión cambió (registro o cierre): refresca el perfil si está abierto.
+    // La sesión cambió (registro o cierre): refresca el perfil si está abierto
+    // y vuelve a escuchar el buzón de la cuenta activa.
     window.addEventListener('piovuelo:accountchanged', () => {
       if (UI.current() === 'profile') UI.openGeneric('profile');
+      startNotifications();
     });
+    // Escucha el buzón privado: el backend entrega ahí los avisos de récord
+    // y los mensajes del panel. Sin nube configurada no se hace ninguna red.
+    startNotifications();
     const st = SAVE.get().set;
     SND.setSfx(st.sfx);
     SND.setMusic(st.music);
@@ -320,12 +351,59 @@ window.APP = (function () {
     }
     box.innerHTML = out;
   }
+  let adminNotifStatus = null;
+  function renderAdminNotifHint() {
+    const box = $('admNotifOut');
+    if (!box) return;
+    const sess = window.CLOUD && CLOUD.session ? CLOUD.session() : {};
+    if (!sess.uid) {
+      box.textContent = 'Conecta la nube para enviar avisos reales a otras cuentas.';
+      return;
+    }
+    const uid = adminEsc(sess.uid);
+    if (!window.CLOUD || typeof CLOUD.getAdminStatus !== 'function') {
+      box.innerHTML = 'Tu UID: <b>' + uid + '</b>\nBackend dedicado no disponible en este cliente.';
+      return;
+    }
+    const st = adminNotifStatus;
+    if (st && st.admin) {
+      box.innerHTML = 'Backend conectado ✅\nTu UID: <b>' + uid + '</b>\nPuedes enviar avisos a cualquier cuenta.';
+    } else if (st && st.backend) {
+      box.innerHTML = 'Backend conectado, pero sin permisos de administrador.\nTu UID: <b>' + uid +
+        '</b>\nCrea el documento Firestore admins/' + uid + ' para autorizar esta cuenta.';
+    } else if (st) {
+      box.innerHTML = 'Backend no disponible (' + adminEsc(st.reason || 'sin conexión') +
+        ').\nTu UID: <b>' + uid + '</b>';
+    } else {
+      box.innerHTML = 'Tu UID: <b>' + uid + '</b>\nPulsa «Comprobar backend» para verificar los permisos.';
+    }
+  }
+  async function checkAdminBackend() {
+    if (!window.CLOUD || typeof CLOUD.getAdminStatus !== 'function') {
+      adminToast('Backend dedicado no disponible en este cliente', '');
+      return;
+    }
+    const box = $('admNotifOut');
+    if (box) box.textContent = 'Comprobando permisos del backend…';
+    adminNotifStatus = await CLOUD.getAdminStatus();
+    renderAdminNotifHint();
+  }
+  function adminNotifError(reason) {
+    if (reason === 'permission-denied') return 'Tu cuenta no es administradora del backend';
+    if (reason === 'unauthenticated') return 'Inicia sesión con tu cuenta de administrador';
+    if (reason === 'resource-exhausted') return 'Demasiados avisos: espera un minuto';
+    if (reason === 'invalid-argument') return 'Revisa el UID, el título y el mensaje';
+    if (reason === 'not-found' || reason === 'unimplemented') return 'Backend no desplegado todavía';
+    if (reason === 'offline' || reason === 'unavailable') return 'Sin conexión con el backend';
+    return 'No se pudo enviar el aviso';
+  }
   function renderAdminExtras() {
     renderAdminTuning();
     renderAdminLog();
     renderAdminEvents();
     renderAdminSanctions();
     renderAdminPlayers();
+    renderAdminNotifHint();
   }
   function adminNum(id, fallback) {
     const el = $(id);
@@ -518,31 +596,58 @@ window.APP = (function () {
       adminToast('Sanción registrada 🚨');
       renderAdminExtras();
     };
+    $('admNotifCheck').onclick = () => { checkAdminBackend(); };
     $('admNotifSend').onclick = async () => {
       const title = ($('admNotifTitle').value || '').trim();
       const body = ($('admNotifBody').value || '').trim();
       if (!title) { adminToast('Escribe un título para el aviso', ''); return; }
       const typed = ($('admNotifUid').value || '').trim();
       const sess = window.CLOUD && CLOUD.session ? CLOUD.session() : {};
-      const uid = sess.uid || typed;
-      if (!uid) { adminToast('Sin UID destino ni sesión activa', ''); return; }
-      // Las reglas de Firebase solo permiten escribir en el buzón propio:
-      // enviar a otra cuenta requiere un backend con privilegios.
-      if (typed && sess.uid && typed !== sess.uid) {
-        adminToast('Sin backend, el aviso solo puede ir a tu cuenta', '');
+      const target = typed || sess.uid;
+      if (!target) { adminToast('Sin UID destino ni sesión activa', ''); return; }
+      if (!window.CLOUD) { adminToast('Firebase no está disponible', ''); return; }
+
+      const payload = { type: 'admin', title: title, body: body || 'Aviso del equipo' };
+
+      // Camino real: Cloud Function autenticada + Admin SDK. Puede escribir
+      // en el buzón de cualquier cuenta y comprueba los permisos del operador.
+      if (typeof CLOUD.sendAdminNotification === 'function') {
+        const res = await CLOUD.sendAdminNotification(target, payload);
+        if (res && res.ok) {
+          SAVE.adminAudit('notificacion', 'Aviso a ' + target + ': ' + title);
+          adminToast(typed ? 'Notificación enviada 🔔' : 'Aviso enviado a tu cuenta 🔔');
+          renderAdminExtras();
+          return;
+        }
+        const reason = String((res && res.reason) || 'error');
+        // Si el backend aún no está desplegado, el buzón propio sigue
+        // funcionando con la escritura directa que permiten las reglas.
+        if (target === sess.uid && (reason === 'not-found' || reason === 'unimplemented') &&
+          typeof CLOUD.sendNotification === 'function') {
+          const okLocal = await CLOUD.sendNotification(target, payload);
+          if (okLocal) {
+            SAVE.adminAudit('notificacion', 'Aviso a tu cuenta: ' + title);
+            adminToast('Aviso enviado a tu cuenta 🔔');
+            renderAdminExtras();
+            return;
+          }
+        }
+        adminToast(adminNotifError(reason), '');
         return;
       }
-      if (!window.CLOUD || !CLOUD.sendNotification) { adminToast('Firebase no está disponible', ''); return; }
-      try {
-        const okSend = await CLOUD.sendNotification(uid, { type: 'admin', title: title, body: body || 'Aviso del equipo' });
-        if (okSend) {
-          SAVE.adminAudit('notificacion', 'Aviso a ' + (typed || 'tu cuenta') + ': ' + title);
-          adminToast('Notificación enviada 🔔');
-          renderAdminExtras();
-        } else {
-          adminToast('No se pudo enviar el aviso', '');
-        }
-      } catch (e) {
+
+      // Cliente antiguo sin soporte de Functions: solo puede escribir en el
+      // propio buzón. Nunca simulamos un envío a otra cuenta.
+      if (target !== sess.uid) {
+        adminToast('Este cliente no incluye el backend de avisos', '');
+        return;
+      }
+      const okSend = await CLOUD.sendNotification(target, payload);
+      if (okSend) {
+        SAVE.adminAudit('notificacion', 'Aviso a tu cuenta: ' + title);
+        adminToast('Aviso enviado a tu cuenta 🔔');
+        renderAdminExtras();
+      } else {
         adminToast('No se pudo enviar el aviso', '');
       }
     };

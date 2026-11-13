@@ -1,4 +1,4 @@
-# Pío Vuelo 3.1
+# Pío Vuelo 3.5.1
 
 Juego arcade de un pájaro que vuela entre tubos, con monedas, power-ups, tienda, misiones, récords y progresión. Funciona como aplicación web instalable (PWA) y también como APK Android mediante WebView.
 
@@ -36,7 +36,9 @@ capa opcional de Firebase (Firestore + Realtime Database) ya preparada:
 - `js/firebase-config.js`: credenciales del cliente. En este proyecto está
   **activado**; con `enabled: false` el juego vuelve a ser 100 % local.
 - `js/cloud.js`: sesión anónima, sincronización del perfil, vuelos, ranking,
-  presencia y duelos. Si algo falla, el juego continúa offline.
+  presencia, duelos y avisos. Si algo falla, el juego continúa offline.
+- `functions/`: backend dedicado con **Cloud Functions v2** (trigger de récord y
+  envío de avisos del panel). Es opcional y exige el plan Blaze.
 - `firebase/seed.js`: carga el catálogo real de `js/data.js`, la temporada, la
   semilla diaria y récords de ejemplo.
 - `docs/FIREBASE.md`: guía paso a paso (crear proyecto, reglas, emuladores,
@@ -62,6 +64,15 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
 
+## Novedades de la versión 3.5.1
+
+- **Notificaciones reales entre cuentas:** nuevo backend en `functions/` con Cloud Functions v2 y Admin SDK. `onKillRecord` avisa en tiempo real al jugador cuyo récord de eliminaciones se supera, con el nombre del nuevo líder y la marca; el aviso llega a su buzón privado con un ID determinista para no duplicarse. `sendAdminNotification` permite al panel enviar avisos a cualquier cuenta y `getAdminStatus` comprueba los permisos del operador.
+- **Panel honesto:** el botón **«Comprobar backend»** consulta el estado real de las Functions; si aún no están desplegadas, el panel lo indica y no simula un envío. La autorización se valida en el servidor (custom claim o documento `admins/{uid}`), con límite de 30 avisos/minuto y auditoría en Firestore.
+- **Avisos en el juego:** los avisos nuevos aparecen como toast, se marcan como leídos y la suscripción se renueva al cambiar de cuenta.
+- **Caché renovada:** la PWA actualiza a `piovuelo-v34` para que los jugadores reciban los cambios al recargar.
+- **Despliegue:** las Functions exigen el plan Blaze; el resto del juego y el panel siguen funcionando sin ellas.
+- **Pruebas:** `npm test` 500/500, reglas 89/89, backend 41/41, backend con emuladores 21/21 y humo de navegador 55/55 sin conexión y 99/99 con emuladores.
+
 ## Novedades de la versión 3.5.0
 
 - **Supervivencia real en multijugador:** gana el último jugador vivo y pierde el primero que muere. Cuando un jugador cae pasa a espectador y la carrera sigue hasta que el rival también muere; solo entonces se registran ganador, perdedor, tiempo de supervivencia, causa de la caída y récord personal. Ambos jugadores reciben el mismo resultado.
@@ -72,6 +83,8 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - **Ambos jugadores en pantalla:** el radar táctico muestra posición, estado vivo/caído, tiempo y eliminaciones de los dos jugadores, con marcador de caído y etiquetas adaptadas a móvil y PC.
 - **Rendimiento multiplataforma:** DPR adaptativo según memoria, núcleos y calidad gráfica; caché de tamaño; presupuesto de partículas recortado automáticamente cuando bajan los FPS; controles táctiles, teclado (espacio/flechas, F/J) y ratón (clic derecho) para disparar.
 - **Seguridad:** reglas de Realtime Database para salas de supervivencia, récords globales monotónicos, tableros por jugador, historial de récords y buzones de notificación privados. El servidor rechaza configuraciones inventadas, resultados fuera de rango y escrituras cruzadas.
+- **Backend de notificaciones:** Cloud Functions v2 con Admin SDK. El trigger `onKillRecord` avisa al jugador cuyo récord se supera (con nombre del nuevo líder, nueva marca y un ID determinista para no duplicar); `sendAdminNotification` permite al panel enviar avisos reales a cualquier cuenta con permisos de administrador, límite de 30/minuto y auditoría en Firestore; `getAdminStatus` muestra en el panel, con el botón **«Comprobar backend»**, si la cuenta tiene permisos reales. Requiere plan Blaze: sin desplegar, el juego sigue funcionando y el panel lo indica sin simular envíos.
+- **Pruebas:** `npm test` 500/500, reglas contra emuladores 89/89, backend 41/41 y backend con emuladores 21/21.
 - **Compatibilidad:** los guardados anteriores se migran sin perder datos y las salas antiguas conservan su comportamiento.
 
 ## Novedades de la versión 3.4.2
@@ -239,6 +252,13 @@ Las reglas de seguridad se prueban contra los emuladores (sin tocar la nube):
 npm run test:rules
 ```
 
+El backend de notificaciones tiene dos niveles de prueba:
+
+```powershell
+npm run test:functions       # lógica pura de validación y formato (41)
+npm run test:functions:emu   # trigger + callables + auditoría con emuladores (21)
+```
+
 También hay una prueba de humo en un navegador real (Chrome o Edge headless, sin dependencias npm):
 
 ```powershell
@@ -252,15 +272,15 @@ real** (sin conexión, caché y reintento) y que el juego sigue funcionando offl
 Con `PIO_EMULATORS=1` añade el flujo completo de cuentas: aviso del primer vuelo,
 registro, restauración en un dispositivo nuevo, cierre de sesión y elección entre
 los dos progresos.
-Actualmente son **97 comprobaciones** y no debe haber errores de JavaScript. Con los emuladores también se prueban las salas online: crear, unirse, cuenta atrás sincronizada, progreso del rival, reglas de supervivencia, abandono y resolución final. Además se valida el panel de administración (roles, auditoría, tuning, estadísticas de jugadores y temporada), el modo Rompe récords con disparos reales, la publicación del récord global y la clasificación.
+Actualmente son **99 comprobaciones** y no debe haber errores de JavaScript. Con los emuladores también se prueban las salas online: crear, unirse, cuenta atrás sincronizada, progreso del rival, reglas de supervivencia, abandono y resolución final. Además se valida el panel de administración (roles, auditoría, tuning, estadísticas de jugadores, temporada, envío de avisos y comprobación manual del backend), el modo Rompe récords con disparos reales, la publicación del récord global y la clasificación.
 Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con
 `CHROME_PATH`. En un entorno sin red, `SKIP_ONLINE=1` omite solo el bloque online.
 
 ## Limitaciones conocidas
 
-- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.5.0 (versionCode 40)**: **7.080.427 bytes** y SHA-256 `EC2A69B53768578C3FC190F591DD5E225938352AFCAE957C1C55D70A9FE4319C`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
-- La verificación incluye pruebas headless (500/500), comprobaciones HTTP, reglas con emuladores (89/89) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 97/97 con emuladores, incluido el modo offline, las cuentas, las salas online, la supervivencia, la clasificación de eliminaciones y el panel ampliado). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos, el ranking online y una carrera 1v1 en dos dispositivos Android reales antes de darlos por cerrados.
-- **Notificaciones entre jugadores:** el buzón `notifications/{uid}` es privado y las reglas solo permiten escribir en el propio. Por eso, sin un backend dedicado (Cloud Functions o Admin SDK) el aviso al jugador cuyo récord se supera no puede entregarse en otra cuenta: el récord global y el historial sí se publican, y el panel avisa de esta limitación en lugar de simular un envío que fallaría.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.5.1 (versionCode 41)**: **7.084.523 bytes** y SHA-256 `46939C9F771798262A081656E20BB058201D58CAE4107D1B440AB30221C4F332`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
+- La verificación incluye pruebas headless (500/500), comprobaciones HTTP, reglas con emuladores (89/89), backend (41/41 y 21/21 con emuladores) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 99/99 con emuladores y 55/55 en modo offline, incluido el modo offline, las cuentas, las salas online, la supervivencia, la clasificación de eliminaciones y el panel ampliado). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos, el ranking online y una carrera 1v1 en dos dispositivos Android reales antes de darlos por cerrados.
+- **Notificaciones entre jugadores:** el buzón `notifications/{uid}` es privado y las reglas solo permiten escribir en el propio. La entrega real la hace el backend de `functions/` con Admin SDK. Para desplegarlo hay que activar el plan Blaze (Cloud Functions lo exige); mientras no esté desplegado, el récord global y el historial sí se publican y el panel muestra el estado real en lugar de simular un envío que fallaría.
 - El ranking global solo muestra marcas con más de 0 puntos. Las entradas antiguas con 0 puntos que ya existan en Firestore no se muestran y no se pueden borrar desde el cliente porque las reglas lo impiden; para limpiarlas hace falta la consola de Firebase o el Admin SDK.
 - La primera carga del ranking online necesita red. Si se abre sin conexión y nunca se ha visto la tabla, se muestra un aviso y se puede reintentar; el juego local no se bloquea.
 - La música es procedural (WebAudio) y no usa archivos externos: suena distinta por familia de mapa, pero no son pistas grabadas. El audio requiere un gesto del usuario para desbloquearse en móvil.
@@ -314,6 +334,7 @@ css/                    Estilos
 js/                     Lógica del juego, datos, guardado, UI, audio y nube
 icons/                  Iconos de la PWA
 tools/                  Pruebas, servidor local y utilidades
+functions/              Backend de notificaciones (Cloud Functions v2)
 android/                Proyecto Android (WebView) y script de compilación
 docs/FIREBASE.md        Guía de la base de datos en Firebase
 firebase/seed.js        Semilla del catálogo y datos de Firebase
