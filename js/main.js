@@ -110,6 +110,8 @@ window.APP = (function () {
       e.preventDefault();
       SND.unlock();
       if (!G.isPlay() || G.isPaused()) return;
+      // Ratón: clic derecho dispara igual que F/J y el botón de disparo.
+      if (e.pointerType === 'mouse' && e.button === 2) { G.shoot(); return; }
       if (SAVE.get().set.lift !== true) G.flap();
     };
     const up = e => {
@@ -129,10 +131,22 @@ window.APP = (function () {
         if (e.code === 'Space' && UI.current() === null &&
           $('adminModal').classList.contains('hidden') && G.getState() === 'menu') UI.showModePick();
       }
+      if (e.code === 'KeyF' || e.code === 'KeyJ') {
+        if (G.isPlay() && !G.isPaused()) { e.preventDefault(); SND.unlock(); G.shoot(); }
+      }
       if (e.code === 'KeyP' || e.code === 'Escape') {
         if (G.isPlay()) { SND.sfx.click(); G.togglePause(); }
       }
     });
+    const shootBtn = document.getElementById('btnShoot');
+    if (shootBtn) {
+      shootBtn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        SND.unlock();
+        if (G.isPlay() && !G.isPaused()) G.shoot();
+      });
+    }
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     // Solo bloquear el scroll del navegador sobre el canvas (durante el juego).
     // Las pantallas (tienda, mapas, progreso, ajustes) quedan libres para desplazarse.
@@ -181,6 +195,7 @@ window.APP = (function () {
     } else {
       $('adminLock').classList.add('hidden');
       $('adminPerks').classList.remove('hidden');
+      renderAdminExtras();
     }
     if (UI.isModePickOpen()) UI.closeModePick(); // fija la bandera si el menú de modos estaba abierto
     UI.hideAllScreens();
@@ -201,6 +216,153 @@ window.APP = (function () {
     UI.toast('🛠 ' + msg, kind || 'good');
   }
 
+  /* --- Extensiones del panel admin v3.5.0 (roles, tuning, historial, etc.) --- */
+  function adminEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function adminTime(ts) {
+    if (!ts) return '—';
+    try { return new Date(ts).toLocaleString(); } catch (e) { return '—'; }
+  }
+  function renderAdminLog() {
+    const box = $('admLog');
+    if (!box || !SAVE.getAdminLog) return;
+    const list = SAVE.getAdminLog(12);
+    box.innerHTML = list.length
+      ? list.map(e => '<b>' + adminEsc(e.action) + '</b> · ' + adminEsc(adminTime(e.at)) + '\n' + adminEsc(e.detail)).join('\n\n')
+      : 'Sin acciones registradas.';
+  }
+  function renderAdminEvents() {
+    const box = $('admEventList');
+    if (!box || !SAVE.getEvents) return;
+    const list = SAVE.getEvents();
+    box.innerHTML = list.length
+      ? list.map(e => '📅 <b>' + adminEsc(e.name) + '</b> · ' + adminEsc(e.kind) + '\n' + adminEsc(e.desc || 'Sin descripción')).join('\n\n')
+      : 'Sin eventos.';
+  }
+  function renderAdminSanctions() {
+    const box = $('admSanctionList');
+    if (!box || !SAVE.getSanctions) return;
+    const list = SAVE.getSanctions();
+    box.innerHTML = list.length
+      ? list.map(s => '🚨 <b>' + adminEsc(s.name) + '</b> · ' + adminEsc(s.type) + ' · ' + adminEsc(adminTime(s.at)) + '\n' + adminEsc(s.reason || 'Sin motivo')).join('\n\n')
+      : 'Sin sanciones.';
+  }
+  function renderAdminTuning() {
+    const t = SAVE.getTuning ? SAVE.getTuning() : null;
+    if (!t) return;
+    const set = (id, v) => { const el = $(id); if (el) el.value = v; };
+    set('admXpBase', t.xpBase);
+    set('admXpCurve', t.xpCurve);
+    set('admXpFlat', t.xpFlat);
+    set('admXpMul', t.xpMul);
+    set('admCoinMul', t.coinMul);
+    set('admRewardMul', t.rewardMul);
+    set('admPlayBonus', t.playBonus);
+    const role = $('admRole');
+    if (role && SAVE.getAdmin) role.value = SAVE.getAdmin().role;
+  }
+  function showAdminSeason() {
+    const box = $('admSeasonOut');
+    if (!box) return;
+    const xp = SAVE.totalXp ? SAVE.totalXp() : 0;
+    const reached = SAVE.passReached ? SAVE.passReached() : 0;
+    const claimed = SAVE.passClaimedCount ? SAVE.passClaimedCount() : 0;
+    const premium = SAVE.passPremiumActive ? SAVE.passPremiumActive() : false;
+    const premClaimed = SAVE.passPremiumClaimedCount ? SAVE.passPremiumClaimedCount() : 0;
+    const seasonReached = SAVE.seasonReached ? SAVE.seasonReached() : 0;
+    const seasonClaimed = SAVE.seasonClaimCount ? SAVE.seasonClaimCount() : 0;
+    const passTiers = (window.DAT && DAT.passTiers) ? DAT.passTiers().length : 0;
+    const seasonTiers = (window.DAT && DAT.SEASON_TIERS) ? DAT.SEASON_TIERS.length : 0;
+    box.innerHTML = '<b>' + adminEsc(SAVE.passSeasonName ? SAVE.passSeasonName() : 'Temporada') + '</b>' +
+      '\nXP total: ' + xp +
+      '\nPase: ' + reached + '/' + passTiers + ' niveles · ' + claimed + ' reclamados' +
+      '\nPase prémium: ' + (premium ? 'activo' : 'no activo') + ' · ' + premClaimed + '/' + passTiers + ' reclamados' +
+      '\nTemporada: ' + seasonReached + '/' + seasonTiers + ' niveles · ' + seasonClaimed + ' reclamados';
+  }
+  function renderAdminPlayers() {
+    const sel = $('admPlayer');
+    if (!sel || !SAVE.leaderboard) return;
+    const lb = SAVE.leaderboard();
+    const players = (lb && lb.players) || [];
+    const keep = sel.value;
+    sel.innerHTML = '';
+    players.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name + (p.me ? ' (tú)' : ' · ' + p.best + ' pts');
+      sel.appendChild(opt);
+    });
+    const mine = players.find(p => p.me);
+    if (keep && players.some(p => p.id === keep)) sel.value = keep;
+    else if (mine) sel.value = mine.id;
+  }
+  function showAdminPlayer() {
+    const sel = $('admPlayer');
+    const box = $('admPlayerOut');
+    if (!sel || !box) return;
+    const lb = SAVE.leaderboard();
+    const p = ((lb && lb.players) || []).find(x => x.id === sel.value);
+    if (!p) { box.textContent = 'Sin jugadores locales todavía.'; return; }
+    const matches = SAVE.getMatches().filter(m =>
+      (m.participants || []).some(x => String(x.name || '') === p.name));
+    let out = '<b>' + adminEsc(p.name) + '</b>' + (p.me ? ' · tú' : '') +
+      '\nMejor: ' + p.best + ' · Última: ' + p.last +
+      '\nPartidas: ' + p.games + ' · Partidas con historial: ' + matches.length +
+      '\nRécord: ' + adminEsc(adminTime(p.bestDate)) +
+      '\nÚltima vez: ' + adminEsc(adminTime(p.lastDate));
+    if (p.me) {
+      const st = SAVE.get().stats || {};
+      out += '\nOnline: ' + (st.mpWins || 0) + ' victorias / ' + (st.mpMatches || 0) + ' partidas' +
+        '\nSupervivencia online: ' + (st.mpSurvivalBest || 0) + ' s' +
+        '\nRécord de eliminaciones: ' + (st.recordBest || 0) +
+        '\nEliminaciones totales: ' + (st.recordKills || 0);
+    }
+    box.innerHTML = out;
+  }
+  function renderAdminExtras() {
+    renderAdminTuning();
+    renderAdminLog();
+    renderAdminEvents();
+    renderAdminSanctions();
+    renderAdminPlayers();
+  }
+  function adminNum(id, fallback) {
+    const el = $(id);
+    const v = el ? parseFloat(el.value) : NaN;
+    return isFinite(v) ? v : fallback;
+  }
+  async function loadAdminMatches() {
+    const box = $('admMatchOut');
+    if (!box) return;
+    const filter = $('admMatchFilter') ? $('admMatchFilter').value : 'all';
+    const list = SAVE.getMatches ? SAVE.getMatches(filter) : [];
+    if (!list.length) { box.textContent = 'No hay partidas para este filtro.'; return; }
+    box.innerHTML = list.slice(0, 12).map(m => {
+      const parts = (m.participants || []).map(p =>
+        adminEsc(p.name) + ' · ' + (p.score || 0) + ' pts · ' + (p.pipes || 0) + ' tubos' +
+        (p.kills ? ' · ' + p.kills + ' kills' : '') + (p.alive === false ? ' · 💀' : '')
+      ).join(' | ');
+      return '<b>' + adminEsc(m.mode || 'partida') + '</b> · ' + adminEsc(adminTime(m.date)) +
+        (m.result ? ' · ' + adminEsc(m.result) : '') + '\n' + (parts || 'Sin participantes');
+    }).join('\n\n');
+  }
+  async function loadAdminRecord() {
+    const box = $('admRecordOut');
+    if (!box) return;
+    const s = SAVE.get();
+    const local = 'Récord local de eliminaciones: <b>' + (s.stats.recordBest || 0) + '</b> · carreras: ' + (s.stats.recordRuns || 0);
+    box.innerHTML = local + '\nRécord global: consultando…';
+    let global = 'Récord global: sin conexión.';
+    if (window.CLOUD && CLOUD.getKillRecord) {
+      try {
+        const g = await CLOUD.getKillRecord();
+        if (g) global = 'Récord global: <b>' + (g.kills || 0) + '</b> kills · ' + adminEsc(g.name || 'Jugador') + ' · ' + adminEsc(adminTime(g.at));
+      } catch (e) { }
+    }
+    box.innerHTML = local + '\n' + global;
+  }
+
   function bindAdmin() {
     const coinChip = document.getElementById('homeCoinChip');
     if (coinChip) {
@@ -216,6 +378,7 @@ window.APP = (function () {
         $('adminLock').classList.add('hidden');
         $('adminPerks').classList.remove('hidden');
         SND.sfx.level();
+        renderAdminExtras();
         adminToast('Acceso concedido 🔓');
         $('adminPin').value = '';
       } else {
@@ -301,6 +464,88 @@ window.APP = (function () {
       adminToast('Desafío de hoy reiniciado 🌙');
       UI.refreshHome();
     };
+
+    /* --- v3.5.0: roles, auditoría, tuning, historial, récords, avisos --- */
+    $('admRoleSave').onclick = () => {
+      const role = $('admRole').value;
+      SAVE.setAdminRole(role);
+      adminToast('Rol guardado: ' + role + ' 👑');
+      renderAdminExtras();
+    };
+    $('admTuneSave').onclick = () => {
+      const t = SAVE.setTuning({
+        xpBase: adminNum('admXpBase', 70),
+        xpCurve: adminNum('admXpCurve', 1.45),
+        xpFlat: adminNum('admXpFlat', 40),
+        xpMul: adminNum('admXpMul', 1),
+        coinMul: adminNum('admCoinMul', 1),
+        rewardMul: adminNum('admRewardMul', 1),
+        playBonus: adminNum('admPlayBonus', 1)
+      });
+      SAVE.adminAudit('tuning', 'XP base ' + t.xpBase + ' · curva ' + t.xpCurve + ' · monedas ×' + t.coinMul);
+      adminToast('Ajustes de progresión guardados ⚙️');
+      renderAdminExtras();
+    };
+    $('admTuneReset').onclick = () => {
+      SAVE.setTuning({ xpBase: 70, xpCurve: 1.45, xpFlat: 40, xpMul: 1, coinMul: 1, rewardMul: 1, playBonus: 1 });
+      SAVE.adminAudit('tuning', 'Ajustes restaurados por defecto');
+      adminToast('Ajustes restaurados ↺');
+      renderAdminExtras();
+    };
+    $('admMatchLoad').onclick = () => { loadAdminMatches(); };
+    $('admSeasonLoad').onclick = () => { showAdminSeason(); SAVE.adminAudit('temporada', 'Consulta de temporada y pase'); renderAdminLog(); };
+    $('admPlayerLoad').onclick = () => { showAdminPlayer(); SAVE.adminAudit('jugador', 'Consulta de estadísticas de ' + (($('admPlayer') && $('admPlayer').selectedOptions[0] || {}).textContent || 'jugador')); renderAdminLog(); };
+    $('admRecordLoad').onclick = () => { loadAdminRecord(); };
+    $('admEventAdd').onclick = () => {
+      const name = ($('admEventName').value || '').trim();
+      if (!name) { adminToast('Escribe un nombre de evento', ''); return; }
+      SAVE.addEvent({ name: name, desc: ($('admEventDesc').value || '').trim() });
+      $('admEventName').value = '';
+      $('admEventDesc').value = '';
+      adminToast('Evento creado 📅');
+      renderAdminExtras();
+    };
+    $('admSanctionAdd').onclick = () => {
+      const name = ($('admSanctionName').value || '').trim();
+      if (!name) { adminToast('Escribe el jugador a sancionar', ''); return; }
+      SAVE.addSanction({
+        name: name,
+        type: $('admSanctionType').value,
+        reason: ($('admSanctionReason').value || '').trim()
+      });
+      $('admSanctionName').value = '';
+      $('admSanctionReason').value = '';
+      adminToast('Sanción registrada 🚨');
+      renderAdminExtras();
+    };
+    $('admNotifSend').onclick = async () => {
+      const title = ($('admNotifTitle').value || '').trim();
+      const body = ($('admNotifBody').value || '').trim();
+      if (!title) { adminToast('Escribe un título para el aviso', ''); return; }
+      const typed = ($('admNotifUid').value || '').trim();
+      const sess = window.CLOUD && CLOUD.session ? CLOUD.session() : {};
+      const uid = sess.uid || typed;
+      if (!uid) { adminToast('Sin UID destino ni sesión activa', ''); return; }
+      // Las reglas de Firebase solo permiten escribir en el buzón propio:
+      // enviar a otra cuenta requiere un backend con privilegios.
+      if (typed && sess.uid && typed !== sess.uid) {
+        adminToast('Sin backend, el aviso solo puede ir a tu cuenta', '');
+        return;
+      }
+      if (!window.CLOUD || !CLOUD.sendNotification) { adminToast('Firebase no está disponible', ''); return; }
+      try {
+        const okSend = await CLOUD.sendNotification(uid, { type: 'admin', title: title, body: body || 'Aviso del equipo' });
+        if (okSend) {
+          SAVE.adminAudit('notificacion', 'Aviso a ' + (typed || 'tu cuenta') + ': ' + title);
+          adminToast('Notificación enviada 🔔');
+          renderAdminExtras();
+        } else {
+          adminToast('No se pudo enviar el aviso', '');
+        }
+      } catch (e) {
+        adminToast('No se pudo enviar el aviso', '');
+      }
+    };
   }
 
   /* --- Aviso de registro en el primer vuelo --- */
@@ -365,6 +610,8 @@ window.APP = (function () {
       SND.sfx.click();
       guardFirstRun(() => UI.openGoalMode());
     };
+    const recBtn = document.getElementById('mpRecord');
+    if (recBtn) recBtn.onclick = () => startMode('record');
     $('mpDuel').onclick = () => startMode('duel');
     $('mpPvp').onclick = () => {
       SND.sfx.click();

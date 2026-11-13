@@ -53,6 +53,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
     </div>
     <div id="hudEffects" class="hud-effects hidden" aria-live="polite"></div>
     <div id="hudRival" class="hud-rival hidden" aria-live="polite"></div>
+    <button id="btnShoot" class="hud-shoot hidden" type="button" aria-label="Disparar al enemigo">🎯<small>DISPARAR</small></button>
     <div id="radar" class="radar hidden radar-pos-br radar-size-sm radar-style-tactical" aria-label="Mapa táctico">
       <div class="radar-head">
         <span id="radarTitle" class="radar-title">MAPA TÁCTICO</span>
@@ -214,6 +215,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
       <div class="mode-list">
         <button class="mode-btn" id="mpFree"><span class="mb-ico">&#127919;</span><span class="mb-txt">Libre</span><span id="mpFreeSub" class="md-tag"></span></button>
         <button class="mode-btn" id="mpGoal"><span class="mb-ico">&#127937;</span><span class="mb-txt">Con metas</span><span id="mpGoalSub" class="md-tag"></span></button>
+        <button class="mode-btn" id="mpRecord"><span class="mb-ico">&#127919;</span><span class="mb-txt">Rompe r&#233;cords</span><span id="mpRecordSub" class="md-tag"></span></button>
         <button class="mode-btn" id="mpDuel"><span class="mb-ico">&#127928;</span><span class="mb-txt">Duelo</span><span id="mpDuelSub" class="md-tag"></span></button>
         <button class="mode-btn" id="mpPvp"><span class="mb-ico">&#127760;</span><span class="mb-txt">Multijugador</span><span id="mpPvpSub" class="md-tag"></span></button>
         <button class="mode-btn" id="mpDaily"><span class="mb-ico">&#127769;</span><span class="mb-txt">Desafío diario</span><span id="mpDailySub" class="md-tag"></span></button>
@@ -235,7 +237,7 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
       <button class="btn" data-nav="settings">&#9881; Ajustes</button>
       <button class="btn" data-nav="records">&#127942; Récords</button>
       <button class="btn btn-danger" id="btnExit">&#8962; Salir</button>
-      <div class="panel-note">P&#237;o Vuelo v3.4.2 · Temporada 2026 🌍</div>
+      <div class="panel-note">P&#237;o Vuelo v3.5.0 · Temporada 2026 🌍</div>
     </div>
   </div>
 
@@ -355,8 +357,79 @@ const adBreak = adConfig = function (o) { adsbygoogle.push(o); };
         <button id="admUnlock" class="btn btn-small" style="width:100%;margin:4px 0">🌟 Desbloquear aves, sombreros, estelas y mapas</button>
         <button id="admAchAll" class="btn btn-small" style="width:100%;margin:4px 0">🏆 Desbloquear todos los logros</button>
         <button id="admSeasonAll" class="btn btn-small" style="width:100%;margin:4px 0">🎫 Reclamar todo el Pase y Temporada</button>
+        <button id="admSeasonLoad" class="btn btn-small" style="width:100%;margin:4px 0">🏁 Ver temporada y pase</button>
+        <div id="admSeasonOut" class="admin-out">Pulsa ver para consultar la temporada activa.</div>
         <button id="admChalReset" class="btn btn-small" style="width:100%;margin:4px 0">🌙 Reiniciar desafío de hoy</button>
         <button id="admStreak" class="btn btn-small" style="width:100%;margin:4px 0">🔥 Racha diaria = 7 días</button>
+        <div class="admin-sec">👑 Roles y auditoría</div>
+        <div class="admin-field">
+          <label for="admRole">Rol del operador</label>
+          <select id="admRole">
+            <option value="admin">Admin · control total</option>
+            <option value="moderador">Moderador · reportes y sanciones</option>
+            <option value="soporte">Soporte · consulta e historial</option>
+          </select>
+        </div>
+        <button id="admRoleSave" class="btn btn-small" style="width:100%;margin:4px 0">💾 Guardar rol</button>
+        <div id="admLog" class="admin-out">Sin acciones registradas.</div>
+        <div class="admin-sec">⚖️ Ajustes de progresión</div>
+        <div class="admin-grid">
+          <div class="admin-field"><label for="admXpBase">XP base</label><input id="admXpBase" type="number" min="1" max="1000" step="1"></div>
+          <div class="admin-field"><label for="admXpCurve">Curva XP</label><input id="admXpCurve" type="number" min="1" max="3" step="0.05"></div>
+          <div class="admin-field"><label for="admXpFlat">XP plano</label><input id="admXpFlat" type="number" min="0" max="1000" step="1"></div>
+          <div class="admin-field"><label for="admCoinMul">Multiplicador monedas</label><input id="admCoinMul" type="number" min="0.1" max="10" step="0.1"></div>
+          <div class="admin-field"><label for="admRewardMul">Multiplicador recompensas</label><input id="admRewardMul" type="number" min="0.1" max="10" step="0.1"></div>
+          <div class="admin-field"><label for="admPlayBonus">Bono por jugar</label><input id="admPlayBonus" type="number" min="0" max="10" step="0.1"></div>
+          <div class="admin-field"><label for="admXpMul">Multiplicador XP</label><input id="admXpMul" type="number" min="0.1" max="10" step="0.1"></div>
+        </div>
+        <div class="tool-row">
+          <button id="admTuneSave" class="btn btn-small">💾 Guardar ajustes</button>
+          <button id="admTuneReset" class="chip">↺ Restaurar</button>
+        </div>
+        <div class="admin-sec">📜 Jugadores e historial</div>
+        <div class="admin-field"><label for="admPlayer">Jugador local</label>
+          <select id="admPlayer"></select>
+        </div>
+        <button id="admPlayerLoad" class="btn btn-small" style="width:100%;margin:4px 0">👤 Ver estadísticas del jugador</button>
+        <div id="admPlayerOut" class="admin-out">Elige un jugador para ver sus estadísticas.</div>
+        <div class="admin-grid">
+          <div class="admin-field"><label for="admMatchFilter">Filtro de partidas</label>
+            <select id="admMatchFilter">
+              <option value="all">Todas</option>
+              <option value="online">Online</option>
+              <option value="goal">Con metas</option>
+              <option value="record">Rompe récords</option>
+              <option value="free">Libre</option>
+            </select>
+          </div>
+        </div>
+        <button id="admMatchLoad" class="btn btn-small" style="width:100%;margin:4px 0">🔄 Cargar historial</button>
+        <div id="admMatchOut" class="admin-out">Pulsa cargar para ver partidas.</div>
+        <div class="admin-sec">🎯 Récords</div>
+        <button id="admRecordLoad" class="btn btn-small" style="width:100%;margin:4px 0">🏅 Ver récord local y global</button>
+        <div id="admRecordOut" class="admin-out">Sin datos todavía.</div>
+        <div class="admin-sec">🔔 Notificaciones</div>
+        <div class="admin-field"><label for="admNotifUid">UID destino (vacío = tu cuenta)</label><input id="admNotifUid" type="text" maxlength="64" placeholder="uid del jugador"></div>
+        <div class="admin-field"><label for="admNotifTitle">Título</label><input id="admNotifTitle" type="text" maxlength="64" placeholder="Aviso del equipo"></div>
+        <div class="admin-field"><label for="admNotifBody">Mensaje</label><input id="admNotifBody" type="text" maxlength="160" placeholder="Texto breve"></div>
+        <button id="admNotifSend" class="btn btn-small" style="width:100%;margin:4px 0">📨 Enviar notificación</button>
+        <div class="admin-sec">📅 Eventos</div>
+        <div class="admin-field"><label for="admEventName">Nombre</label><input id="admEventName" type="text" maxlength="32" placeholder="Festival de invierno"></div>
+        <div class="admin-field"><label for="admEventDesc">Descripción</label><input id="admEventDesc" type="text" maxlength="140" placeholder="Recompensas dobles"></div>
+        <button id="admEventAdd" class="btn btn-small" style="width:100%;margin:4px 0">➕ Crear evento</button>
+        <div id="admEventList" class="admin-out">Sin eventos.</div>
+        <div class="admin-sec">🚨 Sanciones y reportes</div>
+        <div class="admin-field"><label for="admSanctionName">Jugador</label><input id="admSanctionName" type="text" maxlength="16" placeholder="Nombre"></div>
+        <div class="admin-field"><label for="admSanctionType">Tipo</label>
+          <select id="admSanctionType">
+            <option value="aviso">Aviso</option>
+            <option value="silencio">Silencio</option>
+            <option value="suspension">Suspensión</option>
+          </select>
+        </div>
+        <div class="admin-field"><label for="admSanctionReason">Motivo</label><input id="admSanctionReason" type="text" maxlength="120" placeholder="Motivo del reporte"></div>
+        <button id="admSanctionAdd" class="btn btn-small" style="width:100%;margin:4px 0">🚨 Registrar sanción</button>
+        <div id="admSanctionList" class="admin-out">Sin sanciones.</div>
         <div class="admin-sec">🧹 Peligro</div>
         <button id="admReset" class="btn btn-danger" style="width:100%;margin:4px 0">🧹 Reiniciar todo</button>
         <button id="adminClose2" class="chip" style="margin-top:8px">✖ Cerrar</button>

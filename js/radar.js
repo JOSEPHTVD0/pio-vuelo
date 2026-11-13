@@ -105,17 +105,25 @@ window.RADAR = (function () {
     ctx.restore();
   }
 
-  function marker(ctx, p, color, label, isMe, style) {
+  function marker(ctx, p, color, label, isMe, style, dead) {
     ctx.save();
     ctx.shadowColor = style === 'neon' ? color : 'transparent';
     ctx.shadowBlur = style === 'neon' ? 8 : 0;
-    ctx.fillStyle = color;
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = 1.5;
+    ctx.fillStyle = dead ? 'rgba(0,0,0,0.35)' : color;
+    ctx.strokeStyle = dead ? color : 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = dead ? 2 : 1.5;
     ctx.beginPath();
     ctx.arc(p.x, p.y, isMe ? 4.6 : 4, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    if (dead) {
+      // Cruz de caído: el estado se ve de un vistazo sin tapar el marcador.
+      const r = isMe ? 5.6 : 5;
+      ctx.beginPath();
+      ctx.moveTo(p.x - r, p.y - r); ctx.lineTo(p.x + r, p.y + r);
+      ctx.moveTo(p.x + r, p.y - r); ctx.lineTo(p.x - r, p.y + r);
+      ctx.stroke();
+    }
     if (label) {
       ctx.shadowBlur = 0;
       ctx.font = '700 9px "Segoe UI",sans-serif';
@@ -169,8 +177,8 @@ window.RADAR = (function () {
       ctx.restore();
     }
 
-    if (riP) marker(ctx, riP, (cfg && cfg.rival) || '#ff7043', cfg && cfg.labels ? pairLabel(d.rival, 'Rival') : '', false, style);
-    marker(ctx, meP, (cfg && cfg.me) || '#4fc3f7', cfg && cfg.labels ? pairLabel(d.me, 'Tú') : '', true, style);
+    if (riP) marker(ctx, riP, (cfg && cfg.rival) || '#ff7043', cfg && cfg.labels ? pairLabel(d.rival, 'Rival') : '', false, style, !!(d.rival && d.rival.alive === false));
+    marker(ctx, meP, (cfg && cfg.me) || '#4fc3f7', cfg && cfg.labels ? pairLabel(d.me, 'Tú') : '', true, style, !!(d.me && d.me.alive === false));
 
     // Brújula / progreso
     if (cfg && cfg.compass) {
@@ -188,8 +196,10 @@ window.RADAR = (function () {
   function pairLabel(o, fallback) {
     if (!o) return fallback;
     const n = String(o.name || fallback).slice(0, 9);
+    const dead = o.alive === false;
     const pipes = (typeof o.pipes === 'number') ? ' ' + o.pipes : '';
-    return n + pipes;
+    const t = (!pipes && typeof o.time === 'number' && o.time > 0) ? ' ' + o.time.toFixed(1) + 's' : '';
+    return n + pipes + t + (dead ? ' 💀' : '');
   }
 
   // Actualiza los datos y redibuja como máximo cada 120 ms.

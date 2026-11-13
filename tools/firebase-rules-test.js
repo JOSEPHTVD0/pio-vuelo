@@ -547,6 +547,98 @@ async function main() {
       updatedAt: Date.now()
     });
   });
+  console.log('\nRealtime Database · supervivencia, récords y notificaciones (v3.5.0)');
+  await expectDenied('una regla de victoria inventada se rechaza', function () {
+    return set(ref(a.rtdb, 'duels/ZZZ240'), duelPayload('ZZZ240', uidA, 'TesterA', { winBy: 'magia' }));
+  });
+  await expectOk('se crea una sala de supervivencia con toggles', function () {
+    return set(ref(a.rtdb, 'duels/ZZZ241'), duelPayload('ZZZ241', uidA, 'TesterA', {
+      mode: 'free', pipes: 0, winBy: 'survival', enemies: false, powers: false
+    }));
+  });
+  await expectOk('el invitado entra en la sala de supervivencia', function () {
+    return update(ref(b.rtdb, 'duels/ZZZ241'), {
+      guest: { uid: uidB, name: 'TesterB', score: 0, pipes: 0, alive: true, finished: false, time: 0 },
+      updatedAt: Date.now()
+    });
+  });
+  await expectOk('el invitado publica su caída y eliminaciones', function () {
+    return update(ref(b.rtdb, 'duels/ZZZ241'), {
+      'guest/alive': false,
+      'guest/finished': true,
+      'guest/deathAt': 12.4,
+      'guest/deathCause': 'tubo',
+      'guest/finishedBy': 'death',
+      'guest/kills': 3,
+      'guest/time': 12.4,
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('una hora de caída negativa se rechaza', function () {
+    return update(ref(b.rtdb, 'duels/ZZZ241'), {
+      'guest/deathAt': -3,
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('un motivo de caída demasiado largo se rechaza', function () {
+    return update(ref(b.rtdb, 'duels/ZZZ241'), {
+      'guest/deathCause': 'un-motivo-inventado-muy-largo',
+      updatedAt: Date.now()
+    });
+  });
+  await expectDenied('el invitado no puede cambiar la regla de victoria', function () {
+    return update(ref(b.rtdb, 'duels/ZZZ241'), {
+      'config/winBy': 'goal',
+      updatedAt: Date.now()
+    });
+  });
+
+  await expectOk('un récord global válido se publica', function () {
+    return set(ref(a.rtdb, 'records/kills'), { kills: 12, uid: uidA, name: 'TesterA', at: Date.now() });
+  });
+  await expectDenied('un récord con menos kills no puede pisar el global', function () {
+    return set(ref(a.rtdb, 'records/kills'), { kills: 5, uid: uidA, name: 'TesterA', at: Date.now() });
+  });
+  await expectDenied('nadie puede publicar un récord a nombre de otro', function () {
+    return set(ref(b.rtdb, 'records/kills'), { kills: 99, uid: uidA, name: 'TesterA', at: Date.now() });
+  });
+  await expectOk('el récord global es de lectura pública', function () {
+    return get(ref(publicApp.rtdb, 'records/kills'));
+  });
+  await expectOk('cada jugador guarda su tablero de récords', function () {
+    return set(ref(a.rtdb, 'recordBoard/' + uidA), { name: 'TesterA', kills: 12, at: Date.now() });
+  });
+  await expectDenied('un tercero no puede escribir tu tablero de récords', function () {
+    return set(ref(b.rtdb, 'recordBoard/' + uidA), { name: 'TesterB', kills: 99, at: Date.now() });
+  });
+  await expectOk('la clasificación de r�cords es pública para leer', function () {
+    return get(ref(b.rtdb, 'recordBoard'));
+  });
+
+  await expectOk('el jugador recibe una notificación propia', function () {
+    return set(ref(a.rtdb, 'notifications/' + uidA + '/n1'), {
+      type: 'record', title: '¡Nuevo récord!', body: 'Superaste 12 eliminaciones',
+      from: uidA, fromName: 'TesterB', at: Date.now(), read: false, record: 13
+    });
+  });
+  await expectDenied('un nombre de autor inventado y larguísimo se rechaza', function () {
+    return set(ref(a.rtdb, 'notifications/' + uidA + '/n3'), {
+      type: 'record', title: 'Récord', body: 'Nombre fuera de rango',
+      from: uidA, fromName: 'x'.repeat(40), at: Date.now(), read: false, record: 13
+    });
+  });
+  await expectDenied('no se puede escribir en el buzón de otro jugador', function () {
+    return set(ref(b.rtdb, 'notifications/' + uidA + '/n2'), {
+      type: 'info', title: 'Intruso', body: 'No debería', from: uidB, at: Date.now(), read: false
+    });
+  });
+  await expectOk('el dueño lee su buzón', function () {
+    return get(ref(a.rtdb, 'notifications/' + uidA));
+  });
+  await expectDenied('otro jugador no puede leer tu buzón', function () {
+    return get(ref(b.rtdb, 'notifications/' + uidA));
+  });
+
   await expectOk('el anfitrión puede cerrar y borrar el duelo', function () {
     return remove(ref(a.rtdb, 'duels/' + code));
   });

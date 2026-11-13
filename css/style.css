@@ -317,6 +317,16 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .pin-input:focus { border-color:#7c4dff; }
 .admin-panel { border-color:#7c4dff; background:rgba(30,18,60,.95); max-height:92vh; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
 .admin-sec { font-size:11px; font-weight:900; letter-spacing:1px; color:#b8a5ff; background:rgba(124,77,255,.14); border:1px solid rgba(124,77,255,.4); padding:5px 10px; border-radius:9px; margin:8px 0 2px; text-align:left; }
+/* v3.5.0: campos y salidas del panel de administración ampliado */
+.admin-field { display:flex; flex-direction:column; gap:3px; text-align:left; margin:5px 0; min-width:0; }
+.admin-field label { font-size:11px; font-weight:700; color:#c9bcff; letter-spacing:.3px; }
+.admin-field input, .admin-field select { width:100%; box-sizing:border-box; padding:9px 11px; border-radius:11px; border:1.5px solid rgba(255,255,255,.24); background:rgba(255,255,255,.09); color:#fff; font-size:14px; outline:none; }
+.admin-field input:focus, .admin-field select:focus { border-color:#7c4dff; }
+.admin-field select option { background:#241546; color:#fff; }
+.admin-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+@media (max-width:420px) { .admin-grid { grid-template-columns:1fr; } }
+.admin-out { text-align:left; font-size:12px; line-height:1.5; color:#dbe7ff; background:rgba(0,0,0,.28); border:1px solid rgba(124,77,255,.3); border-radius:11px; padding:8px 10px; margin:5px 0; max-height:190px; overflow-y:auto; white-space:pre-wrap; word-break:break-word; }
+.admin-out b { color:#ffe066; }
 
 /* --- v2.1: menú mejorado y animación de inicio --- */
 #screen-home { background:transparent; }
@@ -641,6 +651,20 @@ body.no-ui-anim *, body.no-ui-anim *::before, body.no-ui-anim *::after {
   color:#b3e5fc; font-size:12px; font-weight:900; letter-spacing:.4px;
   padding:5px 12px; border-radius:999px;
 }
+.hud-shoot {
+  position:absolute; right:calc(env(safe-area-inset-right,0px) + 16px);
+  bottom:calc(env(safe-area-inset-bottom,0px) + 22px); z-index:20;
+  pointer-events:auto; touch-action:manipulation;
+  width:84px; height:84px; border-radius:50%; border:2px solid rgba(255,213,79,.85);
+  background:radial-gradient(circle at 35% 30%, rgba(255,213,79,.95), rgba(255,112,67,.9));
+  color:#301a00; font-size:30px; font-weight:900; line-height:1;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  box-shadow:0 6px 18px rgba(0,0,0,.4), 0 0 0 6px rgba(255,213,79,.12);
+  cursor:pointer; user-select:none; -webkit-user-select:none;
+}
+.hud-shoot small { font-size:9px; letter-spacing:.6px; margin-top:2px; }
+.hud-shoot:active { transform:scale(.94); }
+.hud-shoot[disabled] { opacity:.5; }
 
 /* ---------- Radar / mapa táctico 2D ---------- */
 .radar {

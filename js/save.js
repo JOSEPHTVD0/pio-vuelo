@@ -60,8 +60,9 @@ window.SAVE = (function () {
       parts: 0,             // 🔩 piezas: material para mejoras de nivel alto
       level: 1,
       xp: 0,
-      stats: { best: 0, flights: 0, pipes: 0, timePlayed: 0, coinsGot: 0, dist: 0, powersGot: 0, spent: 0, megaGot: 0, dailyClaimed: 0, enemiesGot: 0, xcGot: 0, toolsUsed: 0, toolsBought: 0, shared: 0, batsGot: 0, chainGot: 0, gemsGot: 0, challengePlayed: 0, manualUses: 0, upgs: 0, missionsDone: 0, toolTypes: [], shieldAbsorbed: 0, ghostPassed: 0, weekendRuns: 0, fenixUsed: 0, maxDistNoHit: 0, zeroCoinRuns: 0, duelWins: 0, windZones: 0, giantPassed: 0, replaysWatched: 0, seedDays: 0, zenBest: 0, bossDefeated: 0, partsEarned: 0, toolsRepaired: 0, mpMatches: 0, mpWins: 0 },
+      stats: { best: 0, flights: 0, pipes: 0, timePlayed: 0, coinsGot: 0, dist: 0, powersGot: 0, spent: 0, megaGot: 0, dailyClaimed: 0, enemiesGot: 0, xcGot: 0, toolsUsed: 0, toolsBought: 0, shared: 0, batsGot: 0, chainGot: 0, gemsGot: 0, challengePlayed: 0, manualUses: 0, upgs: 0, missionsDone: 0, toolTypes: [], shieldAbsorbed: 0, ghostPassed: 0, weekendRuns: 0, fenixUsed: 0, maxDistNoHit: 0, zeroCoinRuns: 0, duelWins: 0, windZones: 0, giantPassed: 0, replaysWatched: 0, seedDays: 0, zenBest: 0, bossDefeated: 0, partsEarned: 0, toolsRepaired: 0, mpMatches: 0, mpWins: 0, mpSurvivalBest: 0, mpKills: 0, recordBest: 0, recordRuns: 0, recordKills: 0, recordName: '' },
       best3: [],
+      tuning: { xpBase: 70, xpCurve: 1.45, xpFlat: 40, xpMul: 1, coinMul: 1, rewardMul: 1, playBonus: 1 },
       items: { start: 0, magnet: 0, slow: 0, coins: 0, boost: 0, luck: 0, score: 0, sprint: 0, treasure: 0, clock: 0, turbo: 0, combo: 0, shield: 0, ghost: 0, frenzy: 0, eco: 0, hype: 0, bomb: 0, aura: 0, twin: 0, oasis: 0, doble: 0, runa: 0, titan: 0, fenix: 0, bateria: 0, cris: 0, ferro: 0, para: 0, zoom: 0, mirilla: 0, amuleto: 0, rescate: 0, ticket: 0, radar: 0, bala: 0, flot: 0, legend: 0, magnetx: 0, slowx: 0, coinsx: 0, shieldx: 0, ghostx: 0, frenzyx: 0, aurax: 0, turbox: 0, escudox: 0, saber: 0, tesorox: 0 },
       toolUp: {},           // nivel de mejora por herramienta (0..8)
       toolMode: {},         // 'auto' | 'manual' por herramienta (default auto)
@@ -83,6 +84,8 @@ window.SAVE = (function () {
       dailyBase: {},        // progreso de 0 para las misiones diarias de hoy
       weeklyM: { week: '', claimed: [] },
       weeklyBase: {},       // progreso de 0 para las misiones semanales de esta semana
+      specialM: { claimed: [] },  // misiones especiales de temporada (no rotan)
+      specialBase: {},            // progreso de 0 para las misiones especiales
       passClaimed: [],
       passSeason: '',
       passPremiumSeason: '',   // temporada en la que se compró el Pase Prémium
@@ -93,6 +96,7 @@ window.SAVE = (function () {
       firstRun: true,
       // Identidad local + ranking de este dispositivo (no hay servidor)
       profile: { id: '', name: '', created: 0 },
+      admin: { role: 'admin', log: [], sanctions: [], events: [] }, // panel local (no permisos de servidor)
       knownNames: [],       // nombres usados en este dispositivo (evita duplicados locales)
       players: [],          // registro agregado para la tabla de récords local
       runs: [],             // historial reciente de vuelos (máx. RUN_HISTORY)
@@ -231,6 +235,17 @@ window.SAVE = (function () {
         // bases de progreso de misiones (migración)
         if (!data.dailyBase || typeof data.dailyBase !== 'object') data.dailyBase = {};
         if (!data.weeklyBase || typeof data.weeklyBase !== 'object') data.weeklyBase = {};
+        // misiones especiales + ajustes de economía (tuning del panel admin)
+        if (!data.specialM || typeof data.specialM !== 'object') data.specialM = { claimed: [] };
+        if (!Array.isArray(data.specialM.claimed)) data.specialM.claimed = [];
+        if (!data.specialBase || typeof data.specialBase !== 'object') data.specialBase = {};
+        // Panel de administración local: rol, auditoría, sanciones y eventos.
+        if (!data.admin || typeof data.admin !== 'object') data.admin = { role: 'admin', log: [], sanctions: [], events: [] };
+        if (['admin', 'moderador', 'soporte'].indexOf(data.admin.role) === -1) data.admin.role = 'admin';
+        if (!Array.isArray(data.admin.log)) data.admin.log = [];
+        if (!Array.isArray(data.admin.sanctions)) data.admin.sanctions = [];
+        if (!Array.isArray(data.admin.events)) data.admin.events = [];
+        data.tuning = sanitizeTuning(data.tuning);
         // asegurar listas mínimas
         if (!data.skinsOwned) data.skinsOwned = [{ id: 'classic' }];
         if (!data.fxOwned) data.fxOwned = [{ id: 'fx-none' }];
@@ -278,6 +293,12 @@ window.SAVE = (function () {
         if (typeof data.stats.seedDays !== 'number') data.stats.seedDays = 0;
         if (typeof data.stats.mpMatches !== 'number') data.stats.mpMatches = 0;
         if (typeof data.stats.mpWins !== 'number') data.stats.mpWins = 0;
+        if (typeof data.stats.mpSurvivalBest !== 'number') data.stats.mpSurvivalBest = 0;
+        if (typeof data.stats.mpKills !== 'number') data.stats.mpKills = 0;
+        if (typeof data.stats.recordBest !== 'number') data.stats.recordBest = 0;
+        if (typeof data.stats.recordRuns !== 'number') data.stats.recordRuns = 0;
+        if (typeof data.stats.recordKills !== 'number') data.stats.recordKills = 0;
+        if (typeof data.stats.recordName !== 'string') data.stats.recordName = '';
         if (!Array.isArray(data.stats.toolTypes)) data.stats.toolTypes = [];
         if (typeof data.parts !== 'number' || !isFinite(data.parts) || data.parts < 0) data.parts = 0;
         data.parts = Math.floor(data.parts);
@@ -461,23 +482,79 @@ window.SAVE = (function () {
   }
 
   /* --- XP / nivel --- */
-  function xpFor(level) { return Math.floor(55 * Math.pow(level, 1.35) + 30); }
+  function tuning() { return (data && data.tuning) || {}; }
+  function xpFor(level) {
+    // Curva más exigente (v3.5.0) y ajustable desde el panel de administración.
+    const t = tuning();
+    const base = num(t.xpBase) > 0 ? num(t.xpBase) : 70;
+    const curve = num(t.xpCurve) > 0 ? num(t.xpCurve) : 1.45;
+    const flat = num(t.xpFlat) >= 0 ? num(t.xpFlat) : 40;
+    return Math.max(1, Math.floor(base * Math.pow(Math.max(1, level), curve) + flat));
+  }
+
+  // Recompensa determinista por subir de nivel (monedas + piezas + objeto).
+  function levelReward(level) {
+    const lv = Math.max(1, Math.floor(num(level)));
+    const out = { coins: 60 + lv * 12 };
+    if (lv % 3 === 0) out.parts = 1 + Math.floor(lv / 15);
+    if (lv % 5 === 0) {
+      const pool = ['magnet', 'shield', 'luck', 'boost', 'ghost', 'turbo', 'combo', 'fenix'];
+      out.item = pool[Math.floor(lv / 5) % pool.length];
+      out.n = 1 + (lv >= 25 ? 1 : 0);
+    }
+    return out;
+  }
+
+  let lastLevelRewards = []; // detalle del último addXp (para avisos/tests)
+  function lastLevelUps() { return lastLevelRewards.slice(); }
+
+  function sanitizeTuning(src) {
+    const t = src && typeof src === 'object' ? src : {};
+    const pick = (v, def) => (typeof v === 'number' && isFinite(v)) ? v : def;
+    return {
+      xpBase: Math.max(1, Math.min(1000, pick(t.xpBase, 70))),
+      xpCurve: Math.max(1, Math.min(3, pick(t.xpCurve, 1.45))),
+      xpFlat: Math.max(0, Math.min(1000, pick(t.xpFlat, 40))),
+      xpMul: Math.max(0.1, Math.min(10, pick(t.xpMul, 1))),
+      coinMul: Math.max(0.1, Math.min(10, pick(t.coinMul, 1))),
+      rewardMul: Math.max(0.1, Math.min(10, pick(t.rewardMul, 1))),
+      playBonus: Math.max(0, Math.min(10, pick(t.playBonus, 1)))
+    };
+  }
+  function getTuning() { return Object.assign({}, sanitizeTuning(data.tuning)); }
+  function setTuning(patch) {
+    data.tuning = sanitizeTuning(Object.assign({}, data.tuning, patch || {}));
+    save();
+    return getTuning();
+  }
 
   function isWeekend() {
     const d = new Date().getDay();
     return d === 0 || d === 6;
   }
 
+  // XP efectiva (con tuning y bonus de fin de semana) sin aplicarla todavía.
+  // Sirve para mostrar en pantalla exactamente lo que se va a conceder.
+  function xpAmount(n) {
+    if (!(n > 0)) return 0;
+    let out = n * (num(tuning().xpMul) > 0 ? num(tuning().xpMul) : 1);
+    if (isWeekend()) out *= 1.5;
+    return Math.max(1, Math.round(out));
+  }
+
   function addXp(n) {
     if (!(n > 0)) return 0; // nunca XP negativa
-    if (isWeekend()) {
-      n = Math.round(n * 1.5); // XP ×1,5 los fines de semana (Temporada 2026)
-    }
+    n = xpAmount(n);
+    lastLevelRewards = [];
     data.xp += n; let ups = 0;
     while (data.xp >= xpFor(data.level)) {
       data.xp -= xpFor(data.level);
       data.level += 1; ups++;
-      addCoins(75 + data.level * 10); // recompensa de subir de nivel
+      const rew = levelReward(data.level);
+      addCoins(rew.coins);
+      if (rew.parts) addParts(rew.parts);
+      if (rew.item) data.items[rew.item] = (data.items[rew.item] || 0) + (rew.n || 1);
+      lastLevelRewards.push(Object.assign({ level: data.level }, rew));
     }
     save();
     return ups; // niveles subidos
@@ -533,6 +610,12 @@ window.SAVE = (function () {
     // 🔩 Piezas: 1 por vuelo + 1 por buena marca + 1 si es récord personal
     const gotParts = 1 + (score >= 20 ? 1 : 0) + (isRecord ? 1 : 0);
     addParts(gotParts);
+    // Recompensa por jugar (v3.5.0): pequeña, crece con el tiempo y los tubos.
+    const t = tuning();
+    const playBonus = Math.round((5 + Math.min(30, Math.floor(Math.max(0, num(timeSec)) / 10)) + (pipesPassed >= 10 ? 5 : 0)) *
+      (num(t.playBonus) > 0 ? num(t.playBonus) : 1) *
+      (num(t.coinMul) > 0 ? num(t.coinMul) : 1));
+    if (playBonus > 0) addCoins(playBonus);
     return isRecord;
   }
 
@@ -566,7 +649,7 @@ window.SAVE = (function () {
 
   /* --- Récords completos por modo (historial separado de runs) --- */
   function matchMode(v) {
-    const allowed = ['free', 'goal', 'pvp', 'duel', 'challenge', 'zen', 'boss', 'wind', 'replay'];
+    const allowed = ['free', 'goal', 'pvp', 'record', 'duel', 'challenge', 'zen', 'boss', 'wind', 'replay'];
     return allowed.indexOf(v) !== -1 ? v : 'free';
   }
 
@@ -576,6 +659,9 @@ window.SAVE = (function () {
       name: cleanName(o.name) || 'Jugador',
       score: Math.max(0, Math.floor(num(o.score))),
       pipes: Math.max(0, Math.floor(num(o.pipes))),
+      kills: Math.max(0, Math.floor(num(o.kills))),
+      time: Math.max(0, Math.min(86400, Math.round(num(o.time) * 100) / 100)),
+      alive: o.alive !== false,
       finished: !!o.finished,
       online: !!o.online
     };
@@ -602,6 +688,7 @@ window.SAVE = (function () {
       score: Math.max(0, Math.floor(num(m.score))),
       coins: Math.max(0, Math.floor(num(m.coins))),
       dist: Math.max(0, Math.floor(num(m.dist))),
+      kills: Math.max(0, Math.floor(num(m.kills))),
       online: m.online === true,
       participants: parts
     };
@@ -1057,6 +1144,89 @@ window.SAVE = (function () {
     return true;
   }
 
+  /* --- Panel de administración local (v3.5.0) -------------------------
+   * Rol, auditoría, sanciones y eventos se guardan en este dispositivo.
+   * No conceden permisos de servidor: son herramientas de operación local. */
+  function adminStore() {
+    if (!data.admin || typeof data.admin !== 'object') data.admin = { role: 'admin', log: [], sanctions: [], events: [] };
+    if (['admin', 'moderador', 'soporte'].indexOf(data.admin.role) === -1) data.admin.role = 'admin';
+    if (!Array.isArray(data.admin.log)) data.admin.log = [];
+    if (!Array.isArray(data.admin.sanctions)) data.admin.sanctions = [];
+    if (!Array.isArray(data.admin.events)) data.admin.events = [];
+    return data.admin;
+  }
+  function getAdmin() {
+    const a = adminStore();
+    return {
+      role: a.role,
+      log: a.log.slice(0, 80),
+      sanctions: a.sanctions.slice(0, 80),
+      events: a.events.slice(0, 40)
+    };
+  }
+  function setAdminRole(role) {
+    const r = String(role || '').toLowerCase();
+    if (['admin', 'moderador', 'soporte'].indexOf(r) === -1) return adminStore().role;
+    adminStore().role = r;
+    adminAudit('rol', 'Rol cambiado a ' + r);
+    return r;
+  }
+  // Auditoría: deja constancia de cada acción del panel (máx. 80 entradas).
+  function adminAudit(action, detail) {
+    const a = adminStore();
+    a.log.unshift({
+      at: Date.now(),
+      action: String(action || 'accion').slice(0, 24),
+      detail: String(detail || '').slice(0, 140),
+      role: a.role
+    });
+    if (a.log.length > 80) a.log.length = 80;
+    save();
+    return true;
+  }
+  function getAdminLog(limit) {
+    const n = Math.max(1, Math.floor(num(limit) || 20));
+    return adminStore().log.slice(0, n);
+  }
+  function addSanction(s) {
+    const src = s && typeof s === 'object' ? s : {};
+    const now = Date.now();
+    const item = {
+      id: 'sc-' + now + '-' + Math.floor(Math.random() * 1000),
+      uid: String(src.uid || '').slice(0, 64),
+      name: String(src.name || 'Jugador').slice(0, 16),
+      type: ['aviso', 'silencio', 'suspension'].indexOf(src.type) !== -1 ? src.type : 'aviso',
+      reason: String(src.reason || '').slice(0, 120),
+      until: Math.max(0, Math.floor(num(src.until) || 0)),
+      at: now
+    };
+    const a = adminStore();
+    a.sanctions.unshift(item);
+    if (a.sanctions.length > 80) a.sanctions.length = 80;
+    adminAudit('sancion', item.type + ' a ' + item.name + (item.reason ? ' · ' + item.reason : ''));
+    return item;
+  }
+  function getSanctions() { return adminStore().sanctions.slice(0, 80); }
+  function addEvent(ev) {
+    const src = ev && typeof ev === 'object' ? ev : {};
+    const now = Date.now();
+    const item = {
+      id: 'ev-' + now + '-' + Math.floor(Math.random() * 1000),
+      name: String(src.name || 'Evento').slice(0, 32),
+      desc: String(src.desc || '').slice(0, 140),
+      kind: ['temporada', 'reto', 'bonus', 'comunidad'].indexOf(src.kind) !== -1 ? src.kind : 'comunidad',
+      start: Math.max(0, Math.floor(num(src.start) || now)),
+      end: Math.max(0, Math.floor(num(src.end) || 0)),
+      at: now
+    };
+    const a = adminStore();
+    a.events.unshift(item);
+    if (a.events.length > 40) a.events.length = 40;
+    adminAudit('evento', item.name);
+    return item;
+  }
+  function getEvents() { return adminStore().events.slice(0, 40); }
+
   /* --- Desafío diario 🌙 --- */
   function chalToday() {
     const today = todayStr(new Date());
@@ -1086,6 +1256,36 @@ window.SAVE = (function () {
     save();
     return { bonus: bonus, best: dc.best, isBest: isBest, score: score };
   }
+  /* --- Rompe récords 🎯: récord personal de enemigos eliminados --- */
+  function killRecord() {
+    return {
+      best: Math.max(0, Math.floor(data.stats.recordBest || 0)),
+      name: data.stats.recordName || '',
+      runs: Math.max(0, Math.floor(data.stats.recordRuns || 0)),
+      total: Math.max(0, Math.floor(data.stats.recordKills || 0))
+    };
+  }
+  function recordKillsRun(kills) {
+    const k = Math.max(0, Math.floor(num(kills)));
+    const prev = Math.max(0, Math.floor(data.stats.recordBest || 0));
+    const name = data.profile.name || 'Jugador';
+    data.stats.recordRuns = (data.stats.recordRuns || 0) + 1;
+    data.stats.recordKills = (data.stats.recordKills || 0) + k;
+    const isRecord = k > prev;
+    if (isRecord) {
+      data.stats.recordBest = k;
+      data.stats.recordName = name;
+    }
+    save();
+    return {
+      prev: prev,
+      next: Math.max(prev, k),
+      kills: k,
+      isRecord: isRecord,
+      name: isRecord ? name : (data.stats.recordName || name)
+    };
+  }
+
   function dailyHistory() {
     const o = data.dailyH || {};
     return Object.keys(o).sort().slice(-7).map(k => ({ key: k, best: o[k] }));
@@ -1119,7 +1319,7 @@ window.SAVE = (function () {
       data.dailyM.claimed = [];
       // base de hoy: las misiones cuentan el progreso DESDE hoy (sin reciclable infinito)
       const nb = {};
-      DAT.MISSIONS.forEach(m => { if (!m.weekly) nb[m.id] = m.metric(SAVE) || 0; });
+      DAT.MISSIONS.forEach(m => { if (!m.weekly && !m.special) nb[m.id] = m.metric(SAVE) || 0; });
       data.dailyBase = nb;
       save();
     }
@@ -1138,20 +1338,33 @@ window.SAVE = (function () {
       data.weeklyM.claimed = [];
       // base de la semana: el progreso semanal arranca en 0 al rotar
       const nb = {};
-      DAT.MISSIONS.forEach(m => { if (m.weekly) nb[m.id] = m.metric(SAVE) || 0; });
+      DAT.MISSIONS.forEach(m => { if (m.weekly && !m.special) nb[m.id] = m.metric(SAVE) || 0; });
       data.weeklyBase = nb;
       save();
     }
     return data.weeklyM;
   }
-  function missionProgress(m) { return Math.max(0, (m.metric(SAVE) || 0) - (((m.weekly ? data.weeklyBase : data.dailyBase) || {})[m.id] || 0)); }
+  function missionBase(m) {
+    const store = m.special ? data.specialBase : (m.weekly ? data.weeklyBase : data.dailyBase);
+    return (store || {})[m.id] || 0;
+  }
+  function missionProgress(m) { return Math.max(0, (m.metric(SAVE) || 0) - missionBase(m)); }
   function missionDoneToday(m) {
+    if (m.special) {
+      if (!data.specialM || !Array.isArray(data.specialM.claimed)) data.specialM = { claimed: [] };
+      return data.specialM.claimed.indexOf(m.id) !== -1;
+    }
     const z = m.weekly ? wz() : dzi();
     return z.claimed.indexOf(m.id) !== -1;
   }
   function claimMission(m) {
     if (missionDoneToday(m) || missionProgress(m) < m.target) return null;
-    (m.weekly ? wz() : dzi()).claimed.push(m.id);
+    if (m.special) {
+      if (!data.specialM || !Array.isArray(data.specialM.claimed)) data.specialM = { claimed: [] };
+      data.specialM.claimed.push(m.id);
+    } else {
+      (m.weekly ? wz() : dzi()).claimed.push(m.id);
+    }
     grantReward(m.reward);
     data.stats.missionsDone = (data.stats.missionsDone || 0) + 1;
     save();
@@ -1456,7 +1669,7 @@ window.SAVE = (function () {
 
   const SAVE = {
     load, save, get, defaults, exportData, importData,
-    addCoins, spendCoins, addXp, xpFor,
+    addCoins, spendCoins, addXp, xpFor, xpAmount,
     partsCount, addParts, spendParts,
     skinXp, addSkinXp, skinStage, openBox,
     endRun, setCombo, buy, equip, checkAch, setSetting, reset, owns,
@@ -1464,8 +1677,11 @@ window.SAVE = (function () {
     toolMaxDur, toolWear, toolDur, toolDurInfo, toolUsable, wearTool, toolRepairCost, repairTool, toolStats,
     getHistory, resetSettings, defaultSettings, finishTutorial, markRegistrationPrompted,
     unlockAll, giveTools, giveAllUpg, achAll, chalReset, adminSetStreak,
+    getAdmin, setAdminRole, adminAudit, getAdminLog, addSanction, getSanctions, addEvent, getEvents,
     dailyInfo, claimDaily, addBest,
     challengePlayedToday, recordChallenge, dailyHistory, seedToday,
+    killRecord, recordKillsRun,
+    levelReward, lastLevelUps, getTuning, setTuning,
     storeReplay, getReplay, markReplayWatched,
     missionProgress, missionDoneToday, claimMission,
     totalXp, passReached, passClaimedCount, claimPassTier, passSeasonName,

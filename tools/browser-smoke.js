@@ -225,6 +225,31 @@ function makeClient(ws) {
     await evalJs("document.getElementById('adminPin').value='293031'; document.getElementById('adminUnlock').click()");
     await sleep(250);
     ok(await evalJs("document.getElementById('adminLock').classList.contains('hidden') && !document.getElementById('adminPerks').classList.contains('hidden')"), 'la clave privada concede acceso al panel');
+    // Panel ampliado v3.5.0: roles, tuning, auditoría, récords y sanciones.
+    ok(await evalJs("!!document.getElementById('admRole') && document.querySelectorAll('#admSanctionType option').length === 3 && !!document.getElementById('admTuneSave')"),
+      'el panel incluye roles, tuning y sanciones reales');
+    await evalJs("document.getElementById('admRole').value='moderador'; document.getElementById('admRoleSave').click()");
+    await sleep(200);
+    ok(await evalJs("SAVE.getAdmin().role === 'moderador' && SAVE.getAdminLog(1).length >= 1"),
+      'el rol se guarda y la acción queda auditada');
+    await evalJs("document.getElementById('admXpBase').value='90'; document.getElementById('admXpCurve').value='1.6'; document.getElementById('admXpFlat').value='20'; document.getElementById('admTuneSave').click()");
+    await sleep(200);
+    ok(await evalJs("SAVE.getTuning().xpBase === 90 && SAVE.getTuning().xpCurve === 1.6"),
+      'el tuning de XP se aplica desde el panel');
+    await evalJs("document.getElementById('admTuneReset').click()");
+    await evalJs("document.getElementById('admRecordLoad').click()");
+    await sleep(400);
+    ok(await evalJs("document.getElementById('admRecordOut').textContent.indexOf('Récord local') !== -1"),
+      'el panel consulta el récord local de eliminaciones');
+    await evalJs("document.getElementById('admPlayerLoad').click()");
+    await sleep(200);
+    ok(await evalJs("document.getElementById('admPlayerOut').textContent.indexOf('Mejor:') !== -1"),
+      'el panel muestra las estadísticas del jugador elegido');
+    await evalJs("document.getElementById('admSeasonLoad').click()");
+    await sleep(200);
+    ok(await evalJs("document.getElementById('admSeasonOut').textContent.indexOf('Pase:') !== -1"),
+      'el panel informa de la temporada y el pase activos');
+    await evalJs("SAVE.setAdminRole('admin')");
     await evalJs("document.getElementById('adminClose2').click()");
     await sleep(300);
     ok(await evalJs("document.getElementById('adminModal').classList.contains('hidden') && !document.getElementById('screen-home').classList.contains('hidden')"), 'el panel se cierra y vuelve a la portada');
@@ -271,12 +296,42 @@ function makeClient(ws) {
     await evalJs("G.goMenu()");
     await sleep(400);
 
-    // Récords por modo y personalización del radar en ajustes.
+    // Modo Rompe récords: carrera real con proyectiles y botón de disparo.
+    await evalJs("document.getElementById('btnPlay').click()");
+    await sleep(300);
+    await evalJs("document.getElementById('mpRecord').click()");
+    await sleep(1200);
+    ok(await evalJs("G.getMode() === 'record' && G.getState() === 'play'"), 'Rompe récords inicia una carrera real');
+    ok(await evalJs("!document.getElementById('btnShoot').classList.contains('hidden')"), 'el botón de disparo aparece en Rompe récords');
+    const shotsBefore = await evalJs("G.getShots().length");
+    await evalJs("SAVE.setSetting('vib', false); G.flap()");
+    await sleep(80);
+    await evalJs("G.shoot()");
+    await sleep(120);
+    ok(await evalJs("G.getShots().length > " + shotsBefore), 'disparar crea un proyectil real');
+    await evalJs("G.setPaused(true)");
+    await sleep(120);
+    await evalJs("G.goMenu()");
+    await sleep(400);
+
+    // Salas online: la configuración de supervivencia está disponible.
+    await evalJs("document.getElementById('btnPlay').click()");
+    await sleep(250);
+    await evalJs("document.getElementById('mpPvp').click()");
+    await sleep(500);
+    const lobby = await evalJs("(function(){var w=document.getElementById('mpWinBy');return {form:!!w,opts:w?w.options.length:0,toggles:!!document.getElementById('mpEnemies')&&!!document.getElementById('mpPowers')&&!!document.getElementById('mpTools'),warn:document.getElementById('genBody').textContent.indexOf('SIN CONEXIÓN')!==-1}})()");
+    ok((lobby.form && lobby.opts === 3 && lobby.toggles) || lobby.warn,
+      'el lobby ofrece las 3 reglas de victoria y toggles reales', JSON.stringify(lobby));
+    await evalJs("UI.closeGeneric()");
+    await sleep(300);
+
     await evalJs("SAVE.logMatch({mode:'goal',map:'day',pipes:15,score:40,coins:3,time:22,dist:90,result:'Meta 15/15 · completada',participants:[{name:'Pío',score:40,pipes:15,finished:true}]}); SAVE.logMatch({mode:'free',map:'day',pipes:8,score:21,coins:1,time:18,dist:60,result:'Vuelo libre',participants:[{name:'Pío',score:21,pipes:8}]})");
     await evalJs("UI.openGeneric('records')");
     await sleep(500);
     ok(await evalJs("!!document.querySelector('.lb-log') && document.getElementById('genBody').textContent.indexOf('RÉCORDS POR MODO') !== -1"),
       'los récords muestran la sección por modo');
+    ok(await evalJs("document.getElementById('genBody').textContent.indexOf('RÉCORDS DE ELIMINACIONES') !== -1"),
+      'los récords incluyen la clasificación de eliminaciones');
     ok(await evalJs("document.querySelectorAll('.lb-chip').length >= 4"), 'los récords tienen filtros por modo');
     ok(await evalJs("document.querySelectorAll('.lb-match').length === 2 && document.querySelectorAll('.lb-mode-chip').length === 2"),
       'los récords agrupan y muestran las carreras por modo');
@@ -424,6 +479,12 @@ function makeClient(ws) {
       ok(bootCloud && bootCloud.configured, 'la nube de emuladores está configurada');
       ok(bootCloud && bootCloud.ready && bootCloud.status === 'online', 'Firebase conecta contra los emuladores', bootCloud && (bootCloud.status + (bootCloud.error ? ' · ' + bootCloud.error : '')));
       ok(bootCloud && bootCloud.session && bootCloud.session.anonymous, 'la sesión inicial es de invitado');
+
+    // Rompe récords global: publicación monotónica y clasificación pública.
+    const recPub = await evalJs("CLOUD.submitKillRecord(9).then(function(r){return r}).catch(function(e){return {ok:false,msg:String(e)}})");
+    ok(recPub && recPub.ok && recPub.global, 'el récord de eliminaciones se publica en el servidor', JSON.stringify(recPub));
+    const killBoard = await evalJs("CLOUD.getKillBoard(10).then(function(b){return b}).catch(function(){return []})");
+    ok(Array.isArray(killBoard) && killBoard.some(p => p.kills >= 9), 'la clasificación global de eliminaciones se lee', JSON.stringify(killBoard && killBoard[0]));
 
       // Aviso de registro del primer vuelo para un usuario nuevo sin partidas.
       const flightsBefore = await evalJs("SAVE.get().stats.flights");
@@ -586,6 +647,7 @@ function makeClient(ws) {
       // Sala personalizada de verdad.
       await openLobby();
       await evalJs("(function(){" +
+        "var w=document.getElementById('mpWinBy');if(w){w.value='goal';if(w.onchange)w.onchange();}" +
         "var p=document.getElementById('mpPipes');if(p)p.value='15';" +
         "var t=document.getElementById('mpTime');if(t)t.value='60';" +
         "var m=document.getElementById('mpMap');if(m)m.value='night';" +
@@ -665,7 +727,7 @@ function makeClient(ws) {
           }
           ok(afterLeave && afterLeave.state === 'finished' && afterLeave.winner === 'guest',
             'al abandonar el anfitrión, el invitado gana y la sala queda resuelta',
-            afterLeave && (afterLeave.state + '/' + afterLeave.winner));
+            afterLeave && (afterLeave.state + '/' + afterLeave.winner + ' ' + JSON.stringify(afterLeave.host) + ' vs ' + JSON.stringify(afterLeave.guest)));
         }
       }
     }
@@ -682,7 +744,10 @@ function makeClient(ws) {
     }).filter(msg =>
       /* La prueba apaga la red a propósito: esos fallos de red no son errores
          de JavaScript del juego. Cualquier otra excepción sí se reporta. */
-      !/net::ERR_INTERNET_DISCONNECTED|Error in connection establishment|net::ERR_NETWORK_CHANGED/i.test(msg)
+      !/net::ERR_INTERNET_DISCONNECTED|Error in connection establishment|net::ERR_NETWORK_CHANGED/i.test(msg) &&
+      /* Chrome registra un aviso report-only de frame-ancestors de google.com
+         al usar los emuladores; no lo genera el juego. */
+      !/report-only Content Security Policy|frame-ancestors|Framing 'https:\/\/www\.google\.com\/'/i.test(msg)
     );
     ok(errors.length === 0, 'no hay errores de JavaScript en la sesión', errors.slice(0, 3).join(' | '));
 

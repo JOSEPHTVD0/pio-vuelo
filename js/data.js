@@ -885,7 +885,12 @@ window.DAT = (function () {
     { id: 'm-w-wind',  name: 'Viento Semanal',    desc: 'Cruza 10 tramos de viento 💨 esta semana',       target: 10,   metric: s => s.get().stats.windZones,      reward: 350, weekly: true },
     { id: 'm-w-giant', name: 'Cazagigantes Semanal', desc: 'Pasa 25 tuberías gigantes 🌋 esta semana',    target: 25,   metric: s => s.get().stats.giantPassed,    reward: 400, weekly: true },
     { id: 'm-w-time',  name: 'Horas de Vuelo',    desc: 'Acumula 30 minutos de vuelo esta semana',        target: 1800, metric: s => s.get().stats.timePlayed,     reward: 450, weekly: true },
-    { id: 'm-w-shield',name: 'Muralla',           desc: 'Absorbe 8 choques con el escudo 🛡️',             target: 8,    metric: s => s.get().stats.shieldAbsorbed, reward: 400, weekly: true }
+    { id: 'm-w-shield',name: 'Muralla',           desc: 'Absorbe 8 choques con el escudo 🛡️',             target: 8,    metric: s => s.get().stats.shieldAbsorbed, reward: 400, weekly: true },
+    /* ---- v3.5.0: misiones ESPECIALES (no rotan, recompensas grandes) ---- */
+    { id: 'm-s-kills', name: 'Verdugo del Cielo',   desc: 'Elimina 100 enemigos en Rompe récords 🎯',      target: 100,  metric: s => (s.get().stats.recordKills || 0), reward: { coins: 600, parts: 3 }, special: true },
+    { id: 'm-s-survive', name: 'Superviviente',     desc: 'Aguanta 120 s en una carrera online 🌐',        target: 120,  metric: s => (s.get().stats.mpSurvivalBest || 0), reward: { coins: 750, parts: 4 }, special: true },
+    { id: 'm-s-record', name: 'Rompe Récords',      desc: 'Alcanza un récord de 25 eliminaciones 🎯',      target: 25,   metric: s => (s.get().stats.recordBest || 0), reward: { coins: 500, item: 'fenix', n: 1 }, special: true },
+    { id: 'm-s-champ', name: 'Leyenda Online',      desc: 'Gana 25 carreras online 🌐',                    target: 25,   metric: s => (s.get().stats.mpWins || 0), reward: { coins: 1000, item: 'shield', n: 2 }, special: true }
   ];
 
   /* Temporada 2026 🗓: recompensas por XP acumulada (misma XP del jugador) */

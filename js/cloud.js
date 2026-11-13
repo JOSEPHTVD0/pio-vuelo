@@ -61,6 +61,7 @@ window.CLOUD = (function () {
   let initPromise = null;
   let boardUnsub = null;
   let duelUnsub = null;
+  let duelDisc = null;          // onDisconnect de la sala (marca caída por desconexión)
   let presenceTimer = null;
   let presenceRef = null;
   let presenceHooked = false;
@@ -1452,13 +1453,18 @@ window.CLOUD = (function () {
     if (window.MP && typeof MP.normalizeConfig === 'function') return MP.normalizeConfig(raw, opts);
     // Respaldo mínimo si mp.js no estuviera cargado (nunca debería ocurrir).
     const src = raw && typeof raw === 'object' ? raw : {};
+    const mode = src.mode === 'free' ? 'free' : 'goal';
+    const winBy = src.winBy === 'goal' || src.winBy === 'score' ? src.winBy : 'survival';
     return {
-      mode: src.mode === 'free' ? 'free' : 'goal',
+      mode: winBy === 'goal' ? 'goal' : mode,
+      winBy: winBy,
       pipes: clampInt(src.pipes || 12, 0, 100),
       time: clampInt(src.time || 0, 0, 3600),
       map: String(src.map || 'day').slice(0, 32),
       diff: String(src.diff || 'normal'),
       tools: src.tools !== false,
+      enemies: src.enemies !== false,
+      powers: src.powers !== false,
       seedMode: src.seedMode === 'manual' ? 'manual' : 'daily',
       seed: clampInt(src.seed || (Date.now() % 2147483646), 1, 2147483646)
     };
@@ -1466,7 +1472,11 @@ window.CLOUD = (function () {
 
   function duelSide(uid, name) {
     if (window.MP && typeof MP.emptySide === 'function') return MP.emptySide(uid, name);
-    return { uid: uid, name: name, score: 0, pipes: 0, dist: 0, alt: 0, alive: true, finished: false, time: 0 };
+    return {
+      uid: uid, name: name, score: 0, pipes: 0, kills: 0, dist: 0, alt: 0,
+      alive: true, finished: false, disconnected: false, deathAt: 0, deathCause: '',
+      goalAt: 0, finishedBy: '', time: 0
+    };
   }
 
   function cleanDuelCode(code) {
@@ -1566,8 +1576,69 @@ window.CLOUD = (function () {
 
   function duelWinner(room) {
     if (!room || !room.host || !room.guest) return '';
+    const cfg = room.config || {};
+    // La resolución moderna entiende supervivencia y estados intermedios.
+    // Si aún no hay decisión devolvemos '' y NO caemos al juez antiguo, que
+    // declararía ganador al primero que "terminó" (aunque fuera por morir).
+    if (window.MP && typeof MP.resolve === 'function') {
+      const r = MP.resolve(room.host, room.guest, cfg);
+      return r.decided ? r.winner : '';
+    }
     if (window.MP && typeof MP.judgeSides === 'function') return MP.judgeSides(room.host, room.guest);
     return '';
+  }
+
+  // ¿Los dos lados han terminado? (muerte o meta/tiempo)
+  function duelEnded(side) {
+    return !!side && (side.alive === false || side.finished === true);
+  }
+
+  // Fusiona el progreso recibido sin permitir retrocesos ni resurrecciones.
+  function mergeDuelSide(prev, p) {
+    const out = Object.assign({}, prev);
+    const n = v => { const x = Number(v); return isFinite(x) ? x : 0; };
+    out.uid = prev.uid;
+    out.name = prev.name;
+    out.score = Math.max(clampInt(prev.score, 0, 10000000), clampInt(p.score, 0, 10000000));
+    out.pipes = Math.max(clampInt(prev.pipes, 0, 10000), clampInt(p.pipes, 0, 10000));
+    out.kills = Math.max(clampInt(prev.kills, 0, 10000), clampInt(p.kills, 0, 10000));
+    out.dist = Math.max(clampInt(prev.dist, 0, 10000000), clampInt(p.dist, 0, 10000000));
+    out.time = Math.max(Math.max(0, n(prev.time)), Math.max(0, n(p.time)));
+    const clampF = (v, min, max) => Math.max(min, Math.min(max, n(v)));
+    out.alt = clampF(p.alt !== undefined ? p.alt : prev.alt, 0, 1);
+    if (prev.alive === false) {
+      // Una vez caído no se revive: se conserva la marca de muerte.
+      out.alive = false;
+      out.finished = true;
+      out.deathAt = Math.max(0, n(prev.deathAt));
+      out.deathCause = prev.deathCause || 'choque';
+      out.finishedBy = prev.finishedBy || 'death';
+      out.goalAt = Math.max(0, n(prev.goalAt));
+      out.disconnected = prev.disconnected === true;
+      return out;
+    }
+    if (p.disconnected) out.disconnected = true;
+    if (p.alive === false) {
+      out.alive = false;
+      out.finished = true;
+      out.deathAt = Math.max(n(p.deathAt), n(prev.deathAt), n(p.time));
+      out.deathCause = String(p.deathCause || prev.deathCause || 'choque').slice(0, 16);
+      out.finishedBy = 'death';
+    } else if (p.finished || prev.finished) {
+      out.alive = true;
+      out.finished = true;
+      out.finishedBy = String(p.finishedBy || prev.finishedBy || 'finish').slice(0, 16);
+      if (p.finishedBy === 'goal') {
+        out.goalAt = Math.max(n(p.goalAt), n(prev.goalAt), n(p.time));
+      } else {
+        out.goalAt = Math.max(n(p.goalAt), n(prev.goalAt));
+      }
+    } else {
+      out.alive = prev.alive !== false;
+      out.finished = false;
+    }
+    if (out.goalAt === undefined) out.goalAt = 0;
+    return out;
   }
 
   async function updateDuelProgress(code, progress) {
@@ -1577,37 +1648,29 @@ window.CLOUD = (function () {
     const ref = M.rtdbMod.ref(rtdb, 'duels/' + key);
     const p = (window.MP && MP.sanitizeProgress) ? MP.sanitizeProgress(progress) : progress;
     try {
-      const snap = await M.rtdbMod.get(ref);
-      if (!snap.exists()) return false;
-      const cur = snap.val();
-      const side = (cur.host && cur.host.uid === state.uid) ? 'host'
-        : (cur.guest && cur.guest.uid === state.uid) ? 'guest' : '';
-      if (!side) return false;
-      const prev = cur[side] || {};
-      if (prev.finished && !p.finished) return true; // no retroceder un resultado ya enviado
-      const now = Date.now();
-      const patch = {};
-      patch[side + '/uid'] = prev.uid;
-      patch[side + '/name'] = prev.name;
-      patch[side + '/score'] = p.score;
-      patch[side + '/pipes'] = p.pipes;
-      patch[side + '/dist'] = p.dist;
-      patch[side + '/alt'] = p.alt;
-      patch[side + '/alive'] = p.alive;
-      patch[side + '/finished'] = p.finished;
-      patch[side + '/time'] = p.time;
-      patch.updatedAt = now;
-      const other = cur[side === 'host' ? 'guest' : 'host'];
-      if (p.finished && other && other.finished && cur.state !== 'finished') {
-        const self = Object.assign({}, prev, p);
-        const winner = side === 'host'
-          ? duelWinner({ host: self, guest: other })
-          : duelWinner({ host: other, guest: self });
-        patch.state = 'finished';
-        if (!cur.winner) patch.winner = winner || '';
-      }
-      await M.rtdbMod.update(ref, patch);
-      return true;
+      // Transacción: dos clientes pueden reportar a la vez (o reconectar) sin
+      // duplicar el resultado ni pisar el ganador ya decidido.
+      const res = await M.rtdbMod.runTransaction(ref, function (cur) {
+        if (!cur) return;
+        const side = (cur.host && cur.host.uid === state.uid) ? 'host'
+          : (cur.guest && cur.guest.uid === state.uid) ? 'guest' : '';
+        if (!side) return;
+        const prev = cur[side] || {};
+        if (prev.finished && !p.finished) return; // no retroceder un resultado ya enviado
+        const next = Object.assign({}, cur);
+        next[side] = mergeDuelSide(prev, p);
+        next.updatedAt = Date.now();
+        if (next.state !== 'finished') {
+          if (duelEnded(next.host) && duelEnded(next.guest)) {
+            const winner = duelWinner(next);
+            next.state = 'finished';
+            next.winner = winner || 'draw';
+            next.finishedAt = next.updatedAt;
+          }
+        }
+        return next;
+      });
+      return !!(res && res.committed);
     } catch (err) {
       warn('updateDuelProgress:', err);
       return false;
@@ -1658,6 +1721,40 @@ window.CLOUD = (function () {
     if (duelUnsub) { try { duelUnsub(); } catch (e) { } duelUnsub = null; }
   }
 
+  // Si el dispositivo pierde la conexión a mitad de carrera, RTDB marca la
+  // caída para que el rival no se quede esperando y no se pueda "escapar" ganando.
+  async function armDuelDisconnect(code) {
+    if (!state.ready || !rtdb) return false;
+    const key = cleanDuelCode(code);
+    if (key.length !== 6) return false;
+    try {
+      const snap = await M.rtdbMod.get(M.rtdbMod.ref(rtdb, 'duels/' + key));
+      if (!snap.exists()) return false;
+      const cur = snap.val();
+      const side = (cur.host && cur.host.uid === state.uid) ? 'host'
+        : (cur.guest && cur.guest.uid === state.uid) ? 'guest' : '';
+      if (!side || cur.state !== 'playing') return false;
+      disarmDuelDisconnect();
+      const sideRef = M.rtdbMod.ref(rtdb, 'duels/' + key + '/' + side);
+      duelDisc = M.rtdbMod.onDisconnect(sideRef);
+      await duelDisc.update({
+        disconnected: true,
+        alive: false,
+        finished: true,
+        deathCause: 'desconexión',
+        finishedBy: 'disconnect'
+      });
+      return true;
+    } catch (err) {
+      warn('armDuelDisconnect:', err);
+      return false;
+    }
+  }
+
+  function disarmDuelDisconnect() {
+    if (duelDisc) { try { duelDisc.cancel(); } catch (e) { } duelDisc = null; }
+  }
+
   async function leaveDuel(code) {
     if (!state.ready || !rtdb) return false;
     const key = cleanDuelCode(code);
@@ -1668,38 +1765,43 @@ window.CLOUD = (function () {
       if (!snap.exists()) return true; // la sala ya no está: nada que liberar
       const cur = snap.val();
       const now = Date.now();
+      const side = (cur.host && cur.host.uid === state.uid) ? 'host'
+        : (cur.guest && cur.guest.uid === state.uid) ? 'guest' : '';
+      if (!side) return false;
+      const otherKey = side === 'host' ? 'guest' : 'host';
 
-      if (cur.host && cur.host.uid === state.uid) {
-        if (cur.state === 'playing') {
-          // El anfitrión deja la carrera: si no había terminado, gana el invitado.
-          const winner = cur.host.finished ? (duelWinner(cur) || 'host') : 'guest';
-          await M.rtdbMod.update(ref, {
-            'host/alive': false,
-            'host/finished': true,
-            'host/time': cur.host.time || 0,
-            state: 'finished',
-            winner: winner,
-            updatedAt: now
-          });
-        } else {
-          await M.rtdbMod.remove(ref); // en espera o ya resuelta: se cierra la sala
-        }
+      if (cur.state === 'playing') {
+        // Abandonar la carrera cuenta como caída: nunca se gana por
+        // desconectar. El rival que siga vivo gana por supervivencia.
+        const me = Object.assign({}, cur[side] || {});
+        me.alive = false;
+        me.finished = true;
+        me.disconnected = true;
+        me.finishedBy = 'disconnect';
+        me.deathCause = 'desconexión';
+        me.deathAt = Math.max(Number(me.time) || 0, Number(me.deathAt) || 0);
+        const next = Object.assign({}, cur);
+        next[side] = me;
+        let winner = duelWinner(next);
+        if (!winner) winner = (next[otherKey] && next[otherKey].uid) ? otherKey : 'draw';
+        const patch = {
+          state: 'finished',
+          winner: winner || 'draw',
+          finishedAt: now,
+          updatedAt: now
+        };
+        patch[side + '/alive'] = false;
+        patch[side + '/finished'] = true;
+        patch[side + '/disconnected'] = true;
+        patch[side + '/finishedBy'] = 'disconnect';
+        patch[side + '/deathCause'] = 'desconexión';
+        patch[side + '/deathAt'] = me.deathAt;
+        await M.rtdbMod.update(ref, patch);
         return true;
       }
 
-      if (!cur.guest || cur.guest.uid !== state.uid) return false;
-      if (cur.state === 'playing') {
-        // El invitado deja la carrera: gana el anfitrión (o decide el marcador).
-        const finished = !!(cur.guest.finished || (cur.host && cur.host.finished));
-        const winner = finished ? (duelWinner(cur) || 'host') : 'host';
-        await M.rtdbMod.update(ref, {
-          'guest/alive': false,
-          'guest/finished': true,
-          'guest/time': cur.guest.time || 0,
-          state: 'finished',
-          winner: winner,
-          updatedAt: now
-        });
+      if (side === 'host') {
+        await M.rtdbMod.remove(ref); // sala en espera: se cierra
       } else {
         await M.rtdbMod.update(ref, { guest: null, updatedAt: now }); // queda libre
       }
@@ -1708,6 +1810,148 @@ window.CLOUD = (function () {
       warn('leaveDuel:', err);
       return false;
     }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Notificaciones y récords globales de eliminaciones                  */
+  /* ------------------------------------------------------------------ */
+
+  async function sendNotification(uid, data) {
+    if (!state.ready || !rtdb || !uid) return false;
+    try {
+      const now = Date.now();
+      const ref = M.rtdbMod.ref(rtdb, 'notifications/' + uid);
+      const id = M.rtdbMod.push(ref).key;
+      await M.rtdbMod.set(M.rtdbMod.ref(rtdb, 'notifications/' + uid + '/' + id), {
+        type: String(data.type || 'info').slice(0, 16),
+        title: String(data.title || 'Pío Vuelo').slice(0, 64),
+        body: String(data.body || '').slice(0, 160),
+        from: String(data.from || state.uid).slice(0, 64),
+        fromName: String(data.fromName || '').slice(0, 16),
+        record: clampInt(data.record, 0, 10000),
+        at: now,
+        read: false
+      });
+      return true;
+    } catch (err) {
+      warn('sendNotification:', err);
+      return false;
+    }
+  }
+
+  // Récord mundial de eliminaciones con validación monotónica en RTDB.
+  async function submitKillRecord(kills) {
+    await init();
+    if (!state.ready || !rtdb || !state.uid) return { ok: false, reason: 'offline' };
+    const k = clampInt(kills, 0, 10000);
+    if (k <= 0) return { ok: false, reason: 'empty' };
+    const uid = state.uid;
+    const name = localProfile().name || 'Jugador';
+    const now = Date.now();
+    try {
+      let previous = null;
+      const res = await M.rtdbMod.runTransaction(M.rtdbMod.ref(rtdb, 'records/kills'), function (cur) {
+        const curK = cur ? clampInt(cur.kills, 0, 10000) : 0;
+        if (k <= curK) return; // no es récord global: se aborta
+        if (cur && cur.uid && cur.uid !== uid) {
+          previous = { uid: cur.uid, name: cur.name || 'Jugador', kills: curK };
+        }
+        return { kills: k, uid: uid, name: name, at: now };
+      });
+      const isGlobal = !!(res && res.committed);
+      if (isGlobal) {
+        // Tabla personal + historial + aviso al jugador superado.
+        await M.rtdbMod.runTransaction(M.rtdbMod.ref(rtdb, 'recordBoard/' + uid), function (cur) {
+          const curK = cur ? clampInt(cur.kills, 0, 10000) : 0;
+          if (k <= curK) return;
+          return { name: name, kills: k, at: now };
+        });
+        const histRef = M.rtdbMod.ref(rtdb, 'recordHistory');
+        const hid = M.rtdbMod.push(histRef).key;
+        await M.rtdbMod.set(M.rtdbMod.ref(rtdb, 'recordHistory/' + hid), {
+          uid: uid, name: name, kills: k, at: now
+        });
+        if (previous) {
+          await sendNotification(previous.uid, {
+            type: 'record',
+            title: '¡Te han superado el récord!',
+            body: name + ' ha logrado ' + k + ' eliminaciones (tu récord era ' + previous.kills + ').',
+            from: uid,
+            fromName: name,
+            record: k
+          });
+        }
+      }
+      return { ok: true, global: isGlobal, kills: k, previous: previous };
+    } catch (err) {
+      warn('submitKillRecord:', err);
+      return { ok: false, reason: 'error' };
+    }
+  }
+
+  async function getKillRecord() {
+    await init();
+    if (!state.ready || !rtdb) return null;
+    try {
+      const snap = await M.rtdbMod.get(M.rtdbMod.ref(rtdb, 'records/kills'));
+      return snap.exists() ? snap.val() : null;
+    } catch (err) {
+      warn('getKillRecord:', err);
+      return null;
+    }
+  }
+
+  // Clasificación global de eliminaciones (mejores marcas por jugador).
+  async function getKillBoard(limit) {
+    await init();
+    if (!state.ready || !rtdb) return [];
+    try {
+      const snap = await M.rtdbMod.get(M.rtdbMod.ref(rtdb, 'recordBoard'));
+      if (!snap.exists()) return [];
+      const val = snap.val() || {};
+      const max = clampInt(limit, 1, 50);
+      return Object.keys(val).map(function (uid) {
+        const b = val[uid] || {};
+        return {
+          uid: uid,
+          name: String(b.name || 'Jugador').slice(0, 16),
+          kills: clampInt(b.kills, 0, 10000),
+          at: Math.max(0, Number(b.at) || 0)
+        };
+      }).filter(function (p) { return p.kills > 0; })
+        .sort(function (a, b) { return b.kills - a.kills || a.name.localeCompare(b.name); })
+        .slice(0, max);
+    } catch (err) {
+      warn('getKillBoard:', err);
+      return [];
+    }
+  }
+
+  let notifUnsub = null;
+  function stopNotifications() {
+    if (notifUnsub) { try { notifUnsub(); } catch (e) { } notifUnsub = null; }
+  }
+  function watchNotifications(cb) {
+    if (typeof cb !== 'function') return function () { };
+    init().then(function () {
+      if (!state.ready || !rtdb || !state.uid) { cb([]); return; }
+      stopNotifications();
+      notifUnsub = M.rtdbMod.onValue(M.rtdbMod.ref(rtdb, 'notifications/' + state.uid), function (snap) {
+        const v = snap.exists() ? snap.val() : null;
+        const list = [];
+        if (v && typeof v === 'object') {
+          Object.keys(v).forEach(function (id) {
+            if (v[id] && typeof v[id] === 'object') list.push(Object.assign({ id: id }, v[id]));
+          });
+        }
+        list.sort(function (a, b) { return (Number(b.at) || 0) - (Number(a.at) || 0); });
+        cb(list.slice(0, 30));
+      }, function (err) {
+        warn('watchNotifications:', err);
+        cb([]);
+      });
+    });
+    return stopNotifications;
   }
 
   /* ------------------------------------------------------------------ */
@@ -1820,6 +2064,14 @@ window.CLOUD = (function () {
     updateDuelScore: updateDuelScore,
     watchDuel: watchDuel,
     stopWatchDuel: stopWatchDuel,
-    leaveDuel: leaveDuel
+    leaveDuel: leaveDuel,
+    armDuelDisconnect: armDuelDisconnect,
+    disarmDuelDisconnect: disarmDuelDisconnect,
+    submitKillRecord: submitKillRecord,
+    getKillRecord: getKillRecord,
+    getKillBoard: getKillBoard,
+    sendNotification: sendNotification,
+    watchNotifications: watchNotifications,
+    stopNotifications: stopNotifications
   };
 })();

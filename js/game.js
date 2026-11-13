@@ -54,7 +54,7 @@ window.G = (function () {
   let diff = null;
   let mapCfgCur = { speedMul: 1, gravMul: 1, gapMul: 1, spawnMul: 1, coinMul: 1, wind: false }; // mecánicas del mapa activo
   let lvl = 1;
-  let mode = 'free';       // free | goal | challenge | duel | zen | boss | wind | replay | pvp
+  let mode = 'free';       // free | goal | challenge | duel | zen | boss | wind | record | replay | pvp
   let clearedFlag = false; // evita disparar la superación de un modo 2 veces
   let goalTarget = 0;      // meta de tubos del modo 'Con metas' (0 = sin meta)
   let radarTick = 0;       // acumulador para refrescar el mapa táctico a ~8 fps
@@ -64,6 +64,17 @@ window.G = (function () {
   let pvp = null;          // { code, side, cfg, rival, done, stopWatch, lastReport, room, result }
   let pvpGoal = 0;         // tubos necesarios para completar la carrera
   let pvpTimeLimit = 0;    // segundos de límite (0 = sin límite)
+  let pvpKills = 0;        // enemigos eliminados en Rompe récords / sala
+  let pvpSelfDeath = false;// mi ave ya cayó y estoy en modo espectador
+  let pvpDeathAt = 0;      // segundo exacto de mi caída (supervivencia)
+  let pvpRivalSeenDead = false;
+  // Rompe récords: proyectiles reales que eliminan enemigos
+  let shots = [];
+  let shotCooldown = 0;
+  let runKills = 0;
+  let recordPrev = 0;
+  let recordNew = 0;
+  let recordName = '';
 
   // RNG determinado por semilla (partida idéntica para todos: Semilla diaria + Replay fiel)
   let rng = Math.random;
@@ -132,9 +143,24 @@ window.G = (function () {
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
+  function dprCap() {
+    // Calidad de render adaptada al dispositivo y al ajuste de gráficos:
+    // menos píxeles = menos batería y menos cierres en móviles modestos.
+    const gfx = (window.SAVE && SAVE.get && SAVE.get().set) ? SAVE.get().set.gfx : 'high';
+    let cap = gfx === 'low' ? 1 : gfx === 'medium' ? 1.5 : 2;
+    const mem = navigator.deviceMemory || 4;
+    const cores = navigator.hardwareConcurrency || 4;
+    if (mem && mem <= 3) cap = Math.min(cap, 1.25);
+    if (cores && cores <= 4) cap = Math.min(cap, 1.5);
+    return Math.max(1, Math.min(2, cap));
+  }
+
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    W = window.innerWidth; H = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, dprCap());
+    const nw = Math.max(320, window.innerWidth);
+    const nh = Math.max(320, window.innerHeight);
+    if (nw === W && nh === H && canvas.width === Math.floor(nw * dpr) && canvas.height === Math.floor(nh * dpr)) return;
+    W = nw; H = nh;
     canvas.width = Math.floor(W * dpr);
     canvas.height = Math.floor(H * dpr);
     canvas.style.width = W + 'px';
@@ -144,6 +170,20 @@ window.G = (function () {
     ip.width = clamp(Math.round(W * 0.085), 62, 84);
     clampPipesToScreen();   // al girar/redimensionar los huecos existentes siguen siendo válidos
     BG.resize(W, H);
+  }
+
+  // Calidad automática: si los FPS bajan, se recorta el presupuesto de partículas.
+  let fpsEma = 60, qualityTick = 0;
+  function autoQuality(rawDt) {
+    if (!(rawDt > 0)) return;
+    fpsEma = fpsEma * 0.94 + (1 / rawDt) * 0.06;
+    qualityTick += rawDt;
+    if (qualityTick < 2 || !window.FX || !FX.setBudget) return;
+    qualityTick = 0;
+    const gfx = (window.SAVE && SAVE.get && SAVE.get().set) ? SAVE.get().set.gfx : 'high';
+    const base = gfx === 'high' ? 420 : gfx === 'medium' ? 280 : 160;
+    const b = fpsEma < 40 ? Math.round(base * 0.55) : fpsEma < 52 ? Math.round(base * 0.78) : base;
+    FX.setBudget(b);
   }
 
   // Reajusta huecos ya generados al tamaño actual de pantalla (evita tubos
@@ -211,6 +251,10 @@ function difficultyFor(sc, diffc) {
     birds = [bird];
     pipes = []; coins = []; enemies = []; powers = [];
     score = 0; pipesDone = 0; coinCount = 0;
+    pvpKills = 0; pvpSelfDeath = false; pvpDeathAt = 0; pvpRivalSeenDead = false;
+    shots = []; shotCooldown = 0; runKills = 0;
+    const rec = (mode === 'record' && SAVE.killRecord) ? SAVE.killRecord() : { best: 0, name: '' };
+    recordPrev = rec.best || 0; recordNew = recordPrev; recordName = rec.name || '';
     runSpawnWorth = 0; runColWorth = 0;
     runSeconds = 0; spawnDist = 0; spawnEDist = 0; spawnPwDist = 0;
     spawnMegaDist = 0; spawnChDist = 0; nextMile = 1;
@@ -686,7 +730,10 @@ function difficultyFor(sc, diffc) {
       y: Math.max(0, Math.min(1, 1 - bird.y / h)),
       name: (SAVE.getProfile() || {}).name || 'Tú',
       pipes: pipesDone,
-      score: score
+      score: score,
+      kills: runKills,
+      alive: !(bird.dead || pvpSelfDeath),
+      time: Math.round(runSeconds * 10) / 10
     };
     let foe = null;
     if (mode === 'pvp' && pvp) {
@@ -697,7 +744,10 @@ function difficultyFor(sc, diffc) {
           x: pvpGoal > 0 ? Math.min(1, done / pvpGoal) : Math.min(1, done / (done + 10)),
           y: (typeof o.alt === 'number') ? Math.max(0, Math.min(1, o.alt)) : 0.5,
           name: o.name || 'Rival',
-          pipes: done
+          pipes: done,
+          kills: o.kills || 0,
+          alive: o.alive !== false,
+          time: Number(o.time) || Number(o.deathAt) || 0
         };
       }
     }
@@ -718,6 +768,7 @@ function difficultyFor(sc, diffc) {
       return;
     }
     lastTime = ms;
+    autoQuality(rawDt);
     if (paused || state === 'load') { rafId = requestAnimationFrame(loop); return; }
     if (resumeLeft > 0) {
       // La cuenta atrás corre con tiempo real aunque el navegador vaya a pocos FPS.
@@ -764,7 +815,7 @@ function difficultyFor(sc, diffc) {
       if (mode === 'pvp' && pvp && !pvp.done) {
         pvp.reportT = (pvp.reportT || 0) + dt;
         if (pvp.reportT >= 0.75) { pvp.reportT = 0; pvpReport(false); }
-        if (pvpTimeLimit > 0 && runSeconds >= pvpTimeLimit) pvpFinish(true);
+        if (pvpTimeLimit > 0 && runSeconds >= pvpTimeLimit) pvpFinish('time');
       }
       const D = curD(mode === 'zen' ? 0 : effScore()); // Zen: dificultad congelada, sin tubos ni enemigos
       lvl = D.level;
@@ -832,12 +883,14 @@ function difficultyFor(sc, diffc) {
 
       // generar obstáculos, enemigos y power-ups (Zen no genera nada)
       if (mode !== 'zen') {
+      const allowEnemies = !(mode === 'pvp' && pvp && pvp.cfg.enemies === false);
+      const allowPowers = !(mode === 'pvp' && pvp && pvp.cfg.powers === false);
       spawnDist += spd * dt;
       if (spawnDist >= D.spawnEvery) { spawnDist = 0; spawnPipe(D); }
       spawnEDist += spd * dt;
-      if (spawnEDist >= D.enemyEvery) { spawnEDist = 0; spawnEnemy(); }
+      if (allowEnemies && spawnEDist >= D.enemyEvery) { spawnEDist = 0; spawnEnemy(); }
       spawnPwDist += spd * dt;
-      if (spawnPwDist >= D.powerEvery) { spawnPwDist = 0; spawnPower(); }
+      if (allowPowers && spawnPwDist >= D.powerEvery) { spawnPwDist = 0; spawnPower(); }
       spawnMegaDist += spd * dt;
       if (spawnMegaDist >= (rt.radar ? D.megaEvery / 1.6 : D.megaEvery)) { spawnMegaDist = 0; spawnMega(); }
       spawnChDist += spd * dt;
@@ -857,7 +910,7 @@ function difficultyFor(sc, diffc) {
           if (rt.bala && pipesDone % 10 === 0) balaShot();
           if (mode === 'pvp' && pvp && !pvp.done) {
             pvpReport(true);
-            if (pvpGoal > 0 && pipesDone >= pvpGoal) { pvpFinish(true); break; }
+            if (pvp.cfg.winBy === 'goal' && pvpGoal > 0 && pipesDone >= pvpGoal) { pvpFinish('goal'); break; }
           }
           if (mode === 'goal' && !clearedFlag && goalTarget > 0 && pipesDone >= goalTarget) {
             clearedFlag = true;
@@ -936,6 +989,9 @@ function difficultyFor(sc, diffc) {
         if (e.x < -120) enemies.splice(i, 1);
       }
 
+      // proyectiles de Rompe récords / sala (eliminan enemigos de verdad)
+      updateShots(dt);
+
       // mover y recoger power-ups
       for (let i = powers.length - 1; i >= 0; i--) {
         const pw = powers[i];
@@ -965,23 +1021,23 @@ function difficultyFor(sc, diffc) {
           if (b.dead) return;
           if (b.y + b.r >= H - groundH) {
             if (invulnT > t) { b.y = H - groundH - b.r - 1; b.vy = Math.max(b.vy, -1); }
-            else { b.y = H - groundH - b.r; hitObstacleBird(b, bi); } // el escudo también protege del suelo
+            else { b.y = H - groundH - b.r; hitObstacleBird(b, bi, 'suelo'); } // el escudo también protege del suelo
           }
           if (b.y - b.r < 2) { b.y = 2 + b.r; b.vy = Math.max(b.vy, 0); }
           if (!ghostOn && !b.dead) { // el fantasma atraviesa tubos y enemigos sin morir
             for (let i = 0; i < pipes.length && !b.dead; i++) {
               const p = pipes[i];
               if (circleRect(b.x, b.y, b.r * 0.85, p.x, 0, p.w, p.gap - p.gapHalf)) {
-                hitObstacleBird(b, bi); break;
+                hitObstacleBird(b, bi, 'tubo'); break;
               } else if (circleRect(b.x, b.y, b.r * 0.85, p.x, p.gap + p.gapHalf, p.w, H - groundH - p.gap - p.gapHalf)) {
-                hitObstacleBird(b, bi); break;
+                hitObstacleBird(b, bi, 'tubo'); break;
               }
             }
             for (let i = 0; i < enemies.length && !b.dead; i++) {
               const e = enemies[i];
               const dx = e.x - b.x, dy = e.y - b.y;
               const rr = e.r + b.r * 0.76;
-              if (dx * dx + dy * dy < rr * rr) { hitObstacleBird(b, bi); break; }
+              if (dx * dx + dy * dy < rr * rr) { hitObstacleBird(b, bi, 'enemigo'); break; }
             }
           }
         });
@@ -1071,12 +1127,12 @@ function difficultyFor(sc, diffc) {
   }
   function flapNow() { flapPhys(bird); }
 
-  function collide() { killBird(bird, 0); }
+  function collide() { killBird(bird, 0, 'suelo'); }
 
   // Choque con un obstáculo: si hay escudo lo consume (sin morir); con i-frames breves
-  function hitObstacle() { hitObstacleBird(bird, 0); }
+  function hitObstacle(cause) { hitObstacleBird(bird, 0, cause); }
 
-  function hitObstacleBird(b, bi) {
+  function hitObstacleBird(b, bi, cause) {
     if (b.dead) return;
     // Los i-frames mandan: un solo choque consume como máximo un recurso.
     if (invulnT > t) return;
@@ -1117,12 +1173,12 @@ function difficultyFor(sc, diffc) {
       if (SAVE.get().set.vib && navigator.vibrate) { try { navigator.vibrate(50); } catch (e) { } }
       updateHUD();
     } else {
-      killBird(b, bi);
+      killBird(b, bi, cause || 'choque');
     }
   }
 
   // Muerte del ave (con la resurrección del Fénix).
-  function killBird(b, bi) {
+  function killBird(b, bi, cause) {
     if (b.dead) return;
     hitHappened = true;
     if (rt.flot) {
@@ -1165,7 +1221,8 @@ function difficultyFor(sc, diffc) {
     FX.puff(bird.x, bird.y, '#fff', 10);
     if (SAVE.get().set.vib && navigator.vibrate) { try { navigator.vibrate([60, 40, 80]); } catch (e) { } }
     UI.setHudVisible(false);
-    endRun(); // muerte instantánea: muestra la pantalla de reintentar al momento
+    if (mode === 'pvp' && pvp) pvp.deathCause = cause || 'choque';
+    endRun(); // la muerte pasa a espectador en online; en local muestra reintentar
   }
 
 // XP de evolución para el ave equipada (etapas 1 → 2 → 3)
@@ -1193,16 +1250,21 @@ function difficultyFor(sc, diffc) {
     else if (mode === 'zen') result = 'Zen';
     else if (mode === 'boss') result = 'Boss';
     else if (mode === 'wind') result = 'Viento';
+    else if (mode === 'record') result = 'Rompe récords · ' + runKills + ' eliminados';
     return {
       mode: mode,
       variant: mode === 'goal' ? 'goal' : (mode === 'free' ? 'free' : undefined),
       map: runMap,
+      kills: runKills,
       result: result,
       online: mode === 'pvp',
       participants: [{
         name: prof.name || 'Jugador',
         score: score,
         pipes: pipesDone,
+        kills: runKills,
+        time: Math.round(runSeconds * 100) / 100,
+        alive: !pvpSelfDeath,
         finished: !!completedGoal,
         online: mode === 'pvp'
       }]
@@ -1213,10 +1275,12 @@ function difficultyFor(sc, diffc) {
   function goalClear() {
     const target = goalTarget || SAVE.getGoalPipes();
     const dist = Math.floor(totalDist / 30);
-    const xpGain = Math.floor(score * 3 + pipesDone * 2 + coinCount * 3);
-    const lvUps = SAVE.addXp(xpGain);
-    awardSkinXp(xpGain);
-    const reward = 50 + target * 6;
+    const xpBase = Math.floor(score * 3 + pipesDone * 2 + coinCount * 3);
+    const xpGain = SAVE.xpAmount ? SAVE.xpAmount(xpBase) : xpBase;
+    const lvUps = SAVE.addXp(xpBase);
+    awardSkinXp(xpBase);
+    const tune = SAVE.getTuning ? SAVE.getTuning() : { coinMul: 1, rewardMul: 1 };
+    const reward = Math.max(0, Math.round((50 + target * 6) * (tune.rewardMul || 1) * (tune.coinMul || 1)));
     SAVE.addCoins(reward);
     SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, 'goal', runMeta(true));
     SAVE.save();
@@ -1238,6 +1302,48 @@ function difficultyFor(sc, diffc) {
     if (window.ADS) ADS.onRunEnd('goal');
   }
 
+  // Rompe récords 🎯: cada enemigo eliminado con un disparo real cuenta.
+  function recordEnd() {
+    state = 'over';
+    if (window.RADAR) RADAR.setActive(false);
+    const dist = Math.floor(totalDist / 30);
+    const xpBase = 28 + runKills * 8;
+    const xpGain = SAVE.xpAmount ? SAVE.xpAmount(xpBase) : xpBase;
+    const lvUps = SAVE.addXp(xpBase);
+    awardSkinXp(xpBase);
+    const rec = SAVE.recordKillsRun ? SAVE.recordKillsRun(runKills) : { prev: 0, next: runKills, isRecord: false, name: '' };
+    recordPrev = rec.prev;
+    recordNew = rec.next;
+    recordName = rec.name;
+    const tune = SAVE.getTuning ? SAVE.getTuning() : { coinMul: 1, rewardMul: 1 };
+    const reward = Math.max(0, Math.round((30 + runKills * 12 + (rec.isRecord ? 100 : 0)) *
+      (tune.rewardMul || 1) * (tune.coinMul || 1)));
+    SAVE.addCoins(reward);
+    SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, 'record', runMeta(false));
+    SAVE.save();
+    // Récord global (solo si la cuenta está vinculada) y aviso al jugador superado.
+    if (window.CLOUD && CLOUD.submitKillRecord && runKills > 0) {
+      try { CLOUD.submitKillRecord(runKills); } catch (e) { }
+    }
+    const ach = SAVE.checkAch();
+    SND.sfx.over();
+    if (rec.isRecord) {
+      SND.sfx.achieve();
+      UI.toast('🎯 ¡NUEVO RÉCORD DE ' + runKills + ' ELIMINACIONES!', 'good');
+    } else {
+      UI.toast('🎯 ' + runKills + ' eliminados · récord ' + Math.max(recordPrev, runKills), 'info');
+    }
+    UI.showModeClear({
+      title: rec.isRecord ? '¡RÉCORD ROTO!' : 'ROMPE RÉCORDS',
+      lvLbl: 'Eliminados', lv: '' + runKills,
+      tgtLbl: 'Récord ' + (recordName ? '(' + recordName + ')' : ''), tgt: '' + recordNew,
+      reward: reward, xp: xpGain, lvUps: lvUps, ach: ach,
+      stars: rec.isRecord ? ('🎯 Nuevo récord: ' + recordPrev + ' → ' + runKills) : ('🎯 Récord a batir: ' + recordNew),
+      btn: '🎯 OTRA RONDA'
+    });
+    if (window.ADS) ADS.onRunEnd('record');
+  }
+
   function endRun() {
     // Replay terminado: se sale sin alterar las estadísticas reales
     if (replayMode) {
@@ -1250,8 +1356,10 @@ function difficultyFor(sc, diffc) {
       ach.forEach(a => UI.popAch(a));
       return;
     }
-    // Multijugador: la muerte cierra la carrera y se decide contra el rival.
-    if (mode === 'pvp' && pvp && !pvp.done) { pvpFinish(false); return; }
+    // Multijugador: la muerte no cierra el duelo; el ave pasa a espectador y
+    // el superviviente sigue volando hasta caer.
+    if (mode === 'pvp' && pvp && !pvp.done) { pvpDeath(pvp.deathCause || 'choque'); return; }
+    if (mode === 'record') { recordEnd(); return; }
     state = 'over';
     if (window.RADAR) RADAR.setActive(false);
     const xp = Math.floor(score * 3 + pipesDone * 2 + coinCount * 3);
@@ -1332,13 +1440,19 @@ function difficultyFor(sc, diffc) {
 
   function pvpSelf(finished) {
     const h = Math.max(1, H - groundH);
+    const alive = !(bird && bird.dead) && !pvpSelfDeath;
     return {
       score: score,
       pipes: pipesDone,
+      kills: runKills,
       dist: Math.floor(totalDist / 30),
       alt: Math.max(0, Math.min(1, Math.round((1 - bird.y / h) * 1000) / 1000)),
-      alive: !(bird && bird.dead),
+      alive: alive,
       finished: !!finished,
+      deathAt: pvpDeathAt || 0,
+      deathCause: pvpSelfDeath ? (pvp && pvp.deathCause ? pvp.deathCause : 'choque') : '',
+      goalAt: (pvp && pvp.cfg && pvp.cfg.winBy === 'goal' && pvpGoal > 0 && pipesDone >= pvpGoal) ? Math.round(runSeconds * 100) / 100 : 0,
+      finishedBy: finished ? (pvp && pvp.finishCause ? pvp.finishCause : '') : '',
       time: Math.round(runSeconds * 100) / 100
     };
   }
@@ -1364,52 +1478,133 @@ function difficultyFor(sc, diffc) {
     updateHUD();
     if (!room) {
       // La sala desapareció (el anfitrión la cerró).
-      if (!pvp.done) pvpForceEnd(pvp.side === 'guest' ? 'win' : 'lose');
+      if (!pvp.shown) pvpForceEnd(pvp.side === 'guest' ? 'win' : 'lose');
       return;
     }
-    if (room.state === 'finished' && !pvp.done) {
-      const winner = room.winner || (window.MP ? MP.judgeSides(room.host, room.guest) : '');
-      if (winner) pvpForceEnd(winner === pvp.side ? 'win' : (winner === 'draw' ? 'draw' : 'lose'));
+    const opp = pvpRivalData();
+    if (opp && opp.uid && opp.alive === false && !pvpRivalSeenDead) {
+      pvpRivalSeenDead = true;
+      if (!pvpSelfDeath && !pvp.done) {
+        UI.toast('💀 ' + (opp.name || 'El rival') + ' cayó. ¡Aguanta para fijar tu tiempo!', 'good');
+        SND.sfx.achieve();
+      }
     }
+    if (room.state === 'finished' && !pvp.shown) {
+      const winner = room.winner || (window.MP ? MP.resolveSides(room.host, room.guest, room.config || pvp.cfg) : '');
+      if (winner) pvpForceEnd(winner === pvp.side ? 'win' : (winner === 'draw' ? 'draw' : 'lose'));
+      return;
+    }
+    // Supervivencia: cuando los dos lados han terminado, se resuelve en local
+    // con los mismos datos que ve la nube (resultado idéntico para ambos).
+    if (!pvp.shown && pvp.done && opp && opp.uid) pvpTryResolve();
   }
 
-  // Cierra la carrera propia y espera (breve) al rival antes de decidir.
-  function pvpFinish(reachedGoal) {
+  function pvpBothEnded(room) {
+    if (!room || !room.host || !room.guest) return false;
+    const ended = s => !!s && (s.alive === false || s.finished === true);
+    return ended(room.host) && ended(room.guest);
+  }
+
+  // Resolución local usando el estado de la sala. Devuelve 'win' | 'lose' | 'draw'.
+  function pvpResolveRoom(room) {
+    if (!pvp) return 'draw';
+    const cfg = (room && room.config) || pvp.cfg || {};
+    let host = (room && room.host) || (pvp.side === 'host' ? pvp.self : pvpRivalData());
+    let guest = (room && room.guest) || (pvp.side === 'guest' ? pvp.self : pvpRivalData());
+    // El estado local propio es más reciente que la copia de la sala: se usa
+    // para que el veredicto no dependa de una actualización de red pendiente.
+    if (pvp.self) {
+      if (pvp.side === 'host') host = Object.assign({}, host, pvp.self);
+      else if (pvp.side === 'guest') guest = Object.assign({}, guest, pvp.self);
+    }
+    let winner = '';
+    let pending = false;
+    if (window.MP && MP.resolve) {
+      const res = MP.resolve(host, guest, cfg);
+      winner = res.winner;
+      pending = res.reason === 'pending';
+    } else if (window.MP && MP.judgeSides) winner = MP.judgeSides(host, guest);
+    // Si la resolución moderna aún no puede decidir pero el jugador local ya
+    // cruzó la meta (y el rival no), se aplica el criterio clásico de meta.
+    if (!winner && pending && pvp.self && pvp.self.finished && pvp.self.finishedBy === 'goal') {
+      if (window.MP && MP.judgeSides) winner = MP.judgeSides(host, guest);
+    }
+    return winner === pvp.side ? 'win' : winner === 'draw' ? 'draw' : winner ? 'lose' : 'draw';
+  }
+
+  // Mi ave ha caído: no se cierra la partida; paso a espectador y espero al rival.
+  function pvpDeath(cause) {
     if (!pvp || pvp.done) return;
+    pvpSelfDeath = true;
+    pvpDeathAt = Math.round(runSeconds * 100) / 100;
+    pvp.deathCause = cause || 'choque';
     pvp.done = true;
     pvp.self = pvpSelf(true);
-    pvp.forceEnded = false;
+    pvp.self.alive = false;
+    pvp.self.finished = true;
+    pvp.self.finishedBy = 'death';
     if (window.CLOUD && CLOUD.finishDuel) CLOUD.finishDuel(pvp.code, pvp.self);
-    const dist = Math.floor(totalDist / 30);
-    SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, 'pvp');
-    SAVE.save();
+    pvpEndRunStats();
+    // El superviviente sigue volando; el caído ve la carrera como espectador.
+    state = 'play';
+    UI.setHudVisible(true);
+    UI.showStartHint(false);
+    SND.stopMusic();
+    UI.toast('💀 Has caído a los ' + pvpDeathAt.toFixed(1) + ' s. Sigues en espectador hasta que termine el rival.', 'warning');
+    if (window.RADAR) RADAR.setActive(true);
+    setTimeout(function () {
+      if (!pvp || pvp.shown) return;
+      const opp = pvpRivalData();
+      if (opp && opp.uid && (opp.alive === false || opp.finished)) pvpTryResolve();
+    }, 900);
+  }
+
+  function pvpTryResolve() {
+    if (!pvp || pvp.shown) return;
+    const room = pvp.room;
+    if (!pvpBothEnded(room)) return;
+    pvpShowResult(pvpResolveRoom(room));
+  }
+
+  // Cierra la carrera propia por meta o tiempo y espera (breve) al rival.
+  function pvpFinish(reason) {
+    if (!pvp || pvp.done) return;
+    const why = reason === 'time' ? 'time' : (reason === 'goal' || reason === true) ? 'goal' : 'death';
+    pvp.done = true;
+    pvp.finishCause = why;
+    pvp.self = pvpSelf(true);
+    pvp.self.finishedBy = why;
+    if (why === 'goal') pvp.self.goalAt = Math.round(runSeconds * 100) / 100;
+    pvp.self.alive = !(bird && bird.dead);
+    if (window.CLOUD && CLOUD.finishDuel) CLOUD.finishDuel(pvp.code, pvp.self);
+    pvpEndRunStats();
     state = 'cleared';
     if (window.RADAR) RADAR.setActive(false);
     SND.stopMusic();
     UI.setHudVisible(false);
     const waitUntil = Date.now() + 3000;
     const decide = function () {
-      if (!pvp || pvp.forceEnded) return;
+      if (!pvp || pvp.shown) return;
       const opp = pvpRivalData();
-      if (opp && opp.uid && !opp.finished && Date.now() < waitUntil) {
+      if (opp && opp.uid && !(opp.finished || opp.alive === false) && Date.now() < waitUntil) {
         setTimeout(decide, 400);
         return;
       }
       pvpDecide();
     };
-    setTimeout(decide, (pvpRivalData() && pvpRivalData().finished) ? 150 : 700);
+    setTimeout(decide, (pvpRivalData() && (pvpRivalData().finished || pvpRivalData().alive === false)) ? 150 : 700);
   }
 
   // Fin forzado por la sala (rival abandonó o ambos terminaron en el servidor).
   function pvpForceEnd(verdict) {
-    if (!pvp || pvp.done) return;
-    pvp.done = true;
+    if (!pvp || pvp.shown) return;
+    if (!pvp.done) {
+      pvp.done = true;
+      pvp.self = pvpSelf(true);
+      if (window.CLOUD && CLOUD.finishDuel) CLOUD.finishDuel(pvp.code, pvp.self);
+      pvpEndRunStats();
+    }
     pvp.forceEnded = true;
-    pvp.self = pvpSelf(true);
-    if (window.CLOUD && CLOUD.finishDuel) CLOUD.finishDuel(pvp.code, pvp.self);
-    const dist = Math.floor(totalDist / 30);
-    SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, 'pvp');
-    SAVE.save();
     state = 'cleared';
     if (window.RADAR) RADAR.setActive(false);
     SND.stopMusic();
@@ -1417,12 +1612,35 @@ function difficultyFor(sc, diffc) {
     pvpShowResult(verdict);
   }
 
+  // Registra la carrera una sola vez (estadísticas locales + piezas), sin premios.
+  function pvpEndRunStats() {
+    if (!pvp || pvp.recorded) return;
+    pvp.recorded = true;
+    const dist = Math.floor(totalDist / 30);
+    SAVE.endRun(score, pipesDone, coinCount, runSeconds, dist, 'pvp');
+    SAVE.save();
+  }
+
+  // Decisión local (se usa también en pruebas y como respaldo sin sala viva).
   function pvpDecide() {
     if (!pvp) return;
-    const opp = pvpRivalData();
-    let verdict = 'win';
-    if (opp && opp.uid) {
-      verdict = (window.MP && MP.judge) ? MP.judge(pvp.self, opp) : 'draw';
+    const room = pvp.room;
+    let verdict = 'draw';
+    if (room && room.host && room.guest) {
+      verdict = pvpResolveRoom(room);
+    } else {
+      const opp = pvpRivalData();
+      if (opp && opp.uid) {
+        const self = pvp.self || pvpSelf(true);
+        const cfg = pvp.cfg || {};
+        let winner = '';
+        if (window.MP && MP.resolve) winner = MP.resolve(self, opp, cfg).winner;
+        else if (window.MP && MP.judge) {
+          const r = MP.judge(self, opp);
+          winner = r === 'win' ? 'host' : r === 'lose' ? 'guest' : 'draw';
+        }
+        verdict = winner === pvp.side ? 'win' : winner === 'draw' ? 'draw' : 'lose';
+      }
     }
     pvpShowResult(verdict);
   }
@@ -1431,28 +1649,54 @@ function difficultyFor(sc, diffc) {
     if (!pvp || pvp.shown) return;
     pvp.shown = true;
     if (pvp.stopWatch) { try { pvp.stopWatch(); } catch (e) { } pvp.stopWatch = null; }
+    if (window.CLOUD && CLOUD.disarmDuelDisconnect) {
+      try { CLOUD.disarmDuelDisconnect(); } catch (e) { }
+    }
     const opp = pvpRivalData() || {};
     const win = verdict === 'win';
     const draw = verdict === 'draw';
-    const reward = win ? (80 + Math.min(60, pipesDone * 4)) : draw ? 45 : 15;
-    const xpGain = win ? 60 : draw ? 35 : 20;
-    const lvUps = SAVE.addXp(xpGain);
-    awardSkinXp(xpGain);
+    const survival = (pvp.cfg && pvp.cfg.winBy === 'survival');
+    const goalMode = !!(pvp.cfg && pvp.cfg.winBy === 'goal');
+    const myTime = Math.round(runSeconds * 100) / 100;
+    const oppTime = Math.max(0, Number(opp.time) || Number(opp.deathAt) || 0);
+    const tune = SAVE.getTuning ? SAVE.getTuning() : { xpMul: 1, coinMul: 1, rewardMul: 1 };
+    // Bonus de supervivencia: aguantar vivo paga más (ajustable desde admin).
+    const survBonus = survival ? Math.min(90, Math.floor(myTime / 5) * 5) : 0;
+    const baseReward = win ? (95 + Math.min(80, pipesDone * 4) + Math.min(60, runKills * 10)) : draw ? 50 : 20;
+    const reward = Math.max(0, Math.round((baseReward + survBonus) * (tune.rewardMul || 1) * (tune.coinMul || 1)));
+    const xpBase = win ? 55 : draw ? 32 : 18;
+    const xpGain = SAVE.xpAmount ? SAVE.xpAmount(xpBase) : xpBase;
+    const lvUps = SAVE.addXp(xpBase);
+    awardSkinXp(xpBase);
     SAVE.addCoins(reward);
+    // Recompensas por nivel: se avisan una a una para que el jugador las vea.
+    if (SAVE.lastLevelUps) {
+      SAVE.lastLevelUps().forEach(r => {
+        const bits = ['+' + r.coins + ' 🪙'];
+        if (r.parts) bits.push('+' + r.parts + ' 🔩');
+        if (r.item) {
+          const tk = DAT.getTool(r.item);
+          bits.push('+' + (r.n || 1) + ' ' + (tk ? tk.icon + ' ' + tk.name : r.item));
+        }
+        UI.toast('⭐ Nivel ' + r.level + ': ' + bits.join(' · '), 'good');
+      });
+    }
     const st = SAVE.get().stats;
     st.mpMatches = (st.mpMatches || 0) + 1;
     if (win) st.mpWins = (st.mpWins || 0) + 1;
+    st.mpSurvivalBest = Math.max(st.mpSurvivalBest || 0, Math.round(myTime * 100) / 100);
+    st.mpKills = (st.mpKills || 0) + runKills;
     SAVE.save();
     // Récord completo de la partida online, con ambos participantes y veredicto.
-    const goalMode = !!(pvp.cfg && pvp.cfg.mode === 'goal');
     const verdictTxt = win ? 'Victoria' : draw ? 'Empate' : 'Derrota';
+    const ruleTxt = goalMode ? ' · Meta ' + pvpGoal : survival ? ' · Supervivencia' : ' · Puntuación';
     SAVE.logMatch({
       mode: 'pvp',
       variant: goalMode ? 'goal' : 'free',
       map: pvp.cfg ? pvp.cfg.map : runMap,
-      pipes: pvpGoal > 0 ? pvpGoal : pipesDone,
-      result: verdictTxt + (goalMode ? ' · Meta ' + pvpGoal : ' · Carrera libre'),
-      time: Math.round(runSeconds * 100) / 100,
+      pipes: pipesDone,
+      result: verdictTxt + ruleTxt,
+      time: myTime,
       score: score,
       coins: coinCount,
       dist: Math.floor(totalDist / 30),
@@ -1462,13 +1706,19 @@ function difficultyFor(sc, diffc) {
           name: SAVE.getProfile().name || 'Jugador',
           score: score,
           pipes: pipesDone,
-          finished: !!(pvp.self && pvp.self.finished),
+          time: myTime,
+          kills: runKills,
+          alive: !pvpSelfDeath,
+          finished: true,
           online: true
         },
         {
           name: opp.name || 'Rival',
           score: opp.score || 0,
           pipes: opp.pipes || 0,
+          time: oppTime,
+          kills: opp.kills || 0,
+          alive: opp.alive !== false,
           finished: !!opp.finished,
           online: true
         }
@@ -1477,11 +1727,13 @@ function difficultyFor(sc, diffc) {
     const ach = SAVE.checkAch();
     SND.sfx.medal();
     if (win) SND.sfx.achieve();
-    FX.confetti(bird.x, bird.y - 30);
+    if (bird) FX.confetti(bird.x, bird.y - 30);
+    const myLabel = survival ? (myTime.toFixed(1) + ' s vivo') : (pipesDone + '/' + (pvpGoal > 0 ? pvpGoal : '∞'));
+    const oppLabel = survival ? (oppTime > 0 ? oppTime.toFixed(1) + ' s' : '—') : ((opp.pipes || 0) + '/' + (pvpGoal > 0 ? pvpGoal : '∞'));
     UI.showModeClear({
       title: win ? '¡GANASTE LA CARRERA!' : draw ? 'EMPATE EN LA CARRERA' : 'CARRERA PERDIDA',
-      lvLbl: 'Tus tubos', lv: pipesDone + '/' + (pvpGoal > 0 ? pvpGoal : '∞'),
-      tgtLbl: (opp.name || 'Rival') + ' (tubos)', tgt: (opp.pipes || 0) + '/' + (pvpGoal > 0 ? pvpGoal : '∞'),
+      lvLbl: survival ? 'Tu supervivencia' : 'Tus tubos', lv: myLabel,
+      tgtLbl: (opp.name || 'Rival'), tgt: oppLabel,
       reward: reward, xp: xpGain, lvUps: lvUps, ach: ach,
       stars: win ? '🆚 Victoria online' : draw ? '🆚 Empate' : '🆚 Derrota online',
       btn: '🆚 OTRA SALA'
@@ -1548,7 +1800,7 @@ function difficultyFor(sc, diffc) {
   }
 
   function startPlay(m) {
-    const valid = m === undefined || m === 'free' || m === 'goal' || m === 'challenge' || m === 'duel' || m === 'replay' || m === 'zen' || m === 'boss' || m === 'wind' || m === 'pvp';
+    const valid = m === undefined || m === 'free' || m === 'goal' || m === 'challenge' || m === 'duel' || m === 'replay' || m === 'zen' || m === 'boss' || m === 'wind' || m === 'record' || m === 'pvp';
     if (m !== undefined && !valid) return; // modos no disponibles no inician vuelo
     if (m === 'pvp' && !pvp) return;       // el multijugador exige una sala activa
     if (valid && m !== undefined) mode = m;
@@ -1666,6 +1918,49 @@ function difficultyFor(sc, diffc) {
     FX.burst(c.x, c.y, '#ffd54f', 18, 260, { big: true, grav: 120 });
     FX.text(c.x, c.y - 26, '🎯 +' + val + ' 🪙', 15, '#ffe082');
     updateHUD();
+  }
+
+  // Rompe récords / sala: disparo real que elimina enemigos (proyectil visible).
+  function shoot() {
+    if (state !== 'play' || paused || readyTap || !bird || bird.dead) return false;
+    if (mode !== 'record' && mode !== 'pvp') return false;
+    if (shotCooldown > 0) return false;
+    shotCooldown = 0.18;
+    shots.push({ x: bird.x + bird.r, y: bird.y, vx: 1250, r: 5, life: 1.4 });
+    SND.unlock();
+    SND.sfx.flap();
+    updateHUD();
+    return true;
+  }
+
+  function updateShots(dt) {
+    if (shotCooldown > 0) shotCooldown = Math.max(0, shotCooldown - dt);
+    if (!shots.length) return;
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const s = shots[i];
+      s.x += s.vx * dt;
+      s.life -= dt;
+      if (s.x > W + 20 || s.life <= 0) { shots.splice(i, 1); continue; }
+      for (let j = enemies.length - 1; j >= 0; j--) {
+        const e = enemies[j];
+        const rr = s.r + e.r;
+        const dx = e.x - s.x, dy = e.y - s.y;
+        if (dx * dx + dy * dy > rr * rr) continue;
+        enemies.splice(j, 1);
+        shots.splice(i, 1);
+        runKills++;
+        if (mode === 'pvp') pvpKills = runKills;
+        score += 3;
+        SAVE.get().stats.recordKills = (SAVE.get().stats.recordKills || 0) + 1;
+        SAVE.save();
+        SND.sfx.enemy();
+        FX.text(e.x, e.y - 20, '🎯 ¡Eliminado!', 15, '#ffd54f');
+        FX.burst(e.x, e.y, '#ffd54f', 16, 240, { big: true });
+        if (SAVE.get().set.vib && navigator.vibrate) { try { navigator.vibrate(28); } catch (err) { } }
+        updateHUD();
+        break;
+      }
+    }
   }
 
   // Dibuja la vista del Telescopio 🔭: silueta de los 2 próximos obstáculos
@@ -1919,9 +2214,9 @@ function difficultyFor(sc, diffc) {
   }
 
   function setMode(m) {
-    if (m !== 'free' && m !== 'goal' && m !== 'challenge' && m !== 'duel' && m !== 'zen' && m !== 'boss' && m !== 'wind') return;
+    if (m !== 'free' && m !== 'goal' && m !== 'challenge' && m !== 'duel' && m !== 'zen' && m !== 'boss' && m !== 'wind' && m !== 'record') return;
     mode = m;
-    if (m !== 'challenge' && m !== 'duel') SAVE.setSetting('mode', mode);
+    if (m !== 'challenge' && m !== 'duel' && m !== 'record') SAVE.setSetting('mode', mode);
   }
 
   // Cuenta atrás al reanudar: el mundo sigue congelado hasta que llega a 0.
@@ -2017,6 +2312,7 @@ function difficultyFor(sc, diffc) {
     coins.forEach(c => ENTS.drawCoin(ctx, c, t));
     enemies.forEach(e => ENTS.drawEnemy(ctx, e, t));
     powers.forEach(pw => ENTS.drawPower(ctx, pw, t));
+    drawShots();
 
     birds.forEach((b) => {
       if (b === bird) {
@@ -2045,6 +2341,7 @@ function difficultyFor(sc, diffc) {
         golden: b === bird ? birdGolden : false
       });
     });
+    if (mode === 'pvp' && pvp) drawPvpRival();
     if (mode === 'boss' && bossGroup && !bossGroup.dead) drawBossBar();
 
     if (wind.on && !bird.dead && state === 'play') drawWind();
@@ -2053,6 +2350,66 @@ function difficultyFor(sc, diffc) {
     if (state === 'play' && readyTap) drawReady();
     FX.draw(ctx, false);
     ctx.restore();
+  }
+
+  // Proyectiles de Rompe récords / sala: pequeños destellos dorados.
+  function drawShots() {
+    if (!shots.length) return;
+    ctx.save();
+    for (const s of shots) {
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = 'rgba(255,213,79,0.28)';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r * 2.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffe082';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#fff8e1';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(s.x - s.vx * 0.012, s.y);
+      ctx.lineTo(s.x, s.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Rival online visible en la misma pantalla (ave fantasma + nombre + estado).
+  function drawPvpRival() {
+    const o = pvpRivalData();
+    if (!o || !o.uid) return;
+    const h = Math.max(1, H - groundH);
+    const rx = clamp(W * 0.64, 40, W - 40);
+    const ry = clamp((1 - clamp(numOr(o.alt, 0.5), 0, 1)) * h, 24, H - groundH - 24);
+    const dead = o.alive === false;
+    ctx.save();
+    ctx.globalAlpha = dead ? 0.3 : 0.7;
+    if (dead) {
+      ctx.font = '900 26px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ff8a80';
+      ctx.fillText('💀', rx, ry + 8);
+    } else {
+      const skin = DAT.getSkin(SAVE.get().skin);
+      ENTS.drawBird(ctx, rx, ry, {
+        skin, hat: null, t, wingPhase: (o.time || 0) * 3, squash: 1, rot: 0, r: 20,
+        ghost: true, stage: 0, golden: false
+      });
+    }
+    ctx.globalAlpha = 0.92;
+    ctx.font = '900 11px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = dead ? '#ff8a80' : '#b3e5fc';
+    ctx.fillText(String(o.name || 'Rival').slice(0, 12) + (dead ? ' · 💀' : ''), rx, Math.max(14, ry - 28));
+    ctx.restore();
+  }
+
+  function numOr(v, fb) {
+    const n = Number(v);
+    return isFinite(n) ? n : fb;
   }
 
   // Rayas y flechas de viento lateral (flechas grandes en el modo Viento)
@@ -2273,6 +2630,10 @@ function difficultyFor(sc, diffc) {
       levelText = '💨 Viento · ' + score;
       grad = 'linear-gradient(90deg,#81d4fa,#0277bd)';
       prog = null; // barra de nivel normal
+    } else if (mode === 'record') {
+      levelText = '🎯 ' + runKills + ' eliminados · récord ' + Math.max(recordPrev, runKills);
+      grad = 'linear-gradient(90deg,#ffd54f,#ff7043)';
+      prog = recordPrev > 0 ? Math.max(0, Math.min(100, runKills / recordPrev * 100)) : (runKills > 0 ? 100 : 0);
     } else if (mode === 'replay') {
       levelText = '🎬 Replay';
       grad = 'linear-gradient(90deg,#b39ddb,#7c4dff)';
@@ -2296,12 +2657,28 @@ function difficultyFor(sc, diffc) {
       if (mode === 'pvp' && pvp) {
         const o = pvpRivalData();
         rvEl.classList.remove('hidden');
-        rvEl.textContent = (o && o.uid)
-          ? ('🆚 ' + String(o.name || 'Rival').slice(0, 10) + ' · ' + (o.pipes || 0) + (pvpGoal > 0 ? '/' + pvpGoal : ' tubos') + (o.finished ? ' 🏁' : ''))
-          : '🆚 Rival · esperando';
+        if (o && o.uid) {
+          const alive = o.alive !== false;
+          const tSec = Math.max(0, Number(o.time) || Number(o.deathAt) || 0);
+          const detail = pvpGoal > 0
+            ? ((o.pipes || 0) + '/' + pvpGoal + ' tubos')
+            : (tSec.toFixed(1) + ' s');
+          rvEl.textContent = '🆚 ' + String(o.name || 'Rival').slice(0, 10) +
+            (alive ? ' · 🟢 ' : ' · 💀 ') + detail +
+            (pvpSelfDeath ? ' · 👁 espectador' : '');
+          rvEl.style.color = alive ? '#b3e5fc' : '#ff8a80';
+        } else {
+          rvEl.textContent = '🆚 Rival · esperando';
+        }
       } else {
         rvEl.classList.add('hidden');
       }
+    }
+    const shootBtn = document.getElementById('btnShoot');
+    if (shootBtn) {
+      const canShoot = (mode === 'record' || (mode === 'pvp' && !!pvp)) && !pvpSelfDeath && !(bird && bird.dead);
+      shootBtn.classList.toggle('hidden', !canShoot);
+      shootBtn.disabled = !canShoot;
     }
   }
 
@@ -2345,7 +2722,9 @@ function difficultyFor(sc, diffc) {
       usedStock: usedStockShield,
       stockUsable: usedStockShield ? 0 : SAVE.shieldCount()
     }),
-    useBagTool, manualToolList,
+    useBagTool, manualToolList, shoot,
+    getShots: () => shots,
+    getKillRecord: () => SAVE.killRecord(),
     getScore: () => score,
     getGoal: () => goalTarget,
     getSeed: () => curSeed,
@@ -2390,6 +2769,10 @@ function difficultyFor(sc, diffc) {
       pvpReport: pvpReport,
       pvpSelf: pvpSelf,
       pvpDecide: pvpDecide,
+      pvpDeath: pvpDeath,
+      recordEnd: recordEnd,
+      shoot: shoot,
+      getShots: () => shots,
       setPvp: v => { pvp = v; },
       pvpGoal: () => pvpGoal,
       pipes: () => pipes,

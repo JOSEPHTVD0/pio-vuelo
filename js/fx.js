@@ -7,15 +7,27 @@ window.FX = (function () {
   let shakeMag = 0;
   let shakeX = 0, shakeY = 0;
   let RED = false; // "reducir movimiento" (accesibilidad)
+  let budget = 420; // presupuesto máximo de partículas (se ajusta por FPS)
 
   function setReduced(v) { RED = !!v; }
   function isReduced() { return RED; }
   function fxN(n) { return RED ? Math.min(4, n / 3) : n; }
+  function setBudget(n) { budget = Math.max(60, Math.min(900, Math.floor(n) || 420)); trim(); }
+  function getBudget() { return budget; }
+  // Recorta las partículas más antiguas cuando se supera el presupuesto.
+  function trim() {
+    const over = parts.length - budget;
+    if (over > 0) parts.splice(0, over);
+    if (texts.length > 40) texts.splice(0, texts.length - 40);
+  }
 
   function burst(x, y, color, n, speed, opts) {
     opts = opts || {};
     const q = (window.SAVE && SAVE.get().set.gfx) || 'high';
     n = fxN(Math.max(1, Math.round(n * (q === 'high' ? 1 : q === 'medium' ? 0.55 : 0.3))));
+    // Si el presupuesto ya está lleno, no se acumulan más partículas.
+    if (parts.length >= budget) return;
+    n = Math.min(n, budget - parts.length);
     for (let i = 0; i < n; i++) {
       const a = (Math.random() * Math.PI * 2);
       const v = speed * (0.4 + Math.random() * 0.9);
@@ -39,6 +51,8 @@ window.FX = (function () {
   function trail(x, y, color, n, stars) {
     const q = (window.SAVE && SAVE.get().set.gfx) || 'high';
     n = fxN(Math.max(2, Math.round(n * (q === 'high' ? 1 : q === 'medium' ? 0.6 : 0.35))));
+    if (parts.length >= budget) return;
+    n = Math.min(n, budget - parts.length);
     for (let i = 0; i < n; i++) {
       parts.push({
         x: x - (4 + Math.random() * 22), y: y + (Math.random() - 0.5) * 16,
@@ -94,6 +108,7 @@ window.FX = (function () {
   }
 
   function update(dt) {
+    trim();
     for (let i = parts.length - 1; i >= 0; i--) {
       const p = parts[i];
       p.life -= dt;
@@ -182,5 +197,5 @@ window.FX = (function () {
 
   function clear() { parts.length = 0; texts.length = 0; }
 
-  return { burst, puff, trail, spark, confetti, text, shake, update, draw, getShake, clear, setReduced, isReduced };
+  return { burst, puff, trail, spark, confetti, text, shake, update, draw, getShake, clear, setReduced, isReduced, setBudget, getBudget, count: () => parts.length };
 })();

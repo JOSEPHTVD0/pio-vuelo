@@ -50,14 +50,29 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 
 - Vuelo con física de aleteo y dificultad progresiva.
 - Modos libre, diario, duelo, zen, boss, viento y replay.
-- **Multijugador online 1v1** con salas privadas por código y reglas personalizadas.
+- **Multijugador online 1v1** con salas privadas por código, reglas personalizadas y **supervivencia real**.
+- **Modo Rompe récords:** compite por la mayor cantidad de eliminaciones, con récords locales, globales y notificaciones.
 - Monedas, combos, power-ups, jefes y obstáculos.
 - Tienda de aves, sombreros, estelas, herramientas y cajas.
-- Misiones, pase de temporada, mapas y progreso.
+- Misiones diarias, semanales y especiales, pase de temporada, mapas y progreso.
+- Panel de administración con roles, auditoría, tuning, eventos y sanciones.
+- Render adaptativo con presupuesto de partículas y calidad automática por FPS.
 - Perfil local o cuenta con usuario/contraseña y récord persistente.
 - Clasificación local por dispositivo y ranking online opcional con Firebase.
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
+
+## Novedades de la versión 3.5.0
+
+- **Supervivencia real en multijugador:** gana el último jugador vivo y pierde el primero que muere. Cuando un jugador cae pasa a espectador y la carrera sigue hasta que el rival también muere; solo entonces se registran ganador, perdedor, tiempo de supervivencia, causa de la caída y récord personal. Ambos jugadores reciben el mismo resultado.
+- **Salas más personalizables:** regla de victoria (supervivencia, meta o puntuación), duración, mapa, dificultad, semilla y toggles reales de herramientas, enemigos y poderes. Las salas antiguas siguen funcionando y se interpretan con su regla original.
+- **Progresión más exigente:** curva de XP revisada, recompensas por nivel con monedas, piezas y objetos, bono por jugar, misiones diarias/semanales/especiales y tuning de economía. Todo se ajusta desde el panel de administración.
+- **Modo Rompe récords:** carrera centrada en eliminar enemigos con proyectiles. Guarda la mejor marca personal, el nombre del récord, el acumulado y el historial; publica el récord global, muestra la clasificación de los mejores jugadores y avisa al jugador superado mediante notificaciones en tiempo real.
+- **Panel de administración ampliado:** roles admin/moderador/soporte, auditoría de acciones, tuning de XP y recompensas, historial de partidas, estadísticas de jugadores locales, temporada y pase, récords local/global con clasificación, notificaciones, eventos, sanciones y reportes. Las acciones importantes quedan registradas.
+- **Ambos jugadores en pantalla:** el radar táctico muestra posición, estado vivo/caído, tiempo y eliminaciones de los dos jugadores, con marcador de caído y etiquetas adaptadas a móvil y PC.
+- **Rendimiento multiplataforma:** DPR adaptativo según memoria, núcleos y calidad gráfica; caché de tamaño; presupuesto de partículas recortado automáticamente cuando bajan los FPS; controles táctiles, teclado (espacio/flechas, F/J) y ratón (clic derecho) para disparar.
+- **Seguridad:** reglas de Realtime Database para salas de supervivencia, récords globales monotónicos, tableros por jugador, historial de récords y buzones de notificación privados. El servidor rechaza configuraciones inventadas, resultados fuera de rango y escrituras cruzadas.
+- **Compatibilidad:** los guardados anteriores se migran sin perder datos y las salas antiguas conservan su comportamiento.
 
 ## Novedades de la versión 3.4.2
 
@@ -67,7 +82,7 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - **Radar / mapa táctico:** overlay 2D con la posición de ambos jugadores, estela, línea de seguimiento, tubos y brújula. Se puede personalizar tamaño, posición, transparencia, estilo, colores y elementos visibles; la configuración se guarda en el dispositivo.
 - **Récords separados por modo:** cada carrera (individual u online) registra jugador, fecha, modo, mapa, tubos configurados, resultado, tiempo, estadísticas y participantes. La pantalla de récords permite filtrar por modo y ver el resumen de cada uno.
 - **Validación en servidor:** las reglas aceptan `mode` libre/metas, limitan `pipes` a 0..100, validan `dist` y `alt` en ambos lados y exigen los mapas adquiridos. Solo el anfitrión puede crear la sala y cada jugador escribe su propio lado.
-- **Pruebas:** `npm test` 479/479, reglas contra emuladores 70/70, humo de navegador sin conexión 42/42 y humo online real 84/84.
+- **Pruebas:** `npm test` 500/500, reglas contra emuladores 89/89, humo de navegador sin conexión 53/53 y humo online real 97/97.
 
 ## Correcciones de la versión 3.4.1
 
@@ -206,7 +221,7 @@ No hay dependencias de npm para jugar. Node solo se usa para las pruebas y el se
 node tools/test-game.js
 ```
 
-La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos, Pase Prémium, exclusividad en tienda y cajas, mecánicas de mapas, logros, temas de audio y salas multijugador. Actualmente hay **456 pruebas** y todas deben pasar antes de publicar.
+La suite ejecuta los scripts reales con DOM, canvas y `localStorage` simulados y comprueba tubos, objetos, cronómetros, escudos, identidad, récords, corrupción del guardado, reinicios, economía, durabilidad, piezas, ajustes persistentes, historial, migración de guardados antiguos, Pase Prémium, exclusividad en tienda y cajas, mecánicas de mapas, logros, temas de audio, salas multijugador, supervivencia, Rompe récords, tuning y panel de administración. Actualmente hay **500 pruebas** y todas deben pasar antes de publicar.
 
 La configuración de Firebase también se valida sin red:
 
@@ -237,14 +252,15 @@ real** (sin conexión, caché y reintento) y que el juego sigue funcionando offl
 Con `PIO_EMULATORS=1` añade el flujo completo de cuentas: aviso del primer vuelo,
 registro, restauración en un dispositivo nuevo, cierre de sesión y elección entre
 los dos progresos.
-Actualmente son **70 comprobaciones** y no debe haber errores de JavaScript. Con los emuladores también se prueban las salas online: crear, unirse, cuenta atrás sincronizada, progreso del rival y abandono.
+Actualmente son **97 comprobaciones** y no debe haber errores de JavaScript. Con los emuladores también se prueban las salas online: crear, unirse, cuenta atrás sincronizada, progreso del rival, reglas de supervivencia, abandono y resolución final. Además se valida el panel de administración (roles, auditoría, tuning, estadísticas de jugadores y temporada), el modo Rompe récords con disparos reales, la publicación del récord global y la clasificación.
 Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con
 `CHROME_PATH`. En un entorno sin red, `SKIP_ONLINE=1` omite solo el bloque online.
 
 ## Limitaciones conocidas
 
-- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.4.2 (versionCode 39)**: **7.064.043 bytes** y SHA-256 `CFD35D026DED38E35343A07476916763B291BD5318F79FC121380843E929A532`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
-- La verificación incluye pruebas headless, comprobaciones HTTP, reglas con emuladores (62/62) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 70/70 con emuladores, incluido el modo offline, las cuentas y las salas online). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos, el ranking online y una carrera 1v1 en dos dispositivos Android reales antes de darlos por cerrados.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.5.0 (versionCode 40)**: **7.080.427 bytes** y SHA-256 `EC2A69B53768578C3FC190F591DD5E225938352AFCAE957C1C55D70A9FE4319C`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
+- La verificación incluye pruebas headless (500/500), comprobaciones HTTP, reglas con emuladores (89/89) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 97/97 con emuladores, incluido el modo offline, las cuentas, las salas online, la supervivencia, la clasificación de eliminaciones y el panel ampliado). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos, el ranking online y una carrera 1v1 en dos dispositivos Android reales antes de darlos por cerrados.
+- **Notificaciones entre jugadores:** el buzón `notifications/{uid}` es privado y las reglas solo permiten escribir en el propio. Por eso, sin un backend dedicado (Cloud Functions o Admin SDK) el aviso al jugador cuyo récord se supera no puede entregarse en otra cuenta: el récord global y el historial sí se publican, y el panel avisa de esta limitación en lugar de simular un envío que fallaría.
 - El ranking global solo muestra marcas con más de 0 puntos. Las entradas antiguas con 0 puntos que ya existan en Firestore no se muestran y no se pueden borrar desde el cliente porque las reglas lo impiden; para limpiarlas hace falta la consola de Firebase o el Admin SDK.
 - La primera carga del ranking online necesita red. Si se abre sin conexión y nunca se ha visto la tabla, se muestra un aviso y se puede reintentar; el juego local no se bloquea.
 - La música es procedural (WebAudio) y no usa archivos externos: suena distinta por familia de mapa, pero no son pistas grabadas. El audio requiere un gesto del usuario para desbloquearse en móvil.

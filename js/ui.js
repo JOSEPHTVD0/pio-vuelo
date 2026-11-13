@@ -426,6 +426,8 @@ window.UI = (function () {
     const s = SAVE.get();
     setTag('mpFreeSub', s.stats.best ? '· Récord ' + s.stats.best + ' pts' : '');
     setTag('mpGoalSub', '· Meta ' + SAVE.getGoalPipes() + ' tubos');
+    const rec = SAVE.killRecord ? SAVE.killRecord() : { best: 0 };
+    setTag('mpRecordSub', rec.best > 0 ? ('· 🎯 ' + rec.best + ' eliminados') : '· Dispara y rompe el récord');
     setTag('mpDuelSub', (s.stats.duelWins || 0) ? '· 🏆 ' + s.stats.duelWins : '');
     setTag('mpPvpSub', (s.stats.mpWins || 0) ? '· 🌐 ' + s.stats.mpWins + ' victorias' : (s.stats.mpMatches ? '· ' + s.stats.mpMatches + ' carreras' : '· Online 1v1'));
     setTag('mpDailySub', SAVE.challengePlayedToday() ? '🌙 Ya jugaste hoy' : '');
@@ -433,7 +435,7 @@ window.UI = (function () {
     setTag('mpBossSub', (s.stats.bossDefeated || 0) ? '· 👹 ' + s.stats.bossDefeated + ' derrotados' : '');
     setTag('mpWindSub', (s.stats.windZones || 0) ? '· 💨 ' + s.stats.windZones + ' tramos' : '');
     const m = G.getMode();
-    [['mpFree', 'free'], ['mpGoal', 'goal'], ['mpDuel', 'duel'], ['mpDaily', 'challenge'], ['mpZen', 'zen'], ['mpBoss', 'boss'], ['mpWind', 'wind']].forEach(pair => {
+    [['mpFree', 'free'], ['mpGoal', 'goal'], ['mpRecord', 'record'], ['mpDuel', 'duel'], ['mpDaily', 'challenge'], ['mpZen', 'zen'], ['mpBoss', 'boss'], ['mpWind', 'wind']].forEach(pair => {
       const el = document.getElementById(pair[0]);
       if (el) el.classList.toggle('active', m === pair[1]);
     });
@@ -485,13 +487,18 @@ window.UI = (function () {
   function mpCreate(btn) {
     if (btn && btn.disabled) return;
     SND.sfx.click();
+    const winBy = mpVal('mpWinBy') || 'survival';
+    const checked = id => !!(document.getElementById(id) && document.getElementById(id).checked);
     const raw = {
-      mode: mpVal('mpMode') || 'goal',
+      mode: winBy === 'goal' ? 'goal' : 'free',
+      winBy: winBy,
       pipes: mpVal('mpPipes'),
       time: mpVal('mpTime'),
       map: mpVal('mpMap'),
       diff: mpVal('mpDiff'),
-      tools: !!(document.getElementById('mpTools') && document.getElementById('mpTools').checked),
+      tools: checked('mpTools'),
+      enemies: checked('mpEnemies'),
+      powers: checked('mpPowers'),
       seedMode: mpVal('mpSeedMode') || 'daily',
       seed: mpVal('mpSeed')
     };
@@ -588,6 +595,11 @@ window.UI = (function () {
     if (mpStopWatch) { try { mpStopWatch(); } catch (e) { } mpStopWatch = null; }
     mpRoom = null;
     currentGeneric = null; // el juego toma el control de la pantalla
+    // Si se cae la conexión durante la carrera, RTDB marcará la caída y el
+    // rival podrá terminar sin esperar eternamente.
+    if (window.CLOUD && CLOUD.armDuelDisconnect) {
+      try { CLOUD.armDuelDisconnect(room.code); } catch (e) { }
+    }
     G.startPvp(room);
     mpLaunching = false;
   }
@@ -597,6 +609,9 @@ window.UI = (function () {
     if (mpStopWatch) { try { mpStopWatch(); } catch (e) { } mpStopWatch = null; }
     const code = mpRoom && mpRoom.code;
     mpRoom = null;
+    if (window.CLOUD && CLOUD.disarmDuelDisconnect) {
+      try { CLOUD.disarmDuelDisconnect(); } catch (e) { }
+    }
     if (code && window.CLOUD && CLOUD.leaveDuel) {
       try { CLOUD.leaveDuel(code); } catch (e) { }
     }
@@ -702,21 +717,24 @@ window.UI = (function () {
     const mapOpts = (ownedMaps.length ? ownedMaps : [DAT.getMap('day')]).map(m => [m.id, m.icon + ' ' + m.name]);
     const defMap = mapOpts.some(o => o[0] === s.map) ? s.map : mapOpts[0][0];
     const def = MP.normalizeConfig({
-      mode: 'goal', pipes: SAVE.getGoalPipes(), time: 0, map: defMap, diff: s.set.diff, tools: true, seedMode: 'daily'
+      mode: 'free', winBy: 'survival', pipes: SAVE.getGoalPipes(), time: 0, map: defMap,
+      diff: s.set.diff, tools: true, enemies: true, powers: true, seedMode: 'daily'
     }, mpOpts());
 
     const create = document.createElement('div');
     create.className = 'prog-card';
     create.innerHTML = '<h3>➕ CREAR SALA</h3>' +
       '<div class="set-note">Solo aparecen los mapas que tienes desbloqueados. Los dos jugadores deben tener el mismo mapa para entrar.</div>';
-    const modeSel = mpSelect(create, 'Tipo de carrera', 'mpMode',
-      [['goal', 'Con metas (termina al cruzar)'], ['free', 'Libre (sin meta)']], def.mode);
+    const ruleSel = mpSelect(create, 'Regla de victoria', 'mpWinBy',
+      [['survival', 'Supervivencia · gana el último vivo'],
+       ['goal', 'Meta · cruza primero'],
+       ['score', 'Puntuación · mejor marca al terminar']], def.winBy || 'survival');
     const pipesSel = mpSelect(create, 'Meta de tubos', 'mpPipes', MP.PIPE_GOALS.map(n => [n, n + ' tubos']), def.pipes);
     const pipesRow = pipesSel.parentElement;
-    const syncMode = () => { pipesRow.style.display = modeSel.value === 'goal' ? '' : 'none'; };
-    modeSel.onchange = syncMode;
+    const syncMode = () => { pipesRow.style.display = ruleSel.value === 'goal' ? '' : 'none'; };
+    ruleSel.onchange = syncMode;
     syncMode();
-    mpSelect(create, 'Límite de tiempo', 'mpTime', MP.TIME_LIMITS.map(n => [n, n ? n + ' s' : 'Sin límite']), def.time);
+    mpSelect(create, 'Duración / límite', 'mpTime', MP.TIME_LIMITS.map(n => [n, n ? n + ' s' : 'Sin límite']), def.time);
     mpSelect(create, 'Mapa', 'mpMap', mapOpts, def.map);
     mpSelect(create, 'Dificultad', 'mpDiff', DAT.DIFFS.map(d => [d.id, d.name]), def.diff);
     mpSelect(create, 'Semilla', 'mpSeedMode', [['daily', 'Del día (igual para ambos)'], ['manual', 'Manual (texto o número)']], 'daily');
@@ -734,18 +752,24 @@ window.UI = (function () {
     seedRow.appendChild(seedInput);
     create.appendChild(seedRow);
 
-    const toolsRow = document.createElement('label');
-    toolsRow.className = 'set-row mp-row';
-    const toolsLbl = document.createElement('span');
-    toolsLbl.textContent = 'Permitir herramientas';
-    const tools = document.createElement('input');
-    tools.type = 'checkbox';
-    tools.id = 'mpTools';
-    tools.className = 'mp-check';
-    tools.checked = true;
-    toolsRow.appendChild(toolsLbl);
-    toolsRow.appendChild(tools);
-    create.appendChild(toolsRow);
+    const mpCheck = (id, label, on) => {
+      const row = document.createElement('label');
+      row.className = 'set-row mp-row';
+      const span = document.createElement('span');
+      span.textContent = label;
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.id = id;
+      input.className = 'mp-check';
+      input.checked = on !== false;
+      row.appendChild(span);
+      row.appendChild(input);
+      create.appendChild(row);
+      return input;
+    };
+    mpCheck('mpTools', 'Permitir herramientas 🛠', def.tools);
+    mpCheck('mpEnemies', 'Enemigos 👾', def.enemies);
+    mpCheck('mpPowers', 'Power-ups ⚡', def.powers);
 
     const seedSel = create.querySelector('#mpSeedMode');
     const syncSeed = () => { seedRow.style.display = seedSel.value === 'manual' ? '' : 'none'; };
@@ -812,13 +836,18 @@ window.UI = (function () {
     rules.className = 'prog-card';
     const mapName = DAT.getMap(cfg.map).name;
     const diffName = DAT.getDiff(cfg.diff).name;
+    const winTxt = cfg.winBy === 'goal' ? 'Meta · cruza primero 🏁'
+      : cfg.winBy === 'score' ? 'Puntuación · mejor marca 🏆'
+      : 'Supervivencia · último vivo 🛡️';
     rules.innerHTML = '<h3>⚙️ REGLAS DE LA CARRERA</h3>' +
-      '<div class="stat-row"><span>Modo</span><b>' + (cfg.mode === 'goal' ? 'Con metas 🎯' : 'Libre ♾️') + '</b></div>' +
-      '<div class="stat-row"><span>Meta</span><b>' + (cfg.mode === 'goal' ? cfg.pipes + ' tubos' : 'Sin meta') + '</b></div>' +
+      '<div class="stat-row"><span>Victoria</span><b>' + winTxt + '</b></div>' +
+      '<div class="stat-row"><span>Meta</span><b>' + (cfg.mode === 'goal' && cfg.pipes > 0 ? cfg.pipes + ' tubos' : 'Sin meta') + '</b></div>' +
       '<div class="stat-row"><span>Tiempo</span><b>' + (cfg.time > 0 ? cfg.time + ' s' : 'Sin límite') + '</b></div>' +
       '<div class="stat-row"><span>Mapa</span><b>' + esc(mapName) + (SAVE.owns(SAVE.get().mapsOwned, cfg.map) ? '' : ' ⚠️') + '</b></div>' +
       '<div class="stat-row"><span>Dificultad</span><b>' + esc(diffName) + '</b></div>' +
       '<div class="stat-row"><span>Herramientas</span><b>' + (cfg.tools ? 'Sí' : 'No') + '</b></div>' +
+      '<div class="stat-row"><span>Enemigos</span><b>' + (cfg.enemies ? 'Sí' : 'No') + '</b></div>' +
+      '<div class="stat-row"><span>Power-ups</span><b>' + (cfg.powers ? 'Sí' : 'No') + '</b></div>' +
       '<div class="stat-row"><span>Semilla</span><b>' + cfg.seed + '</b></div>';
     body.appendChild(rules);
 
@@ -2198,6 +2227,55 @@ window.UI = (function () {
     challenge: 'Semilla 🌱', duel: 'Duelo 🆚', replay: 'Replay 🎬'
   };
 
+  // Clasificación del modo Rompe récords: marca local + tabla global.
+  function renderKillBoard(body) {
+    const rec = SAVE.killRecord ? SAVE.killRecord() : { best: 0, total: 0, name: '' };
+    const myUid = (window.CLOUD && CLOUD.session) ? (CLOUD.session().uid || '') : '';
+    const head = document.createElement('div');
+    head.className = 'lb-banner';
+    head.innerHTML = '<div class="lb-banner-ico">🎯</div><div class="lb-banner-txt">' +
+      '<div class="lb-banner-title">RÉCORDS DE ELIMINACIONES</div>' +
+      '<div class="lb-banner-sub">Tu mejor marca: <b>' + (rec.best || 0) + '</b>' +
+      (rec.name ? ' · ' + esc(rec.name) : '') +
+      ' · Total eliminados: ' + (rec.total || 0) + '</div></div>';
+    body.appendChild(head);
+
+    if (!(window.CLOUD && typeof CLOUD.getKillBoard === 'function')) return;
+    const box = document.createElement('div');
+    box.className = 'lb-list';
+    const wait = document.createElement('div');
+    wait.className = 'lb-empty lb-empty-sm';
+    wait.textContent = 'Cargando clasificación global…';
+    box.appendChild(wait);
+    body.appendChild(box);
+
+    CLOUD.getKillBoard(10).then(board => {
+      if (!document.body.contains(box)) return;
+      box.innerHTML = '';
+      if (!board || !board.length) {
+        box.innerHTML = '<div class="lb-empty lb-empty-sm">Aún no hay récords globales. ¡Sé el primero en romperlo!</div>';
+        return;
+      }
+      board.forEach((p, i) => {
+        const rank = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+        const row = document.createElement('div');
+        row.className = 'lb-row' + (i < 3 ? ' lb-top lb-top' + (i + 1) : '') + (myUid && p.uid === myUid ? ' lb-me' : '');
+        row.innerHTML =
+          '<div class="lb-rank">' + rank + '</div>' +
+          '<div class="lb-who">' +
+            '<div class="lb-name">' + esc(p.name) + (myUid && p.uid === myUid ? ' <span class="lb-you">TÚ</span>' : '') + '</div>' +
+            '<div class="lb-meta">récord ' + fmtDate(p.at) + '</div>' +
+          '</div>' +
+          '<div class="lb-nums"><div class="lb-best">' + p.kills + '<small>kills</small></div></div>';
+        box.appendChild(row);
+      });
+    }).catch(() => {
+      if (document.body.contains(box)) {
+        box.innerHTML = '<div class="lb-empty lb-empty-sm">No se pudo cargar la clasificación global.</div>';
+      }
+    });
+  }
+
   function renderRecords() {
     const body = $('genBody');
     body.innerHTML = '';
@@ -2210,6 +2288,7 @@ window.UI = (function () {
     /* El ranking online va primero: es la respuesta a "quién tiene la mejor
        marca". Si Firebase falla, la parte local sigue funcionando igual. */
     if (cloudOn) renderCloudBoard(body, prof);
+    renderKillBoard(body);
 
     const head = document.createElement('div');
     head.className = 'lb-banner' + (cloudOn ? ' lb-banner-local' : '');
@@ -3600,6 +3679,22 @@ window.UI = (function () {
   }
 
   /* ---------- MISIONES 📋 ---------- */
+  function missionRewardText(r) {
+    if (typeof r === 'number') return '+' + r + ' 🪙';
+    if (!r || typeof r !== 'object') return 'Recompensa';
+    const bits = [];
+    if (r.coins) bits.push('+' + r.coins + ' 🪙');
+    if (r.parts) bits.push('+' + r.parts + ' 🔩');
+    if (r.item) {
+      const tk = DAT.TOOLS.find(x => x.key === r.item);
+      bits.push('+' + (r.n || 1) + ' ' + (tk ? tk.icon + ' ' + tk.name : r.item));
+    }
+    if (r.shields) bits.push('+' + r.shields + ' 🛡️');
+    if (r.hat) bits.push('+' + (DAT.getHat(r.hat) || { name: 'Sombrero' }).name);
+    if (r.fx) bits.push('+' + (DAT.getFx(r.fx) || { name: 'Estela' }).name);
+    return bits.join(' · ') || 'Recompensa';
+  }
+
   function renderMissions() {
     const body = $('genBody');
     body.innerHTML = '';
@@ -3607,34 +3702,46 @@ window.UI = (function () {
     head.className = 'prog-card';
     head.style.textAlign = 'center';
     const done = (SAVE.get().stats.missionsDone || 0);
-    head.innerHTML = '<h3>MISIONES DIARIAS Y SEMANALES</h3><div style="font-size:13px;color:#dbe7ff">Completa misiones y reclama monedas 🪙. <b>Hechas: ' + done + '</b></div>';
+    head.innerHTML = '<h3>MISIONES DIARIAS, SEMANALES Y ESPECIALES</h3><div style="font-size:13px;color:#dbe7ff">Completa misiones y reclama recompensas 🪙. <b>Hechas: ' + done + '</b></div>';
     body.appendChild(head);
 
-    DAT.MISSIONS.forEach(m => {
-      const isW = !!m.weekly;
-      const cur = SAVE.missionProgress(m);
-      const target = m.target;
-      const pct = Math.min(100, Math.round(cur / target * 100));
-      const claimed = SAVE.missionDoneToday(m);
-      const card = document.createElement('div');
-      card.className = 'prog-card';
-      card.innerHTML =
-        '<div style="display:flex;justify-content:space-between;align-items:center">' +
-        '<b style="color:#ffe066">' + (isW ? '🎖 ' : '📌 ') + m.name + '</b>' +
-        '<span style="font-size:13px;color:#dbe7ff">' + cur + ' / ' + target + '</span></div>' +
-        '<div style="font-size:12px;color:#bcd0ff">' + m.desc + '</div>' +
-        '<div class="bar"><i style="width:' + pct + '%"></i></div>';
-      const btn = document.createElement('button');
-      btn.className = 'btn ' + (claimed ? 'btn-ghost' : pct >= 100 ? '' : 'btn-ghost');
-      btn.disabled = claimed || pct < 100;
-      btn.textContent = claimed ? '✓ Reclamada' : (pct >= 100 ? 'Reclamar +' + m.reward + ' 🪙' : 'Faltan ' + (target - cur));
-      btn.onclick = () => {
-        const r = SAVE.claimMission(m);
-        if (r) { toast('¡Misión completada! +' + r.reward + ' 🪙', 'good'); SND.sfx.level(); renderMissions(); refreshHome(); }
-        SAVE.checkAch().forEach(a => popAch(a));
-      };
-      card.appendChild(btn);
-      body.appendChild(card);
+    const groups = [
+      { key: 'daily', title: '📌 DIARIAS', list: DAT.MISSIONS.filter(m => !m.weekly && !m.special) },
+      { key: 'weekly', title: '🎖 SEMANALES', list: DAT.MISSIONS.filter(m => m.weekly && !m.special) },
+      { key: 'special', title: '⭐ ESPECIALES · no rotan', list: DAT.MISSIONS.filter(m => m.special) }
+    ];
+    groups.forEach(g => {
+      if (!g.list.length) return;
+      const gh = document.createElement('div');
+      gh.className = 'prog-card';
+      gh.innerHTML = '<h3>' + g.title + '</h3>';
+      body.appendChild(gh);
+      g.list.forEach(m => {
+        const cur = SAVE.missionProgress(m);
+        const target = m.target;
+        const pct = Math.min(100, Math.round(cur / target * 100));
+        const claimed = SAVE.missionDoneToday(m);
+        const card = document.createElement('div');
+        card.className = 'prog-card';
+        const ico = m.special ? '⭐ ' : (m.weekly ? '🎖 ' : '📌 ');
+        card.innerHTML =
+          '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<b style="color:#ffe066">' + ico + m.name + '</b>' +
+          '<span style="font-size:13px;color:#dbe7ff">' + cur + ' / ' + target + '</span></div>' +
+          '<div style="font-size:12px;color:#bcd0ff">' + m.desc + '</div>' +
+          '<div class="bar"><i style="width:' + pct + '%"></i></div>';
+        const btn = document.createElement('button');
+        btn.className = 'btn ' + (claimed ? 'btn-ghost' : pct >= 100 ? '' : 'btn-ghost');
+        btn.disabled = claimed || pct < 100;
+        btn.textContent = claimed ? '✓ Reclamada' : (pct >= 100 ? 'Reclamar ' + missionRewardText(m.reward) : 'Faltan ' + (target - cur));
+        btn.onclick = () => {
+          const r = SAVE.claimMission(m);
+          if (r) { toast('¡Misión completada! ' + missionRewardText(r.reward), 'good'); SND.sfx.level(); renderMissions(); refreshHome(); }
+          SAVE.checkAch().forEach(a => popAch(a));
+        };
+        card.appendChild(btn);
+        body.appendChild(card);
+      });
     });
   }
 

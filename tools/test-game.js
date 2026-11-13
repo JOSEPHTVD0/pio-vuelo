@@ -1552,6 +1552,83 @@ section('26. MODO CON METAS, RÉCORDS POR MODO Y RADAR');
   G.setMode('free');
 }
 
+/* ---------------- 27. SUPERVIVENCIA, ROMPE RÉCORDS Y ADMIN v3.5.0 ---------------- */
+section('27. SUPERVIVENCIA, ROMPE RÉCORDS Y ADMIN');
+{
+  const MPX = sandbox.MP;
+  // La partida no termina al morir el primero: gana el último vivo.
+  const alive = (over) => Object.assign({ uid: 'u', name: 'J', alive: true, finished: false, time: 0 }, over || {});
+  const r1 = MPX.resolve(
+    alive({ uid: 'a', alive: false, finished: true, deathAt: 12, time: 12 }),
+    alive({ uid: 'b', alive: true, finished: true, time: 30 }),
+    { winBy: 'survival' }
+  );
+  ok(r1.winner === 'guest' && r1.reason === 'supervivencia', 'en supervivencia gana el último jugador vivo');
+  const r2 = MPX.resolve(
+    alive({ uid: 'a', alive: false, finished: true, deathAt: 20, time: 20 }),
+    alive({ uid: 'b', alive: false, finished: true, deathAt: 12, time: 12 }),
+    { winBy: 'survival' }
+  );
+  ok(r2.winner === 'host', 'si ambos caen, gana quien sobrevivió más tiempo');
+  const r3 = MPX.resolve(
+    alive({ uid: 'a', alive: true, finished: false }),
+    alive({ uid: 'b', alive: true, finished: false }),
+    { winBy: 'survival' }
+  );
+  ok(r3.winner === '' && r3.reason === 'pending', 'con ambos vivos la carrera sigue pendiente');
+  ok(MPX.hasSurvival({ mode: 'free' }) && !MPX.hasSurvival({ winBy: 'goal' }),
+    'hasSurvival distingue salas de supervivencia');
+  ok(MPX.resolveSides(alive({ uid: 'a' }), alive({ uid: 'b' }), { winBy: 'survival' }) === '',
+    'una carrera pendiente no se resuelve como empate');
+
+  // Curva de XP más exigente y ajustable desde el panel.
+  SAVE.reset(); SAVE.load();
+  const lv1 = SAVE.xpFor(1);
+  SAVE.setTuning({ xpBase: 100, xpCurve: 2, xpFlat: 0 });
+  ok(SAVE.xpFor(2) === 400, 'el tuning del panel cambia la curva de XP', SAVE.xpFor(2));
+  ok(SAVE.xpFor(2) > lv1, 'la curva nueva exige más XP que antes', SAVE.xpFor(2) + ' vs ' + lv1);
+  const rew5 = SAVE.levelReward(5);
+  const rew3 = SAVE.levelReward(3);
+  ok(rew5.coins > 0 && rew5.item, 'subir al nivel 5 da monedas y un objeto');
+  ok(rew3.coins > 0 && rew3.parts > 0, 'subir al nivel 3 da piezas');
+  const ups = SAVE.addXp(100000);
+  ok(ups > 0 && SAVE.lastLevelUps().length === ups, 'las recompensas por nivel se registran una a una');
+  SAVE.setTuning({ xpMul: 2 });
+  ok(SAVE.xpAmount(100) >= 200, 'la XP mostrada refleja el multiplicador del panel', SAVE.xpAmount(100));
+  SAVE.setTuning({ xpMul: 1 });
+
+  // Récords de eliminaciones: marca personal y acumulado.
+  SAVE.reset(); SAVE.load();
+  const recA = SAVE.recordKillsRun(7);
+  ok(recA.isRecord === true && recA.next === 7 && SAVE.killRecord().best === 7,
+    'Rompe récords guarda la mejor marca de eliminaciones');
+  const recB = SAVE.recordKillsRun(4);
+  ok(recB.isRecord === false && recB.next === 7 && SAVE.killRecord().total === 11,
+    'un resultado peor no baja el récord y suma al total');
+
+  // Panel de administración: roles, auditoría, sanciones y eventos.
+  SAVE.reset(); SAVE.load();
+  ok(SAVE.getAdmin().role === 'admin', 'el panel arranca con rol admin');
+  SAVE.setAdminRole('moderador');
+  ok(SAVE.getAdmin().role === 'moderador', 'el rol se guarda');
+  SAVE.setAdminRole('inventado');
+  ok(SAVE.getAdmin().role === 'moderador', 'un rol inválido no cambia el actual');
+  SAVE.adminAudit('prueba', 'acción de prueba');
+  ok(SAVE.getAdminLog(1)[0].detail === 'acción de prueba', 'la auditoría registra las acciones');
+  const sc = SAVE.addSanction({ name: 'Tramposo', type: 'suspension', reason: 'Trampas' });
+  ok(sc.type === 'suspension' && SAVE.getSanctions().length === 1, 'las sanciones se guardan');
+  const ev = SAVE.addEvent({ name: 'Doble XP', desc: 'Fin de semana' });
+  ok(ev.kind === 'comunidad' && SAVE.getEvents().length === 1, 'los eventos se guardan');
+
+  // Modo Rompe récords como modo jugable real.
+  G.setMode('record');
+  ok(G.getMode() === 'record', 'el modo Rompe récords se activa');
+  G.startPlay('record');
+  ok(G.getState() === 'play' && G.getMode() === 'record', 'Rompe récords arranca una carrera real');
+  G.goMenu();
+  G.setMode('free');
+}
+
 /* ---------------- Resumen ---------------- */
 console.log('\n────────────────────────────────────────');
 console.log('Pruebas superadas: ' + pass + ' · fallidas: ' + fail);
