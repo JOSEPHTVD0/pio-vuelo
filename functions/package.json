@@ -1,6 +1,6 @@
 {
   "name": "pio-vuelo-functions",
-  "version": "3.5.1",
+  "version": "3.5.2",
   "private": true,
   "description": "Backend dedicado de Pío Vuelo: avisos de récord y notificaciones administrativas",
   "main": "index.js",

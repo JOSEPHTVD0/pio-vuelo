@@ -445,6 +445,10 @@ window.UI = (function () {
   let mpRoom = null;
   let mpStopWatch = null;
   let mpCountdownTimer = null;
+  let mpAutoTimer = null;
+  let mpAutoCode = '';
+  let mpAutoStarting = false;
+  let mpAutoRetryAt = 0;
   let mpLaunching = false;
 
   function mpServerReady() {
@@ -556,6 +560,7 @@ window.UI = (function () {
   function mpHandleRoom(room) {
     if (!room || !mpRoom) return;
     if (room.state === 'playing') {
+      mpAutoStartStop();
       if (room.startAt && Date.now() < room.startAt) {
         if (currentGeneric === 'pvp') renderMultiplayer();
         mpShowCountdown(room);
@@ -565,7 +570,63 @@ window.UI = (function () {
       return;
     }
     if (mpCountdownTimer) { clearInterval(mpCountdownTimer); mpCountdownTimer = null; }
+    if (room.state === 'finished') mpAutoStartStop();
+    else mpAutoStartWatch(room);
     if (currentGeneric === 'pvp') renderMultiplayer();
+  }
+
+  /* Arranque automático: cuando entra el rival, la carrera empieza sola a los
+     10 s. El anfitrión puede adelantarla; el invitado solo espera. La hora se
+     deduce de updatedAt (la unión del rival), así ambos ven casi lo mismo. */
+  function mpAutoStartStop() {
+    if (mpAutoTimer) { clearInterval(mpAutoTimer); mpAutoTimer = null; }
+    mpAutoCode = '';
+    mpAutoStarting = false;
+    mpAutoRetryAt = 0;
+  }
+
+  function mpAutoStartText(left, isHost) {
+    if (left > 0) {
+      return '🕒 Rival listo · empieza en ' + Math.max(1, Math.ceil(left / 1000)) + ' s' +
+        (isHost ? ' (puedes empezar ya)' : '…');
+    }
+    return isHost ? '🕒 Rival listo · ¡ya! Preparando la salida…' : '🕒 Rival listo · esperando al anfitrión…';
+  }
+
+  function mpAutoStartTick() {
+    const room = mpRoom;
+    if (!room || mpAutoCode !== room.code) { mpAutoStartStop(); return; }
+    if (!window.MP || !MP.isReady(room) || room.state !== 'waiting') { mpAutoStartStop(); return; }
+    const me = (window.CLOUD && CLOUD.session) ? (CLOUD.session().uid || '') : '';
+    const isHost = !!(room.host && room.host.uid === me);
+    const left = MP.autoStartLeft(room, Date.now());
+    const el = document.getElementById('mpCount');
+    if (el) el.textContent = mpAutoStartText(left, isHost);
+    // Solo el anfitrión puede arrancar, y solo si sigue en la sala: si se fue
+    // a otra pantalla no se le lanza una carrera por sorpresa.
+    if (!isHost || left > 0 || currentGeneric !== 'pvp') return;
+    if (mpAutoStarting || Date.now() < mpAutoRetryAt) return;
+    mpAutoStarting = true;
+    CLOUD.startDuel(room.code).then(ok => {
+      if (ok) return;
+      mpAutoStarting = false;
+      mpAutoRetryAt = Date.now() + 3000;
+    }).catch(() => {
+      mpAutoStarting = false;
+      mpAutoRetryAt = Date.now() + 3000;
+    });
+  }
+
+  function mpAutoStartWatch(room) {
+    if (!room || room.state !== 'waiting' || !window.MP || !MP.isReady(room)) {
+      mpAutoStartStop();
+      return;
+    }
+    if (mpAutoTimer && mpAutoCode === room.code) { mpAutoStartTick(); return; }
+    mpAutoStartStop();
+    mpAutoCode = room.code;
+    mpAutoStartTick();
+    mpAutoTimer = setInterval(mpAutoStartTick, 250);
   }
 
   function mpShowCountdown(room) {
@@ -592,6 +653,7 @@ window.UI = (function () {
     if (mpLaunching || !room) return;
     mpLaunching = true;
     if (mpCountdownTimer) { clearInterval(mpCountdownTimer); mpCountdownTimer = null; }
+    mpAutoStartStop();
     if (mpStopWatch) { try { mpStopWatch(); } catch (e) { } mpStopWatch = null; }
     mpRoom = null;
     currentGeneric = null; // el juego toma el control de la pantalla
@@ -606,6 +668,7 @@ window.UI = (function () {
 
   function mpLeaveRoom() {
     if (mpCountdownTimer) { clearInterval(mpCountdownTimer); mpCountdownTimer = null; }
+    mpAutoStartStop();
     if (mpStopWatch) { try { mpStopWatch(); } catch (e) { } mpStopWatch = null; }
     const code = mpRoom && mpRoom.code;
     mpRoom = null;
@@ -864,7 +927,9 @@ window.UI = (function () {
     status.className = 'prog-card';
     const statusText = room.state === 'finished' ? 'La carrera ya terminó.'
       : room.state === 'playing' ? 'Preparando la salida…'
-      : full ? (isHost ? 'Rival listo. ¡Puedes empezar!' : 'Esperando a que el anfitrión empiece…')
+      : full ? (isHost
+        ? 'Rival listo. La carrera empieza sola en unos segundos; también puedes empezar ya.'
+        : 'Rival listo. La carrera empezará automáticamente en unos segundos.')
       : 'Esperando a que entre un rival…';
     status.innerHTML = '<h3>⏳ ESTADO</h3><div id="mpCount" class="set-note">' + statusText + '</div>';
     body.appendChild(status);
@@ -872,15 +937,18 @@ window.UI = (function () {
     if (isHost && full && room.state === 'waiting') {
       const start = document.createElement('button');
       start.className = 'btn btn-play';
-      start.textContent = '▶ EMPEZAR CARRERA';
+      start.textContent = '▶ EMPEZAR AHORA';
       start.onclick = () => {
         SND.sfx.click();
         start.disabled = true;
         start.textContent = 'PREPARANDO…';
+        mpAutoStarting = true;
         CLOUD.startDuel(room.code).then(ok => {
           if (!ok) {
+            mpAutoStarting = false;
+            mpAutoRetryAt = 0;
             start.disabled = false;
-            start.textContent = '▶ EMPEZAR CARRERA';
+            start.textContent = '▶ EMPEZAR AHORA';
             toast('No se pudo empezar la carrera', 'warning');
           }
         });
@@ -904,6 +972,8 @@ window.UI = (function () {
       } else if (currentGeneric === 'pvp') {
         mpShowCountdown(room);
       }
+    } else {
+      mpAutoStartWatch(room);
     }
   }
 

@@ -694,17 +694,17 @@ function makeClient(ws) {
           ok(joinRes && joinRes.ok, 'un rival real se une a la sala', joinRes ? String(joinRes.status) : 'sin respuesta');
 
           await sleep(1600);
-          const ready = await evalJs("(function(){var t=document.getElementById('genBody').textContent;var bs=document.querySelectorAll('#genBody button');var start=false;for(var i=0;i<bs.length;i++)if(bs[i].textContent.indexOf('EMPEZAR')!==-1)start=true;return {ready:t.indexOf('Rival listo')!==-1,start:start,name:t.indexOf('RivalSmoke')!==-1}})()");
+          const ready = await evalJs("(function(){var t=document.getElementById('genBody').textContent;var bs=document.querySelectorAll('#genBody button');var start=false;for(var i=0;i<bs.length;i++)if(bs[i].textContent.indexOf('EMPEZAR')!==-1)start=true;return {ready:t.indexOf('Rival listo')!==-1,start:start,name:t.indexOf('RivalSmoke')!==-1,countdown:t.toLowerCase().indexOf('empieza en')!==-1}})()");
           ok(ready.name && ready.ready && ready.start, 'el anfitrión ve al rival y puede empezar');
+          ok(ready.countdown, 'la sala muestra la cuenta atrás de arranque automático');
 
-          await evalJs("(function(){var bs=document.querySelectorAll('#genBody button');for(var i=0;i<bs.length;i++){if(bs[i].textContent.indexOf('EMPEZAR')!==-1){bs[i].click();return true}}return false})()");
-
-          // Sigue la transición de pantalla hasta que arranque la carrera, sin
-          // depender de un instante exacto: la cuenta atrás dura 3,5 s.
+          // Sin pulsar nada: el temporizador de la sala debe lanzar la carrera.
+          // Sigue la transición de pantalla hasta que arranque, sin depender de
+          // un instante exacto: 10 s de espera + 3,5 s de cuenta atrás.
           const seen = [];
           let pvpState = null;
           let sawPlay = false;
-          for (let i = 0; i < 24 && !sawPlay; i++) {
+          for (let i = 0; i < 70 && !sawPlay; i++) {
             await sleep(250);
             const st = await evalJs("(function(){try{var p=G.getPvp();return {mode:G.getMode(),state:G.getState(),pvp:p?{goal:p.goal,time:p.timeLimit,side:p.side,code:p.code}:null}}catch(e){return null}})()").catch(() => null);
             if (!st) continue;
@@ -713,7 +713,7 @@ function makeClient(ws) {
             if (!last || last.mode !== st.mode || last.state !== st.state) seen.push({ mode: st.mode, state: st.state });
             if (st.mode === 'pvp' && st.state === 'play') sawPlay = true;
           }
-          ok(sawPlay, 'la cuenta atrás lanza la carrera online', JSON.stringify(seen));
+          ok(sawPlay, 'la cuenta atrás de la sala lanza la carrera automáticamente', JSON.stringify(seen));
           ok(pvpState && pvpState.pvp && pvpState.pvp.goal === 15 && pvpState.pvp.time === 60,
             'la carrera respeta la meta y el tiempo de la sala', JSON.stringify(pvpState && pvpState.pvp));
 

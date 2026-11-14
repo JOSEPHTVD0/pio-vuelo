@@ -359,9 +359,25 @@ window.MP = (function () {
     return win + ' · ' + (c.time > 0 ? c.time + ' s' : 'sin límite');
   }
 
+  // Una sala con los dos jugadores arranca sola: el anfitrión puede
+  // adelantar la salida, pero nadie se queda esperando indefinidamente.
+  const AUTOSTART_MS = 10000;
+
   // ¿La sala ya tiene los dos jugadores?
   function isReady(room) {
     return !!(room && room.host && room.host.uid && room.guest && room.guest.uid);
+  }
+
+  // Milisegundos que faltan para el arranque automático. Se cuenta desde la
+  // última actualización de la sala (la unión del rival) para que los dos
+  // clientes vean prácticamente la misma cuenta atrás.
+  function autoStartLeft(room, now) {
+    if (!room || !isReady(room)) return 0;
+    if (room.state && room.state !== 'waiting') return 0;
+    const at = num(room.updatedAt, 0);
+    if (at <= 0) return AUTOSTART_MS;
+    const left = AUTOSTART_MS - ((now || Date.now()) - at);
+    return Math.max(0, Math.min(AUTOSTART_MS, left));
   }
 
   // Estado legible de una sala para la interfaz.
@@ -378,10 +394,12 @@ window.MP = (function () {
 
   return {
     CODE_LEN, ALPHABET, PIPE_GOALS, TIME_LIMITS, DIFF_IDS, SEED_MODES, MODES, WIN_BY, DEFAULTS,
+    AUTOSTART_MS,
     cleanCode, isValidCode, randomCode,
     daySeed, hashSeed, resolveSeed,
     normalizeConfig, sameConfig, hasGoal, hasSurvival,
     emptySide, sanitizeSide, sanitizeProgress,
-    judge, judgeSides, resolve, resolveSides, configLabel, isReady, roomPhase
+    judge, judgeSides, resolve, resolveSides, configLabel, isReady, roomPhase,
+    autoStartLeft
   };
 })();

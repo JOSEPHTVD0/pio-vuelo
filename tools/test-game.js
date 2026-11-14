@@ -1430,6 +1430,20 @@ section('25. MULTIJUGADOR ONLINE: SALAS, SEMILLAS Y RESULTADOS');
   ok(MP.judge({ pipes: 10, score: 9 }, { pipes: 10, score: 9 }) === 'draw', 'mismo resultado = empate');
   ok(MP.judgeSides({ pipes: 2 }, { pipes: 3 }) === 'guest', 'el ganador se traduce a host/guest');
 
+  // Arranque automático de la sala: 10 s desde que entra el rival.
+  const waiting = { state: 'waiting', updatedAt: 1000, host: { uid: 'a' }, guest: { uid: 'b' } };
+  ok(MP.AUTOSTART_MS === 10000, 'el arranque automático espera 10 s', String(MP.AUTOSTART_MS));
+  ok(MP.autoStartLeft(waiting, 1000) === 10000, 'la cuenta atrás arranca llena');
+  ok(MP.autoStartLeft(waiting, 4000) === 7000, 'la cuenta atrás descuenta el tiempo transcurrido',
+    String(MP.autoStartLeft(waiting, 4000)));
+  ok(MP.autoStartLeft(waiting, 25000) === 0, 'la cuenta atrás no baja de cero');
+  ok(MP.autoStartLeft({ state: 'waiting', updatedAt: 1000, host: { uid: 'a' }, guest: null }, 1000) === 0,
+    'sin rival no hay arranque automático');
+  ok(MP.autoStartLeft({ state: 'playing', updatedAt: 1000, host: { uid: 'a' }, guest: { uid: 'b' } }, 1000) === 0,
+    'una sala ya empezada no vuelve a arrancar');
+  ok(MP.autoStartLeft({ state: 'waiting', host: { uid: 'a' }, guest: { uid: 'b' } }, 1000) === 10000,
+    'sin marca de tiempo se espera el máximo');
+
   // Integración con el juego y una nube simulada.
   const calls = { progress: [], finish: [], leave: 0 };
   const uid = 'uid-mp-1';

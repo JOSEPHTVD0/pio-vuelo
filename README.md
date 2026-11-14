@@ -1,4 +1,4 @@
-# Pío Vuelo 3.5.1
+# Pío Vuelo 3.5.2
 
 Juego arcade de un pájaro que vuela entre tubos, con monedas, power-ups, tienda, misiones, récords y progresión. Funciona como aplicación web instalable (PWA) y también como APK Android mediante WebView.
 
@@ -63,6 +63,13 @@ completa está en [`docs/FIREBASE.md`](docs/FIREBASE.md).
 - Clasificación local por dispositivo y ranking online opcional con Firebase.
 - Sonido, efectos visuales y vibración opcional.
 - PWA con caché offline mediante service worker.
+
+## Novedades de la versión 3.5.2
+
+- **Arranque automático del multijugador:** al entrar el rival, la sala muestra una cuenta atrás de **10 s** y la carrera empieza sola. El anfitrión puede adelantarla con **«▶ EMPEZAR AHORA»** y el invitado ve prácticamente el mismo tiempo.
+- **Sin sorpresas:** el anfitrión solo ordena la salida si sigue en la pantalla de la sala; si se marcha a otra, el invitado ve «esperando al anfitrión». Si falla la conexión, se reintenta cada 3 s.
+- **Caché renovada:** la PWA actualiza a `piovuelo-v35`.
+- **Pruebas:** `npm test` 507/507, humo de navegador 55/55 sin conexión y 100/100 con emuladores.
 
 ## Novedades de la versión 3.5.1
 
@@ -272,14 +279,14 @@ real** (sin conexión, caché y reintento) y que el juego sigue funcionando offl
 Con `PIO_EMULATORS=1` añade el flujo completo de cuentas: aviso del primer vuelo,
 registro, restauración en un dispositivo nuevo, cierre de sesión y elección entre
 los dos progresos.
-Actualmente son **99 comprobaciones** y no debe haber errores de JavaScript. Con los emuladores también se prueban las salas online: crear, unirse, cuenta atrás sincronizada, progreso del rival, reglas de supervivencia, abandono y resolución final. Además se valida el panel de administración (roles, auditoría, tuning, estadísticas de jugadores, temporada, envío de avisos y comprobación manual del backend), el modo Rompe récords con disparos reales, la publicación del récord global y la clasificación.
+Actualmente son **100 comprobaciones** y no debe haber errores de JavaScript. Con los emuladores también se prueban las salas online: crear, unirse, cuenta atrás sincronizada, progreso del rival, reglas de supervivencia, abandono y resolución final. Además se valida el panel de administración (roles, auditoría, tuning, estadísticas de jugadores, temporada, envío de avisos y comprobación manual del backend), el modo Rompe récords con disparos reales, la publicación del récord global y la clasificación.
 Requiere Chrome o Edge instalado; se puede indicar otro ejecutable con
 `CHROME_PATH`. En un entorno sin red, `SKIP_ONLINE=1` omite solo el bloque online.
 
 ## Limitaciones conocidas
 
-- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.5.1 (versionCode 41)**: **7.084.523 bytes** y SHA-256 `46939C9F771798262A081656E20BB058201D58CAE4107D1B440AB30221C4F332`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
-- La verificación incluye pruebas headless (500/500), comprobaciones HTTP, reglas con emuladores (89/89), backend (41/41 y 21/21 con emuladores) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 99/99 con emuladores y 55/55 en modo offline, incluido el modo offline, las cuentas, las salas online, la supervivencia, la clasificación de eliminaciones y el panel ampliado). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos, el ranking online y una carrera 1v1 en dos dispositivos Android reales antes de darlos por cerrados.
+- El APK Android se recompila con `powershell -File android\build.ps1`. En esta máquina están disponibles JDK 17 (`C:\Program Files\Java\jdk-17`) y Android SDK (`C:\AndroidSDK`); `dist/PioVuelo.apk` se ha regenerado como **v3.5.2 (versionCode 42)**: **7.084.523 bytes** y SHA-256 `71D94C89562A67D204264E8D54A84D5B54F598803E31D6A3038BD8B9F15DB18F`. No hay un dispositivo Android conectado por ADB, así que falta probar la instalación y apertura en un móvil real.
+- La verificación incluye pruebas headless (507/507), comprobaciones HTTP, reglas con emuladores (89/89), backend (41/41 y 21/21 con emuladores) y una prueba real en Chrome headless (`node tools/browser-smoke.js`, 100/100 con emuladores y 55/55 en modo offline, incluido el modo offline, las cuentas, las salas online, la supervivencia, la clasificación de eliminaciones y el panel ampliado). Aun así, conviene revisar la portada, el Pase Prémium, los mapas nuevos, el ranking online y una carrera 1v1 en dos dispositivos Android reales antes de darlos por cerrados.
 - **Notificaciones entre jugadores:** el buzón `notifications/{uid}` es privado y las reglas solo permiten escribir en el propio. La entrega real la hace el backend de `functions/` con Admin SDK. Para desplegarlo hay que activar el plan Blaze (Cloud Functions lo exige); mientras no esté desplegado, el récord global y el historial sí se publican y el panel muestra el estado real en lugar de simular un envío que fallaría.
 - El ranking global solo muestra marcas con más de 0 puntos. Las entradas antiguas con 0 puntos que ya existan en Firestore no se muestran y no se pueden borrar desde el cliente porque las reglas lo impiden; para limpiarlas hace falta la consola de Firebase o el Admin SDK.
 - La primera carga del ranking online necesita red. Si se abre sin conexión y nunca se ha visto la tabla, se muestra un aviso y se puede reintentar; el juego local no se bloquea.
